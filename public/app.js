@@ -197,7 +197,7 @@ rota('/', async () => {
     <div class="card ${l.atual ? 'atual' : ''}">
       <div class="linha">
         <div><b>${esc(l.nome)}</b> ${l.atual ? '<span class="tag valido">Disponível</span>' : ''}
-          <div class="peq">${l.esgotado ? 'Esgotado' : `${l.disponiveis} restantes`}</div></div>
+          <div class="peq">${l.esgotado ? 'Esgotado' : ''}</div></div>
         <div style="text-align:right">
           <div class="preco">${brl(l.valor_centavos)}</div>
           <div class="peq">+ ${brl(l.taxa_centavos)} taxa de serviço (${d.taxa_percentual}%)<br><b>Total ${brl(l.total_centavos)}</b></div>
@@ -213,7 +213,7 @@ rota('/', async () => {
     <p><b>${dataBR(ev.data_evento)}</b>${ev.local ? ` · ${esc(ev.local)}` : ''}</p>
     ${ev.descricao ? `<p class="mudo">${esc(ev.descricao)}</p>` : ''}
     <h2>Ingressos</h2>${lotesHtml}
-    <p class="peq">Pagamento por Pix. O valor total já inclui a taxa de serviço, igual em qualquer forma de pagamento. O comprador é responsável pelos ingressos do seu pedido.</p>`;
+    <p class="peq">O comprador é responsável pelos ingressos do seu pedido.</p>`;
   app.querySelectorAll('[data-lote]').forEach((b) =>
     b.addEventListener('click', () => {
       if (!estado.eu) {

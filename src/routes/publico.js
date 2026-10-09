@@ -28,6 +28,7 @@ r.get('/evento', async (c) => {
     .all();
 
   let atualMarcado = false;
+  const maxPedido = Number(cfg.max_ingressos_por_pedido);
   const lotes = results.map((l) => {
     const ehAtual = !atualMarcado && l.disponiveis > 0;
     if (ehAtual) atualMarcado = true;
@@ -38,7 +39,8 @@ r.get('/evento', async (c) => {
       valor_centavos: l.valor_centavos,
       taxa_centavos: taxa,
       total_centavos: total,
-      disponiveis: l.disponiveis,
+      // Não revela o estoque real: limita ao máximo por pedido (só serve para o seletor de quantidade).
+      disponiveis: Math.min(l.disponiveis, maxPedido),
       esgotado: l.disponiveis <= 0,
       atual: ehAtual,
     };
