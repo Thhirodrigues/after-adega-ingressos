@@ -196,11 +196,11 @@ rota('/', async () => {
           (l) => `
     <div class="card ${l.atual ? 'atual' : ''}">
       <div class="linha">
-        <div><b>${esc(l.nome)}</b> ${l.atual ? '<span class="tag valido">Disponível</span>' : ''}
-          <div class="peq">${l.esgotado ? 'Esgotado' : ''}</div></div>
+        <div><b>${esc(l.nome)}</b>
+          <div class="peq" style="margin-top:.2rem">${l.esgotado ? 'Esgotado' : l.atual ? '<span class="tag valido">Disponível</span>' : ''}</div></div>
         <div style="text-align:right">
           <div class="preco">${brl(l.valor_centavos)}</div>
-          <div class="peq">+ ${brl(l.taxa_centavos)} taxa de serviço (${d.taxa_percentual}%)<br><b>Total ${brl(l.total_centavos)}</b></div>
+          <div class="peq">+ ${brl(l.taxa_centavos)} taxa de serviço<br><b>Total ${brl(l.total_centavos)}</b></div>
         </div>
       </div>
       ${l.esgotado ? '' : `<button class="bt bloco" data-lote="${l.id}">Comprar</button>`}
@@ -248,7 +248,7 @@ rota('/comprar/(\\d+)', async (id) => {
       <input name="nome_pagador" required minlength="3" maxlength="80" value="${esc(`${estado.eu.nome} ${estado.eu.sobrenome}`)}">
       <div class="card" style="background:#0f0f16;margin-top:1rem">
         <div class="linha"><span>Ingressos</span><b id="t_sub"></b></div>
-        <div class="linha"><span>Taxa de serviço (${d.taxa_percentual}%)</span><b id="t_taxa"></b></div>
+        <div class="linha"><span>Taxa de serviço</span><b id="t_taxa"></b></div>
         <div class="linha"><span><b>Total</b></span><b class="preco" id="t_tot"></b></div>
       </div>
       <label class="check"><input type="checkbox" name="aceito" required> <span>Li e aceito as <a href="#/regras" target="_blank" rel="noopener">regras de compra</a>. Sei que ingresso é pessoal e de uso único e que <b>qualquer envio de print ou foto do QR Code é de minha inteira responsabilidade</b>, podendo resultar em entrada negada.</span></label>
@@ -1252,7 +1252,7 @@ rota('/portaria', async () => {
     const linhas = [];
     if (r.nome) linhas.push(`<div class="nome">${esc(r.nome)}</div>`);
     if (r.tipo === 'cortesia') linhas.push(`<div>Cortesia${r.motivo ? ` · ${esc(r.motivo)}` : ''}</div>`);
-    if (r.resultado === 'usado') linhas.push(`<div>Já entrou às ${horaCurta(r.usado_em)}${r.usado_por ? ` (por ${esc(r.usado_por)})` : ''}</div>`);
+    if (r.resultado === 'usado') linhas.push(`<div>Já entrou às ${horaCurta(r.usado_em)}</div>${r.usado_por ? `<div class="peq-ov">Entrada registrada na portaria por ${esc(r.usado_por)}</div>` : ''}`);
     if (r.resultado === 'invalido') linhas.push('<div>Código não reconhecido. Peça para atualizar a tela do ingresso.</div>');
     if (r.offline) linhas.push('<div class="peq-ov">conferido sem internet</div>');
     ov.className = `overlay ${cls}`;
