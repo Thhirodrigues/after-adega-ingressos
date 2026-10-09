@@ -1,5 +1,5 @@
 // Deixa o site abrir sem internet (ingressos e portaria). Rede primeiro; se falhar, usa o salvo.
-const VERSAO = 'after-v1';
+const VERSAO = 'after-v2';
 const BASE = ['/', '/index.html', '/style.css', '/app.js', '/vendor/qrcode.js', '/vendor/jsQR.js', '/manifest.webmanifest', '/icon-192.png'];
 
 self.addEventListener('install', (e) => {
@@ -28,6 +28,43 @@ self.addEventListener('fetch', (e) => {
         const salvo = (await cache.match(req)) || (req.mode === 'navigate' ? await cache.match('/index.html') : null);
         return salvo || Response.error();
       }
+    })(),
+  );
+});
+
+// Notificações (push sem conteúdo): ao receber o "toque", busca os avisos pendentes.
+self.addEventListener('push', (e) => {
+  e.waitUntil(
+    (async () => {
+      let titulo = 'After Ingressos';
+      let corpo = 'Você tem um novo aviso.';
+      try {
+        const r = await fetch('/api/admin/alertas/pendentes', { credentials: 'include' });
+        if (r.ok) {
+          const j = await r.json();
+          if (j.alertas?.length) {
+            corpo = j.alertas[0].detalhe;
+            if (j.alertas.length > 1) corpo += ` (+${j.alertas.length - 1})`;
+          }
+        }
+      } catch {}
+      await self.registration.showNotification(titulo, { body: corpo, icon: '/icon-192.png', badge: '/icon-192.png', tag: 'aviso-admin', renotify: true });
+    })(),
+  );
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil(
+    (async () => {
+      const abas = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const a of abas) {
+        if ('focus' in a) {
+          await a.focus();
+          if ('navigate' in a) await a.navigate('/#/admin/avisos');
+          return;
+        }
+      }
+      await self.clients.openWindow('/#/admin/avisos');
     })(),
   );
 });

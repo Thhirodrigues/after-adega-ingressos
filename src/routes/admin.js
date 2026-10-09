@@ -9,6 +9,9 @@ import {
   estornarPago,
 } from '../lib/pedidos.js';
 import { inserirUsuario, lerDadosUsuario } from './auth.js';
+import { alertar } from '../lib/alertas.js';
+import { chavesVapid, enviarPush } from '../lib/push.js';
+import { hmacHex } from '../lib/crypto.js';
 
 const r = new Hono();
 r.use('/admin/*', exigir('admin'));
@@ -17,7 +20,13 @@ const bool = (x) => (x ? 1 : 0);
 
 // ---------- Configuração (chave Pix, taxa, prazo da reserva) ----------
 
-r.get('/admin/config', async (c) => c.json(await configuracoes(c.env.DB)));
+const SEGREDOS_CONFIG = ['vapid_privada', 'pin_hash'];
+const publicas = (cfg) => {
+  const o = { ...cfg, pin_definido: !!cfg.pin_hash };
+  for (const k of SEGREDOS_CONFIG) delete o[k];
+  return o;
+};
+r.get('/admin/config', async (c) => c.json(publicas(await configuracoes(c.env.DB))));
 
 r.put('/admin/config', async (c) => {
   const b = await corpo(c);
@@ -46,7 +55,7 @@ r.put('/admin/config', async (c) => {
     ),
   );
   await auditar(db, c.get('usuario').id, 'config_alterada', chaves.join(','));
-  return c.json(await configuracoes(db));
+  return c.json(publicas(await configuracoes(db)));
 });
 
 // ---------- Eventos e lotes ----------
@@ -388,6 +397,69 @@ r.get('/admin/financeiro', async (c) => {
     },
     lotes,
   });
+});
+
+
+// ---------- Senha de desbloqueio da portaria (PIN) ----------
+r.put('/admin/pin', async (c) => {
+  const b = await corpo(c);
+  const pin = v.texto(b.pin, 'Senha de desbloqueio', 4, 12);
+  await c.env.DB.prepare(
+    `INSERT INTO config (chave, valor) VALUES ('pin_hash', ?1) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor`,
+  )
+    .bind(await hmacHex(c.env.PEPPER, `pin|${pin}`))
+    .run();
+  await auditar(c.env.DB, c.get('usuario').id, 'pin_definido');
+  return c.json({ ok: true });
+});
+
+// ---------- Avisos (alertas) e push ----------
+r.get('/admin/alertas', async (c) => {
+  const { results } = await c.env.DB.prepare('SELECT id, tipo, detalhe, criado_em, lido_em FROM alertas ORDER BY id DESC LIMIT 100').all();
+  const n = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM alertas WHERE lido_em IS NULL').first();
+  return c.json({ alertas: results, nao_lidos: n.n });
+});
+
+// Usado pelo service worker ao receber o "toque" do push: devolve o aviso mais recente não lido.
+r.get('/admin/alertas/pendentes', async (c) => {
+  const { results } = await c.env.DB.prepare('SELECT id, tipo, detalhe, criado_em FROM alertas WHERE lido_em IS NULL ORDER BY id DESC LIMIT 5').all();
+  return c.json({ alertas: results });
+});
+
+r.post('/admin/alertas/lidos', async (c) => {
+  await c.env.DB.prepare('UPDATE alertas SET lido_em = ?1 WHERE lido_em IS NULL').bind(agora()).run();
+  return c.json({ ok: true });
+});
+
+r.get('/admin/push/chave', async (c) => c.json({ publica: (await chavesVapid(c.env.DB)).publica }));
+
+r.post('/admin/push/assinar', async (c) => {
+  const b = await corpo(c);
+  const endpoint = String(b.endpoint ?? '');
+  if (!/^https:\/\/[^\s]{10,1000}$/.test(endpoint)) throw new HttpError(400, 'Assinatura de notificação inválida.');
+  await c.env.DB.prepare(
+    `INSERT INTO push_assinaturas (usuario_id, endpoint, criado_em) VALUES (?1, ?2, ?3)
+     ON CONFLICT(endpoint) DO UPDATE SET usuario_id = excluded.usuario_id`,
+  )
+    .bind(c.get('usuario').id, endpoint, agora())
+    .run();
+  return c.json({ ok: true });
+});
+
+r.post('/admin/push/cancelar', async (c) => {
+  const b = await corpo(c);
+  await c.env.DB.prepare('DELETE FROM push_assinaturas WHERE endpoint = ?1 AND usuario_id = ?2')
+    .bind(String(b.endpoint ?? ''), c.get('usuario').id)
+    .run();
+  return c.json({ ok: true });
+});
+
+r.post('/admin/push/teste', async (c) => {
+  await c.env.DB.prepare('INSERT INTO alertas (tipo, detalhe, criado_em) VALUES (?1, ?2, ?3)')
+    .bind('teste', 'Aviso de teste: as notificações estão funcionando.', agora())
+    .run();
+  const envio = await enviarPush(c.env.DB, new URL(c.req.url).origin);
+  return c.json(envio);
 });
 
 // ---------- Cortesias (ex.: DJ + acompanhante) ----------

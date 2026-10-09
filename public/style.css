@@ -66,3 +66,9 @@ th{color:var(--mudo);font-weight:600;font-size:.8rem}
 .ov-corpo .nome{font-size:1.6rem;font-weight:800;margin:.5rem 0}
 .peq-ov{opacity:.85;font-size:.9rem;margin-top:.5rem}
 .overlay .bt{background:rgba(0,0,0,.35);margin-top:1.75rem}
+
+.badge{display:inline-block;background:var(--erro);color:#fff;border-radius:999px;font-size:.7rem;font-weight:700;padding:0 .45rem;margin-left:.2rem}
+.check{display:flex;gap:.6rem;align-items:flex-start;margin-top:1rem;font-size:.9rem}
+.check input{width:auto;margin-top:.25rem;flex:none}
+.regras h2{font-size:1rem;margin:1rem 0 .25rem}.regras p{margin:.2rem 0;color:var(--mudo)}
+.overlay.modal{background:rgba(0,0,0,.75);text-align:left}

@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
-import { HttpError, agora, auditar, corpo } from '../lib/http.js';
+import { HttpError, agora, auditar, configuracoes, corpo } from '../lib/http.js';
 import { exigir } from '../lib/auth.js';
-import { qrDoIngresso, sha256Hex } from '../lib/crypto.js';
+import { hmacHex, igual, qrDoIngresso, sha256Hex } from '../lib/crypto.js';
+import { alertar } from '../lib/alertas.js';
 import * as v from '../lib/validar.js';
 import { lerQr, registrarEntrada } from '../lib/portaria.js';
 
@@ -34,7 +35,7 @@ r.get('/portaria/lista', async (c) => {
   const ev = await eventoAtivo(db);
   const { results } = await db
     .prepare(
-      `SELECT i.id, i.status, i.tipo, i.motivo, i.qr_versao, i.usado_em, u.nome || ' ' || u.sobrenome AS nome
+      `SELECT i.id, i.status, i.tipo, i.motivo, i.qr_versao, i.usado_em, i.desfeitos, u.nome || ' ' || u.sobrenome AS nome
          FROM ingressos i JOIN usuarios u ON u.id = i.dono_id
         WHERE i.evento_id = ?1 ORDER BY u.nome, u.sobrenome, i.id`,
     )
@@ -50,6 +51,7 @@ r.get('/portaria/lista', async (c) => {
       motivo: i.motivo,
       status: i.status,
       usado_em: i.usado_em,
+      desfeitos: i.desfeitos,
     });
   }
   return c.json({ evento: ev, gerado_em: agora(), ...(await contagem(db, ev.id)), ingressos });
@@ -107,6 +109,57 @@ r.post('/portaria/sincronizar', async (c) => {
   const conflitos = resultados.filter((x) => x.resultado !== 'ok').length;
   if (usos.length) await auditar(db, c.get('usuario').id, 'portaria_sincronizou', `${usos.length} itens, ${conflitos} conflitos`);
   return c.json({ resultados, ...(await contagem(db, ev.id)) });
+});
+
+// Desfaz uma entrada marcada por engano. A recepcionista precisa da senha de desbloqueio
+// (definida pelo admin); cada uso gera um aviso para o admin. O admin desfaz sem senha.
+r.post('/portaria/desfazer', async (c) => {
+  const b = await corpo(c);
+  const db = c.env.DB;
+  const u = c.get('usuario');
+  const ev = await eventoAtivo(db);
+  const id = v.inteiro(b.ingresso_id, 'Ingresso', 1, 1_000_000_000);
+  const chaveTent = `pin:${u.id}`;
+  if (u.papel !== 'admin') {
+    const cfg = await configuracoes(db);
+    if (!cfg.pin_hash) throw new HttpError(409, 'A senha de desbloqueio ainda não foi definida pelo administrador.');
+    const t = agora();
+    const tent = await db.prepare('SELECT bloqueado_ate FROM tentativas_login WHERE cpf = ?1').bind(chaveTent).first();
+    if (tent && tent.bloqueado_ate > t) throw new HttpError(429, 'Muitas tentativas erradas. Aguarde alguns minutos ou chame o administrador.');
+    const informado = await hmacHex(c.env.PEPPER, `pin|${String(b.pin ?? '')}`);
+    if (!igual(informado, cfg.pin_hash)) {
+      await db
+        .prepare(
+          `INSERT INTO tentativas_login (cpf, falhas, bloqueado_ate, atualizado_em) VALUES (?1, 1, 0, ?2)
+           ON CONFLICT(cpf) DO UPDATE SET
+             falhas = CASE WHEN falhas + 1 >= 3 THEN 0 ELSE falhas + 1 END,
+             bloqueado_ate = CASE WHEN falhas + 1 >= 3 THEN ?3 ELSE bloqueado_ate END,
+             atualizado_em = ?2`,
+        )
+        .bind(chaveTent, t, t + 900)
+        .run();
+      await alertar(c, 'pin_errado', `${u.nome} ${u.sobrenome} errou a senha de desbloqueio ao tentar desfazer uma entrada.`);
+      throw new HttpError(401, 'Senha de desbloqueio incorreta.');
+    }
+    await db.prepare('DELETE FROM tentativas_login WHERE cpf = ?1').bind(chaveTent).run();
+  }
+  const res = await db
+    .prepare(
+      `UPDATE ingressos SET status = 'valido', usado_em = NULL, usado_por = NULL, desfeitos = desfeitos + 1
+        WHERE id = ?1 AND status = 'usado' AND evento_id = ?2`,
+    )
+    .bind(id, ev.id)
+    .run();
+  if (res.meta.changes !== 1) throw new HttpError(409, 'Este ingresso não está marcado como usado.');
+  const ing = await db
+    .prepare(`SELECT i.desfeitos, u.nome || ' ' || u.sobrenome AS nome FROM ingressos i JOIN usuarios u ON u.id = i.dono_id WHERE i.id = ?1`)
+    .bind(id)
+    .first();
+  await auditar(db, u.id, 'entrada_desfeita', String(id));
+  if (u.papel !== 'admin') {
+    await alertar(c, 'entrada_desfeita', `${u.nome} ${u.sobrenome} desfez a entrada de ${ing.nome} (ingresso #${id}). Total de desfeitos neste ingresso: ${ing.desfeitos}.`);
+  }
+  return c.json({ ok: true, nome: ing.nome, desfeitos: ing.desfeitos, ...(await contagem(db, ev.id)) });
 });
 
 export default r;

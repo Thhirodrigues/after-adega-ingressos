@@ -97,6 +97,26 @@ async function comEspera(botao, fn) {
   }
 }
 
+// Resposta secreta: 1 palavra, 4 a 8 letras. Normaliza (sem acento, minúscula) e estica como a senha.
+function normalizarResposta(t) {
+  return String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z]/g, '');
+}
+async function derivarResposta(cpf, resposta) {
+  const n = normalizarResposta(resposta);
+  if (n.length < 4 || n.length > 8) throw new Error('A resposta secreta precisa ter de 4 a 8 letras (uma palavra só).');
+  const enc = new TextEncoder();
+  const chave = await crypto.subtle.importKey('raw', enc.encode(n), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', iterations: 600000, salt: enc.encode(`after-adega|resp|v1|${soDig(cpf)}`) },
+    chave,
+    256,
+  );
+  return [...new Uint8Array(bits)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+const campoResposta = (rot = 'Resposta secreta (1 palavra, 4 a 8 letras)') =>
+  `<label>${rot}</label><input name="resposta" required minlength="4" maxlength="12" autocomplete="off" autocapitalize="off" spellcheck="false">
+   <p class="peq">Serve para você mesmo(a) refazer a senha se esquecer. Escolha algo que só você saiba — evite nome de pet, mãe ou time. Sem acento, só letras.</p>`;
+
 function dadosForm(form) {
   return Object.fromEntries(new FormData(form).entries());
 }
@@ -116,9 +136,9 @@ function desenharNav() {
   let h = '';
   if (!eu) h = '<a href="#/entrar">Entrar</a>';
   else {
-    if (eu.papel === 'admin') h += '<a href="#/admin">Admin</a>';
+    if (eu.papel === 'admin') h += `<a href="#/admin">Admin${eu.nao_lidos ? ` <span class="badge">${eu.nao_lidos}</span>` : ''}</a>`;
     if (eu.papel === 'admin' || eu.papel === 'hostess') h += '<a href="#/portaria">Portaria</a>';
-    h += '<a href="#/meus">Meus ingressos</a><button id="sair">Sair</button>';
+    h += '<a href="#/meus">Meus ingressos</a><a href="#/conta">Conta</a><button id="sair">Sair</button>';
   }
   nav.innerHTML = h;
   document.getElementById('sair')?.addEventListener('click', async () => {
@@ -231,6 +251,7 @@ rota('/comprar/(\\d+)', async (id) => {
         <div class="linha"><span>Taxa de serviço (${d.taxa_percentual}%)</span><b id="t_taxa"></b></div>
         <div class="linha"><span><b>Total</b></span><b class="preco" id="t_tot"></b></div>
       </div>
+      <label class="check"><input type="checkbox" name="aceito" required> <span>Li e aceito as <a href="#/regras" target="_blank" rel="noopener">regras de compra</a>. Sei que ingresso é pessoal e de uso único e que <b>qualquer envio de print ou foto do QR Code é de minha inteira responsabilidade</b>, podendo resultar em entrada negada.</span></label>
       <p class="peq">Ao continuar seguramos seus ingressos por um tempo limitado para você pagar via Pix.</p>
       <button class="bt bloco">Gerar Pix</button>
     </form>`;
@@ -248,7 +269,7 @@ rota('/comprar/(\\d+)', async (id) => {
   f.addEventListener('submit', (e) => {
     e.preventDefault();
     comEspera(f.querySelector('button'), async () => {
-      const r = await api('POST', '/pedidos', { lote_id: l.id, quantidade: Number(f.quantidade.value), nome_pagador: f.nome_pagador.value });
+      const r = await api('POST', '/pedidos', { lote_id: l.id, quantidade: Number(f.quantidade.value), nome_pagador: f.nome_pagador.value, aceito_termos: f.aceito.checked === true });
       location.hash = `#/pedido/${r.codigo}`;
     });
   });
@@ -479,6 +500,7 @@ async function dadosCadastro(f) {
     email: d.email.trim(),
     telefone: d.telefone,
     senha: await derivar(d.cpf, d.senha),
+    resposta: d.resposta === undefined ? undefined : await derivarResposta(d.cpf, d.resposta),
     setup_key: d.setup_key,
   };
 }
@@ -511,8 +533,8 @@ rota('/cadastro', async () => {
   app.innerHTML = `
     <h1>Criar conta</h1>
     <form class="card" id="f">
-      ${campoUsuario(campoSenha() + campoSenha('senha2', 'Repita a senha'))}
-      <p class="peq">Seus dados são usados apenas para identificar o comprador dos ingressos. Guarde sua senha: por enquanto a recuperação é feita pela organização.</p>
+      ${campoUsuario(campoSenha() + campoSenha('senha2', 'Repita a senha') + campoResposta())}
+      <p class="peq">Seus dados são usados apenas para identificar o comprador dos ingressos.</p>
       <button class="bt bloco">Criar conta</button>
     </form>
     <p>Já tem conta? <a href="#/entrar">Entrar</a></p>`;
@@ -536,18 +558,88 @@ rota('/esqueci', async () => {
     <h1>Esqueci a senha</h1>
     <form class="card" id="f">
       <label>CPF cadastrado</label><input name="cpf" inputmode="numeric" required>
-      <button class="bt bloco">Pedir nova senha</button>
+      <label>Resposta secreta</label><input name="resposta" required maxlength="12" autocomplete="off" autocapitalize="off" spellcheck="false">
+      ${campoSenha('nova', 'Nova senha (mínimo 8 caracteres)')}
+      ${campoSenha('nova2', 'Repita a nova senha')}
+      <button class="bt bloco">Redefinir senha</button>
     </form>
-    <p class="peq">Sua solicitação chega à organização, que vai te passar uma senha provisória (por WhatsApp). No primeiro acesso você escolhe uma nova.</p>`;
+    <p class="peq">Após 5 tentativas erradas a recuperação fica bloqueada por 1 hora e a organização é avisada.</p>
+    <p class="peq">Não lembra a resposta (ou sua conta é antiga e não tem uma)? <a href="#" id="pedir">Peça ajuda à organização</a>: ela te passa uma senha provisória pelo WhatsApp.</p>`;
   const f = document.getElementById('f');
   mascaraCpf(f.cpf);
   f.addEventListener('submit', (e) => {
     e.preventDefault();
     comEspera(f.querySelector('button'), async () => {
+      if (!cpfValido(f.cpf.value)) throw new Error('CPF inválido.');
+      if (f.nova.value.length < 8) throw new Error('A nova senha precisa ter no mínimo 8 caracteres.');
+      if (f.nova.value !== f.nova2.value) throw new Error('As senhas novas não conferem.');
+      await api('POST', '/auth/recuperar', {
+        cpf: soDig(f.cpf.value),
+        resposta: await derivarResposta(f.cpf.value, f.resposta.value),
+        senha_nova: await derivar(f.cpf.value, f.nova.value),
+      });
+      aviso('Senha redefinida! Entre com a nova senha.');
+      location.hash = '#/entrar';
+    });
+  });
+  document.getElementById('pedir').addEventListener('click', (e) => {
+    e.preventDefault();
+    comEspera(e.target, async () => {
+      if (!cpfValido(f.cpf.value)) throw new Error('Preencha o CPF acima primeiro.');
       await api('POST', '/auth/esqueci', { cpf: soDig(f.cpf.value) });
       app.innerHTML = '<h1>Pedido enviado</h1><p class="mudo">Se o CPF estiver cadastrado, a organização recebeu seu pedido e entrará em contato pelo celular cadastrado.</p><a class="bt sec" href="#/entrar">Voltar</a>';
     });
   });
+});
+
+// Minha conta: trocar senha e definir/trocar a resposta secreta.
+rota('/conta', async () => {
+  if (!estado.eu) {
+    location.hash = '#/entrar';
+    return;
+  }
+  app.innerHTML = `
+    <h1>Minha conta</h1>
+    <p class="mudo">${esc(estado.eu.nome)} ${esc(estado.eu.sobrenome)}</p>
+    <form class="card" id="f">
+      <h2 style="margin-top:0">Resposta secreta</h2>
+      <p class="peq">${estado.eu.tem_resposta ? 'Você já tem uma resposta secreta. Preencha abaixo para trocar.' : '<b>Você ainda não definiu uma resposta secreta</b> — sem ela, só a organização consegue refazer sua senha.'}</p>
+      <label>Senha atual</label><input name="atual" type="password" required autocomplete="current-password">
+      ${campoResposta('Nova resposta secreta (1 palavra, 4 a 8 letras)')}
+      <button class="bt bloco">Salvar resposta</button>
+    </form>
+    <p><a href="#/trocar-senha">Trocar senha</a> · <a href="#/regras">Regras de compra</a></p>`;
+  const f = document.getElementById('f');
+  f.addEventListener('submit', (e) => {
+    e.preventDefault();
+    comEspera(f.querySelector('button'), async () => {
+      const cpfUso = estado.eu.cpf;
+      await api('POST', '/auth/resposta', { senha_atual: await derivar(cpfUso, f.atual.value), resposta: await derivarResposta(cpfUso, f.resposta.value) });
+      await carregarEu();
+      aviso('Resposta secreta salva.');
+      location.hash = '#/';
+    });
+  });
+});
+
+// Regras de compra (rascunho — pedir revisão jurídica antes de divulgar em larga escala).
+const TERMOS_VERSAO = '2026-10-v1';
+const TEXTO_REGRAS = `
+  <h2>1. Seu ingresso é pessoal e de uso único</h2>
+  <p>Cada ingresso tem um QR Code exclusivo, válido para uma única entrada. Depois que ele é lido na portaria, não vale mais — mesmo que outra pessoa apresente a mesma imagem.</p>
+  <h2>2. Você é responsável pelo seu ingresso</h2>
+  <p>Quem compra é o responsável pelo ingresso e pelo QR Code. <b>Se você compartilhar, publicar ou enviar print, foto ou arquivo do QR Code e outra pessoa usá-lo antes de você, a entrada será negada, sem direito a reembolso.</b> Qualquer vazamento do QR Code é de inteira responsabilidade de quem comprou.</p>
+  <h2>3. Presenteando ou passando o ingresso</h2>
+  <p>Para dar o ingresso a outra pessoa, use o botão <b>Transferir</b> em “Meus ingressos”. Isso gera um novo QR para quem recebe e invalida o seu. A transferência encerra 48 horas antes da festa.</p>
+  <h2>4. Pagamento</h2>
+  <p>O pagamento é por Pix, com a taxa de serviço informada na compra. O ingresso só é liberado depois que a organização confirmar o Pix. Pedidos não pagos dentro do prazo são cancelados.</p>
+  <h2>5. Desistência e cancelamento</h2>
+  <p>Você pode desistir em até 7 dias após a compra, desde que faltem mais de 48 horas para a festa; o reembolso é feito por Pix. Se a festa for cancelada pela organização, o reembolso é integral, incluindo a taxa de serviço.</p>
+  <h2>6. Entrada</h2>
+  <p>Leve um documento com foto. A organização pode negar a entrada de quem descumprir as regras do local ou a lei.</p>
+  <p class="peq">Versão ${TERMOS_VERSAO}.</p>`;
+rota('/regras', async () => {
+  app.innerHTML = `<h1>Regras de compra</h1><div class="card regras">${TEXTO_REGRAS}</div><a class="bt sec" href="javascript:history.back()">Voltar</a>`;
 });
 
 rota('/trocar-senha', async () => {
@@ -590,7 +682,7 @@ rota('/setup', async () => {
     <p class="mudo">Cria o primeiro administrador. Só funciona uma vez e exige a chave de configuração (SETUP_KEY) cadastrada no Cloudflare.</p>
     <form class="card" id="f">
       <label>Chave de configuração (SETUP_KEY)</label><input name="setup_key" type="password" required autocomplete="off">
-      ${campoUsuario(campoSenha() + campoSenha('senha2', 'Repita a senha'))}
+      ${campoUsuario(campoSenha() + campoSenha('senha2', 'Repita a senha') + campoResposta())}
       <button class="bt bloco">Criar administrador</button>
     </form>`;
   const f = document.getElementById('f');
@@ -660,6 +752,7 @@ const ABAS = [
   ['config', 'Pix e taxas'],
   ['cortesias', 'Cortesias'],
   ['usuarios', 'Usuários'],
+  ['avisos', 'Avisos'],
 ];
 function layoutAdmin(ativa, html) {
   app.innerHTML = `
@@ -1190,7 +1283,7 @@ rota('/portaria', async () => {
       ? itens
           .map(
             (i) => `<div class="card"><div class="linha"><div><b>${esc(i.nome)}</b><div class="peq">#${i.id}${i.tipo === 'cortesia' ? ` · cortesia${i.motivo ? ` (${esc(i.motivo)})` : ''}` : ''}${i.status === 'usado' ? ` · entrou ${horaCurta(i.usado_em)}` : ''}</div></div>
-            <div class="acoes">${tag(i.status)}${i.status === 'valido' ? `<button class="bt peq" data-man="${i.id}">Dar entrada</button>` : ''}</div></div></div>`,
+            <div class="acoes">${i.desfeitos ? `<span class="tag cancelado" title="Entrada desfeita">desfeito ${i.desfeitos}×</span>` : ''}${tag(i.status)}${i.status === 'valido' ? `<button class="bt peq" data-man="${i.id}">Dar entrada</button>` : ''}${i.status === 'usado' ? `<button class="bt sec peq" data-des="${i.id}">Desfazer</button>` : ''}</div></div></div>`,
           )
           .join('')
       : '<p class="mudo">Nenhum ingresso encontrado.</p>';
@@ -1201,6 +1294,27 @@ rota('/portaria', async () => {
         try {
           mostrarResultado(await entradaManual(it));
           desenharLista();
+        } catch (e) {
+          aviso(e.message, 'erro');
+        }
+      }),
+    );
+    $('itens').querySelectorAll('[data-des]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const it = P.lista.find((x) => x.id === Number(b.dataset.des));
+        if (!it) return;
+        if (!navigator.onLine) return aviso('Desfazer só funciona com internet.', 'erro');
+        const admin = estado.eu?.papel === 'admin';
+        const pin = admin ? '' : await pedirPin(`Desfazer a entrada de ${it.nome}`);
+        if (pin === null) return;
+        try {
+          const r = await api('POST', '/portaria/desfazer', { ingresso_id: it.id, pin });
+          it.status = 'valido';
+          it.usado_em = null;
+          it.desfeitos = r.desfeitos;
+          salvarP();
+          desenharLista();
+          aviso('Entrada desfeita. O administrador foi avisado.');
         } catch (e) {
           aviso(e.message, 'erro');
         }
@@ -1258,6 +1372,102 @@ rota('/portaria', async () => {
   } else if (!P.lista.length) {
     aviso('Sem internet e sem lista salva. Conecte-se ao menos uma vez antes da festa.', 'erro');
   }
+});
+
+// Caixa para digitar a senha de desbloqueio (não mostra o que é digitado). Devolve null se cancelar.
+function pedirPin(titulo) {
+  return new Promise((resolve) => {
+    const ov = document.createElement('div');
+    ov.className = 'overlay modal';
+    ov.innerHTML = `<form class="card ov-corpo"><h2 style="margin-top:0">${esc(titulo)}</h2>
+      <label>Senha de desbloqueio</label><input name="pin" type="password" required autocomplete="off" inputmode="text">
+      <div class="acoes" style="margin-top:1rem"><button class="bt">Confirmar</button><button type="button" class="bt sec" id="cancela">Cancelar</button></div>
+      <p class="peq">O administrador recebe um aviso sempre que uma entrada é desfeita.</p></form>`;
+    document.body.appendChild(ov);
+    const f = ov.querySelector('form');
+    f.pin.focus();
+    const fim = (v) => { ov.remove(); resolve(v); };
+    f.addEventListener('submit', (e) => { e.preventDefault(); fim(f.pin.value); });
+    ov.querySelector('#cancela').addEventListener('click', () => fim(null));
+  });
+}
+
+// ---------- avisos (admin) ----------
+const b64uParaBytes = (b) => {
+  const t = (b + '='.repeat((4 - (b.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(t), (c) => c.charCodeAt(0));
+};
+async function pushAtivo() {
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    return !!(reg && (await reg.pushManager.getSubscription()));
+  } catch { return false; }
+}
+rota('/admin/avisos', async () => {
+  if (!exigirAdmin()) return;
+  const [d, cfg] = await Promise.all([api('GET', '/admin/alertas'), api('GET', '/admin/config')]);
+  const suporta = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const ativo = suporta && (await pushAtivo());
+  layoutAdmin(
+    'avisos',
+    `<div class="card"><h2 style="margin-top:0">Notificações no celular</h2>
+      ${suporta ? `<p class="peq">${ativo ? 'Ativadas neste aparelho.' : 'Desativadas neste aparelho.'} No iPhone só funciona com o site instalado na tela inicial.</p>
+      <div class="acoes"><button class="bt" id="pushon">${ativo ? 'Reativar' : 'Ativar notificações'}</button>${ativo ? '<button class="bt sec" id="pushtest">Enviar teste</button><button class="bt sec" id="pushoff">Desativar</button>' : ''}</div>` : '<p class="peq">Este navegador não suporta notificações.</p>'}
+    </div>
+    <form class="card" id="fpin"><h2 style="margin-top:0">Senha de desbloqueio da recepção</h2>
+      <p class="peq">${cfg.pin_definido ? 'Já definida.' : '<b>Ainda não definida</b> — sem ela a recepcionista não consegue desfazer entradas.'} Ela precisa digitá-la para desfazer uma entrada; você recebe um aviso a cada uso.</p>
+      <label>Nova senha (4 a 12 caracteres)</label><input name="pin" required minlength="4" maxlength="12" autocomplete="off">
+      <button class="bt bloco">Salvar senha</button></form>
+    <div class="card"><div class="linha"><h2 style="margin:0">Avisos</h2>${d.nao_lidos ? '<button class="bt sec peq" id="lidos">Marcar como lidos</button>' : ''}</div>
+      ${d.alertas.length ? d.alertas.map((a) => `<div class="linha" style="margin-top:.6rem"><div>${a.lido_em ? '' : '<span class="badge">novo</span> '}${esc(a.detalhe)}<div class="peq">${hora(a.criado_em)}</div></div></div>`).join('') : '<p class="mudo">Nenhum aviso ainda.</p>'}
+    </div>`,
+  );
+  document.getElementById('lidos')?.addEventListener('click', (e) =>
+    comEspera(e.target, async () => {
+      await api('POST', '/admin/alertas/lidos', {});
+      await carregarEu();
+      navegar();
+    }),
+  );
+  document.getElementById('fpin').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    comEspera(f.querySelector('button'), async () => {
+      await api('PUT', '/admin/pin', { pin: f.pin.value });
+      f.reset();
+      aviso('Senha de desbloqueio salva.');
+    });
+  });
+  document.getElementById('pushon')?.addEventListener('click', (e) =>
+    comEspera(e.target, async () => {
+      if ((await Notification.requestPermission()) !== 'granted') throw new Error('Permissão negada. Libere as notificações nas configurações do navegador.');
+      const reg = await navigator.serviceWorker.ready;
+      const { publica } = await api('GET', '/admin/push/chave');
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uParaBytes(publica) });
+      await api('POST', '/admin/push/assinar', { endpoint: sub.endpoint });
+      aviso('Notificações ativadas.');
+      navegar();
+    }),
+  );
+  document.getElementById('pushtest')?.addEventListener('click', (e) =>
+    comEspera(e.target, async () => {
+      const r = await api('POST', '/admin/push/teste', {});
+      aviso(`Teste enviado (${r.enviados ?? 0} aparelho${r.enviados === 1 ? '' : 's'}).`);
+    }),
+  );
+  document.getElementById('pushoff')?.addEventListener('click', (e) =>
+    comEspera(e.target, async () => {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await api('POST', '/admin/push/cancelar', { endpoint: sub.endpoint });
+        await sub.unsubscribe();
+      }
+      aviso('Notificações desativadas.');
+      navegar();
+    }),
+  );
 });
 
 rota('/admin/cortesias', async () => {

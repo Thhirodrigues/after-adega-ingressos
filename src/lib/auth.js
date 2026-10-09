@@ -34,7 +34,8 @@ export function exigir(...papeis) {
     if (!token) throw new HttpError(401, 'Faça login para continuar.');
     const id = await sha256Hex(token);
     const u = await c.env.DB.prepare(
-      `SELECT u.id, u.cpf, u.nome, u.sobrenome, u.email, u.telefone, u.papel, u.deve_trocar_senha
+      `SELECT u.id, u.cpf, u.nome, u.sobrenome, u.email, u.telefone, u.papel, u.deve_trocar_senha,
+              (u.resposta_hash IS NOT NULL) AS tem_resposta
          FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id
         WHERE s.id = ?1 AND s.expira_em > ?2 AND u.ativo = 1`,
     )

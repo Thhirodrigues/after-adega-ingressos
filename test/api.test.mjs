@@ -41,7 +41,7 @@ class Cliente {
 
 function dados(extra = {}) {
   const cpf = cpfAleatorio();
-  return { cpf, nome: 'Fulano', sobrenome: 'Teste', email: `f${cpf}@x.com`, telefone: '11988887777', senha: derivada('s' + cpf), ...extra };
+  return { cpf, nome: 'Fulano', sobrenome: 'Teste', email: `f${cpf}@x.com`, telefone: '11988887777', senha: derivada('s' + cpf), resposta: derivada('r' + cpf), ...extra };
 }
 async function novoComprador() {
   const d = dados();
@@ -109,7 +109,7 @@ test('admin configura Pix, evento e lote', async () => {
 
 test('pedido de 2 ingressos: valores e Pix', async () => {
   const { c } = await novoComprador();
-  const r = await c.post('/api/pedidos', { lote_id: loteId, quantidade: 2, nome_pagador: 'Fulano de Tal' });
+  const r = await c.post('/api/pedidos', { aceito_termos: true, lote_id: loteId, quantidade: 2, nome_pagador: 'Fulano de Tal' });
   assert.equal(r.status, 201, JSON.stringify(r.json));
   assert.equal(r.json.subtotal_centavos, 7000);
   assert.equal(r.json.taxa_centavos, 700);
@@ -126,7 +126,7 @@ test('concorrência: 12 pedidos de 1 ingresso num lote de 5 → exatamente 5', a
   const clientes = [];
   for (let i = 0; i < 12; i++) clientes.push((await novoComprador()).c);
   const rs = await Promise.all(
-    clientes.map((c) => c.post('/api/pedidos', { lote_id: loteId, quantidade: 1, nome_pagador: 'Concorrente' })),
+    clientes.map((c) => c.post('/api/pedidos', { aceito_termos: true, lote_id: loteId, quantidade: 1, nome_pagador: 'Concorrente' })),
   );
   const ok = rs.filter((r) => r.status === 201).length;
   assert.equal(ok, 5, rs.map((r) => r.status).join(','));
@@ -156,7 +156,7 @@ test('QR únicos entre ingressos de um pedido de vários', async () => {
   // libera lote: aumenta quantidade e compra 3
   await admin.put(`/api/admin/lotes/${loteId}`, { quantidade: 20 });
   const { c } = await novoComprador();
-  const r = await c.post('/api/pedidos', { lote_id: loteId, quantidade: 3, nome_pagador: 'Trio Teste' });
+  const r = await c.post('/api/pedidos', { aceito_termos: true, lote_id: loteId, quantidade: 3, nome_pagador: 'Trio Teste' });
   assert.equal(r.status, 201, JSON.stringify(r.json));
   const id = (await admin.get('/api/admin/pedidos')).json.pedidos.find((p) => p.codigo === r.json.codigo).id;
   assert.equal((await admin.post(`/api/admin/pedidos/${id}/confirmar`)).status, 200);
@@ -172,7 +172,7 @@ test('QR únicos entre ingressos de um pedido de vários', async () => {
 
 test('expiração: reserva vencida devolve estoque; confirmação tardia respeita estoque', async () => {
   const { c } = await novoComprador();
-  const r = await c.post('/api/pedidos', { lote_id: loteId, quantidade: 1, nome_pagador: 'Atrasado' });
+  const r = await c.post('/api/pedidos', { aceito_termos: true, lote_id: loteId, quantidade: 1, nome_pagador: 'Atrasado' });
   assert.equal(r.status, 201, JSON.stringify(r.json));
   sql(`UPDATE pedidos SET expira_em = 1 WHERE codigo = '${r.json.codigo}'`);
   const ev = await new Cliente().get('/api/evento'); // dispara liberarExpirados
@@ -204,7 +204,7 @@ const sha = (t) => createHash('sha256').update(t).digest('hex');
 
 async function comprarEConfirmar(qtd) {
   const { c, d } = await novoComprador();
-  const r = await c.post('/api/pedidos', { lote_id: loteId, quantidade: qtd, nome_pagador: 'Pagador Teste' });
+  const r = await c.post('/api/pedidos', { aceito_termos: true, lote_id: loteId, quantidade: qtd, nome_pagador: 'Pagador Teste' });
   assert.equal(r.status, 201, JSON.stringify(r.json));
   const id = (await admin.get('/api/admin/pedidos')).json.pedidos.find((p) => p.codigo === r.json.codigo).id;
   assert.equal((await admin.post(`/api/admin/pedidos/${id}/confirmar`)).status, 200);
@@ -324,4 +324,98 @@ test('transferência: prazo de 48h antes da festa', async () => {
   assert.equal((await admin.put(`/api/admin/eventos/${eventoId}`, { data_evento: antigo, hora_inicio: '23:30' })).status, 200);
   assert.equal((await c.post(`/api/ingressos/${ingressos[0].id}/transferir`)).status, 201);
   assert.equal((await admin.put(`/api/admin/eventos/${eventoId}`, { hora_inicio: '25:99' })).status, 400);
+});
+
+// ---------- Fase 3: regras, resposta secreta, PIN, avisos ----------
+test('compra exige aceite das regras', async () => {
+  const { c } = await novoComprador();
+  const r = await c.post('/api/pedidos', { lote_id: loteId, quantidade: 1, nome_pagador: 'Sem Aceite' });
+  assert.equal(r.status, 400);
+  assert.match(r.json.erro, /regras/);
+});
+
+test('cadastro exige resposta secreta; recuperar senha por ela', async () => {
+  const d = dados();
+  const { resposta, ...semResposta } = d;
+  assert.equal((await new Cliente().post('/api/auth/cadastro', semResposta)).status, 400);
+  const c = new Cliente();
+  assert.equal((await c.post('/api/auth/cadastro', d)).status, 201);
+  assert.equal((await c.get('/api/me')).json.tem_resposta, true);
+
+  const novo = derivada('novissima' + d.cpf);
+  const rec = new Cliente();
+  assert.equal((await rec.post('/api/auth/recuperar', { cpf: d.cpf, resposta: derivada('errada'), senha_nova: novo })).status, 401);
+  assert.equal((await rec.post('/api/auth/recuperar', { cpf: d.cpf, resposta: d.resposta, senha_nova: novo })).status, 200);
+  assert.equal((await c.get('/api/me')).status, 401); // sessões antigas caem
+  assert.equal((await new Cliente().post('/api/auth/login', { cpf: d.cpf, senha: d.senha })).status, 401); // senha antiga morreu
+  assert.equal((await new Cliente().post('/api/auth/login', { cpf: d.cpf, senha: novo })).status, 200);
+  // admin é avisado
+  const av = (await admin.get('/api/admin/alertas')).json;
+  assert.ok(av.alertas.some((a) => a.tipo === 'senha_recuperada' && a.detalhe.includes(d.nome)));
+});
+
+test('recuperação: 5 erros bloqueiam por 1h (mesmo com a resposta certa)', async () => {
+  const { d } = await novoComprador();
+  const c = new Cliente();
+  for (let i = 0; i < 5; i++) {
+    assert.equal((await c.post('/api/auth/recuperar', { cpf: d.cpf, resposta: derivada('x' + i), senha_nova: derivada('n') })).status, 401);
+  }
+  assert.equal((await c.post('/api/auth/recuperar', { cpf: d.cpf, resposta: d.resposta, senha_nova: derivada('n') })).status, 429);
+  assert.equal((await c.post('/api/auth/recuperar', { cpf: cpfAleatorio(), resposta: derivada('z'), senha_nova: derivada('n') })).status, 401); // CPF inexistente: mesma resposta
+});
+
+test('definir resposta secreta depois (conta antiga): exige senha atual', async () => {
+  const { c, d } = await novoComprador();
+  assert.equal((await c.post('/api/auth/resposta', { senha_atual: derivada('errada'), resposta: derivada('nova') })).status, 401);
+  assert.equal((await c.post('/api/auth/resposta', { senha_atual: d.senha, resposta: derivada('nova') })).status, 200);
+  const r = await new Cliente().post('/api/auth/recuperar', { cpf: d.cpf, resposta: derivada('nova'), senha_nova: derivada('outra') });
+  assert.equal(r.status, 200);
+});
+
+test('desfazer entrada: PIN, bloqueio, aviso ao admin e contador', async () => {
+  const { ingressos } = await comprarEConfirmar(2);
+  const id = ingressos[0].id;
+  assert.equal((await hostess.post('/api/portaria/validar', { qr: ingressos[0].qr })).json.resultado, 'ok');
+  // PIN ainda não definido
+  assert.equal((await hostess.post('/api/portaria/desfazer', { ingresso_id: id, pin: '1234' })).status, 409);
+  assert.equal((await hostess.put('/api/admin/pin', { pin: '1234' })).status, 403); // só admin define
+  assert.equal((await admin.put('/api/admin/pin', { pin: '4821' })).status, 200);
+  assert.equal((await admin.get('/api/admin/config')).json.pin_definido, true);
+  assert.ok(!JSON.stringify((await admin.get('/api/admin/config')).json).includes('vapid_privada'));
+  // errado
+  assert.equal((await hostess.post('/api/portaria/desfazer', { ingresso_id: id, pin: '0000' })).status, 401);
+  // certo
+  const ok = await hostess.post('/api/portaria/desfazer', { ingresso_id: id, pin: '4821' });
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  assert.equal(ok.json.desfeitos, 1);
+  // o QR volta a valer e o contador aparece na lista
+  assert.equal((await hostess.post('/api/portaria/validar', { qr: ingressos[0].qr })).json.resultado, 'ok');
+  const lista = (await hostess.get('/api/portaria/lista')).json.ingressos.find((i) => i.id === id);
+  assert.equal(lista.desfeitos, 1);
+  // não desfaz o que não está usado
+  assert.equal((await hostess.post('/api/portaria/desfazer', { ingresso_id: ingressos[1].id, pin: '4821' })).status, 409);
+  // avisos
+  const tipos = (await admin.get('/api/admin/alertas')).json.alertas.map((a) => a.tipo);
+  assert.ok(tipos.includes('entrada_desfeita') && tipos.includes('pin_errado'));
+  // 3 erros seguidos bloqueiam (tentativas zeradas após o acerto acima)
+  for (let i = 0; i < 3; i++) await hostess.post('/api/portaria/desfazer', { ingresso_id: id, pin: 'zzzz' });
+  assert.equal((await hostess.post('/api/portaria/desfazer', { ingresso_id: id, pin: '4821' })).status, 429);
+  // admin desfaz sem PIN
+  assert.equal((await admin.post('/api/portaria/desfazer', { ingresso_id: id })).status, 200);
+});
+
+test('avisos: marcar como lidos; push (chave, assinatura, teste)', async () => {
+  const antes = (await admin.get('/api/me')).json.nao_lidos;
+  assert.ok(antes > 0);
+  const chave = (await admin.get('/api/admin/push/chave')).json.publica;
+  assert.match(chave, /^[A-Za-z0-9_-]{86,90}$/); // ponto P-256 não comprimido (65 bytes) em base64url
+  assert.equal((await admin.get('/api/admin/push/chave')).json.publica, chave); // estável
+  assert.equal((await hostess.get('/api/admin/push/chave')).status, 403);
+  assert.equal((await admin.post('/api/admin/push/assinar', { endpoint: 'http://inseguro' })).status, 400);
+  assert.equal((await admin.post('/api/admin/push/assinar', { endpoint: 'https://push.invalido.example/abc123456789' })).status, 200);
+  const t = await admin.post('/api/admin/push/teste');
+  assert.equal(t.status, 200);
+  assert.equal(t.json.enviados + t.json.falhas, 1); // tentou o aparelho cadastrado (que não existe)
+  assert.equal((await admin.post('/api/admin/alertas/lidos')).status, 200);
+  assert.equal((await admin.get('/api/me')).json.nao_lidos, 0);
 });

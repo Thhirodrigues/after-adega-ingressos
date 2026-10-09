@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "node --test test/api.test.mjs"
+    "test": "node --test test/api.test.mjs test/push.test.mjs"
   },
   "devDependencies": {
     "jsqr": "^1.4.0",

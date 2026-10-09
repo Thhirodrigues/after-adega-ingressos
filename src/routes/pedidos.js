@@ -6,16 +6,19 @@ import { qrDoIngresso } from '../lib/crypto.js';
 import * as v from '../lib/validar.js';
 import { buscarPedido, cancelarNaoPago, criarPedido, visaoPedido } from '../lib/pedidos.js';
 
+const TERMOS_VERSAO = '2026-10-v1';
 const r = new Hono();
 
 // Cria o pedido: segura os ingressos (reserva) e devolve o Pix para pagar.
 r.post('/pedidos', exigir(), async (c) => {
   const b = await corpo(c);
+  if (b.aceito_termos !== true) throw new HttpError(400, 'Para comprar, leia e aceite as regras do ingresso.');
   const loteId = v.inteiro(b.lote_id, 'Lote', 1, 1_000_000_000);
   const quantidade = v.inteiro(b.quantidade, 'Quantidade', 1, 100);
   const nomePagador = v.texto(b.nome_pagador, 'Nome do pagador', 3, 80);
   const usuario = c.get('usuario');
   const codigo = await criarPedido(c.env, usuario, { loteId, quantidade, nomePagador });
+  await c.env.DB.prepare('UPDATE pedidos SET aceite_termos_em = ?2, termos_versao = ?3 WHERE codigo = ?1').bind(codigo, agora(), TERMOS_VERSAO).run();
   const pedido = await buscarPedido(c.env.DB, { codigo });
   await auditar(c.env.DB, usuario.id, 'pedido_criado', codigo);
   return c.json(await visaoPedido(c.env.DB, pedido), 201);
