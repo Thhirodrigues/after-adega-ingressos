@@ -2,14 +2,18 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0b10">
   <title>After Os Brothers · Ingressos</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 28rem; margin: 3rem auto; padding: 0 1rem; line-height: 1.6; }
-  </style>
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <h1>After Os Brothers</h1>
-  <p>Venda de ingressos em construção. Em breve por aqui.</p>
+  <header class="topo">
+    <a class="marca" href="#/">AFTER <span>Os Brothers</span></a>
+    <nav id="nav"></nav>
+  </header>
+  <main id="app" aria-live="polite"><p class="mudo">Carregando…</p></main>
+  <div id="aviso" class="aviso" hidden></div>
+  <script src="/app.js" defer></script>
 </body>
 </html>

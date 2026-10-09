@@ -136,6 +136,7 @@ r.get('/me', exigir(), (c) => {
   const u = c.get('usuario');
   return c.json({
     id: u.id,
+    cpf: u.cpf,
     nome: u.nome,
     sobrenome: u.sobrenome,
     email: u.email,
