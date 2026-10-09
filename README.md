@@ -1,11 +1,11 @@
-# After Os Brothers · Ingressos
+# Fast Pass — ingressos
 
 Venda de ingressos online (Cloudflare Workers + D1). Fase 1: API completa, pagamento por **Pix por chave com conferência manual**.
 
 ## Rodar local
 ```
 npm install
-# .dev.vars (não vai pro git): PEPPER=..., QR_SECRET=..., SETUP_KEY=...
+# Fast Pass — ingressos
 npx wrangler d1 migrations apply ingressos --local
 npx wrangler dev --local     # http://localhost:8787
 npm test                     # com o servidor no ar e banco recém-migrado

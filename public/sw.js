@@ -1,5 +1,5 @@
 // Deixa o site abrir sem internet (ingressos e portaria). Rede primeiro; se falhar, usa o salvo.
-const VERSAO = 'after-v2';
+const VERSAO = 'fastpass-v1';
 const BASE = ['/', '/index.html', '/style.css', '/app.js', '/vendor/qrcode.js', '/vendor/jsQR.js', '/manifest.webmanifest', '/icon-192.png'];
 
 self.addEventListener('install', (e) => {
@@ -36,7 +36,7 @@ self.addEventListener('fetch', (e) => {
 self.addEventListener('push', (e) => {
   e.waitUntil(
     (async () => {
-      let titulo = 'After Ingressos';
+      let titulo = 'Fast Pass';
       let corpo = 'Você tem um novo aviso.';
       try {
         const r = await fetch('/api/admin/alertas/pendentes', { credentials: 'include' });
