@@ -10,9 +10,14 @@ const app = new Hono();
 // Diagnóstico: mostra só se cada segredo existe (nunca os valores).
 app.get('/api/saude', async (c) => {
   let db = false;
-  try { db = !!(await c.env.DB.prepare('SELECT 1 AS ok').first()); } catch {}
+  let tabelas = 0;
+  try {
+    db = !!(await c.env.DB.prepare('SELECT 1 AS ok').first());
+    tabelas = (await c.env.DB.prepare(`SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name IN ('usuarios','sessoes','config','eventos','lotes','pedidos','ingressos','auditoria','tentativas_login','pedidos_reset')`).first()).n;
+  } catch {}
   return c.json({
     db,
+    tabelas_criadas: `${tabelas} de 10`,
     segredos: { PEPPER: !!c.env.PEPPER, QR_SECRET: !!c.env.QR_SECRET, SETUP_KEY: !!c.env.SETUP_KEY },
   });
 });
