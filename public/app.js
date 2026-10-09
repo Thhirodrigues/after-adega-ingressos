@@ -500,6 +500,50 @@ rota('/setup', async () => {
   });
 });
 
+
+// ---------- chave Pix ----------
+const DICAS_PIX = {
+  celular: 'Digite com DDD, ex.: 11 99999-9999. O sistema grava no formato +5511999999999.',
+  email: 'O e-mail cadastrado como chave Pix no seu banco.',
+  cpf: 'Só os 11 números do CPF cadastrado como chave.',
+  cnpj: 'Só os 14 números do CNPJ cadastrado como chave.',
+  aleatoria: 'Código aleatório gerado pelo banco (formato xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).',
+};
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function detectarTipoPix(v) {
+  const t = String(v || '').trim();
+  if (t.includes('@')) return 'email';
+  if (UUID_RE.test(t)) return 'aleatoria';
+  if (t.startsWith('+')) return 'celular';
+  const d = soDig(t);
+  if (d.length === 14) return 'cnpj';
+  if (d.length === 11) return cpfValido(d) ? 'cpf' : 'celular';
+  return 'celular';
+}
+function normalizarChavePix(tipo, bruto) {
+  const t = String(bruto).trim();
+  const d = soDig(t);
+  if (tipo === 'celular') {
+    const num = d.startsWith('55') && d.length >= 12 ? d.slice(2) : d;
+    if (num.length < 10 || num.length > 11) throw new Error('Celular inválido: informe DDD + número.');
+    return `+55${num}`;
+  }
+  if (tipo === 'cpf') {
+    if (!cpfValido(d)) throw new Error('CPF da chave inválido.');
+    return d;
+  }
+  if (tipo === 'cnpj') {
+    if (d.length !== 14) throw new Error('CNPJ da chave precisa ter 14 números.');
+    return d;
+  }
+  if (tipo === 'email') {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t)) throw new Error('E-mail da chave inválido.');
+    return t.toLowerCase();
+  }
+  if (!UUID_RE.test(t)) throw new Error('Chave aleatória inválida. Copie exatamente do app do banco.');
+  return t.toLowerCase();
+}
+
 // ---------- admin ----------
 const ABAS = [
   ['financeiro', 'Financeiro'],
@@ -632,7 +676,7 @@ rota('/admin/lotes', async () => {
         <div><label>Nome</label><input name="nome" value="${esc(l.nome)}" required></div>
         <div><label>Valor do ingresso (R$)</label><input name="valor" inputmode="decimal" value="${reais(l.valor_centavos)}" required></div>
         <div><label>Quantidade total</label><input name="quantidade" inputmode="numeric" value="${l.quantidade}" required></div>
-        <div><label>Ordem</label><input name="ordem" inputmode="numeric" value="${l.ordem}"></div>
+        <div><label>Ordem de venda (1 = primeiro)</label><input name="ordem" inputmode="numeric" value="${l.ordem}"></div>
       </div>
       <label><input type="checkbox" name="ativo" ${l.ativo ? 'checked' : ''} style="width:auto"> Lote ativo (visível para venda)</label>
       <button class="bt peq" style="margin-top:.75rem">Salvar lote</button></form>`,
@@ -654,9 +698,9 @@ rota('/admin/lotes', async () => {
         <div><label>Nome</label><input name="nome" placeholder="1º lote" required></div>
         <div><label>Valor do ingresso (R$)</label><input name="valor" inputmode="decimal" placeholder="35,00" required></div>
         <div><label>Quantidade</label><input name="quantidade" inputmode="numeric" required></div>
-        <div><label>Ordem</label><input name="ordem" inputmode="numeric" value="${lo.lotes.length + 1}"></div>
+        <div><label>Ordem de venda (1 = primeiro)</label><input name="ordem" inputmode="numeric" value="${lo.lotes.length + 1}"></div>
       </div>
-      <p class="peq">A taxa de serviço (%) é aplicada por cima do valor e aparece para o comprador.</p>
+      <p class="peq">Ordem de venda: o lote de menor número é vendido primeiro; quando esgota, o site destaca o próximo automaticamente. A taxa de serviço (%) é aplicada por cima do valor e aparece para o comprador.</p>
       <button class="bt peq">Criar lote</button></form>`,
   );
   const lerLote = (f) => {
@@ -705,7 +749,13 @@ rota('/admin/config', async () => {
     'config',
     `<form class="card" id="f">
       <h2 style="margin-top:0">Recebimento por Pix (chave)</h2>
-      <label>Chave Pix (celular precisa começar com +55)</label><input name="pix_chave" value="${esc(c.pix_chave)}" placeholder="+5511999999999 ou e-mail/CPF/CNPJ/aleatória">
+      <label>Tipo da chave Pix</label>
+      <select name="pix_tipo">
+        <option value="celular">Celular</option><option value="email">E-mail</option>
+        <option value="cpf">CPF</option><option value="cnpj">CNPJ</option><option value="aleatoria">Chave aleatória</option>
+      </select>
+      <label>Chave Pix</label><input name="pix_chave" value="${esc(c.pix_chave)}" autocomplete="off" autocapitalize="off">
+      <p class="peq" id="dica-pix"></p>
       <div class="grade"><div><label>Nome do favorecido (como no banco)</label><input name="pix_nome" value="${esc(c.pix_nome)}" maxlength="25"></div>
       <div><label>Cidade</label><input name="pix_cidade" value="${esc(c.pix_cidade)}" maxlength="15" placeholder="SAO PAULO"></div></div>
       <h2>Regras de venda</h2>
@@ -716,12 +766,20 @@ rota('/admin/config', async () => {
       <button class="bt bloco">Salvar</button></form>`,
   );
   const f = document.getElementById('f');
+  f.pix_tipo.value = detectarTipoPix(f.pix_chave.value);
+  const dicaPix = () => (document.getElementById('dica-pix').textContent = DICAS_PIX[f.pix_tipo.value]);
+  f.pix_tipo.addEventListener('change', dicaPix);
+  dicaPix();
   f.addEventListener('submit', (e) => {
     e.preventDefault();
     comEspera(f.querySelector('button'), async () => {
       const d = dadosForm(f);
       const corpo = {};
-      for (const [k, v] of Object.entries(d)) if (String(v).trim() !== '') corpo[k] = ['pix_chave', 'pix_nome', 'pix_cidade'].includes(k) ? v.trim() : Number(v);
+      for (const [k, v] of Object.entries(d)) {
+        if (k === 'pix_tipo') continue;
+        if (String(v).trim() !== '') corpo[k] = ['pix_chave', 'pix_nome', 'pix_cidade'].includes(k) ? v.trim() : Number(v);
+      }
+      if (corpo.pix_chave !== undefined) corpo.pix_chave = normalizarChavePix(f.pix_tipo.value, corpo.pix_chave);
       await api('PUT', '/admin/config', corpo);
       aviso('Configurações salvas.');
     });
