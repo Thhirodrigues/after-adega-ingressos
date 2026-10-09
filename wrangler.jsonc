@@ -1,5 +1,5 @@
 {
-  "name": "after-adega-ingressos",
+  "name": "fastpass",
   "main": "src/index.js",
   "compatibility_date": "2025-10-01",
   "observability": { "enabled": true },
