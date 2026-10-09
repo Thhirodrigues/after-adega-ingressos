@@ -17,7 +17,7 @@
     {
       "binding": "DB",
       "database_name": "ingressos",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "ec6a94b7-d97b-4f6b-9288-55b860710082",
       "migrations_dir": "migrations"
     }
   ]
