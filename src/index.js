@@ -7,6 +7,16 @@ import admin from './routes/admin.js';
 
 const app = new Hono();
 
+// Diagnóstico: mostra só se cada segredo existe (nunca os valores).
+app.get('/api/saude', async (c) => {
+  let db = false;
+  try { db = !!(await c.env.DB.prepare('SELECT 1 AS ok').first()); } catch {}
+  return c.json({
+    db,
+    segredos: { PEPPER: !!c.env.PEPPER, QR_SECRET: !!c.env.QR_SECRET, SETUP_KEY: !!c.env.SETUP_KEY },
+  });
+});
+
 app.use('/api/*', async (c, next) => {
   if (!c.env.PEPPER || !c.env.QR_SECRET) {
     throw new HttpError(500, 'Servidor sem os segredos configurados (PEPPER, QR_SECRET).');
