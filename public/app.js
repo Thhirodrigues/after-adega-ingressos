@@ -748,6 +748,7 @@ function normalizarChavePix(tipo, bruto) {
 const ABAS = [
   ['financeiro', 'Financeiro'],
   ['pedidos', 'Pedidos'],
+  ['eventos', 'Eventos'],
   ['lotes', 'Lotes'],
   ['config', 'Pix e taxas'],
   ['cortesias', 'Cortesias'],
@@ -866,10 +867,58 @@ rota('/admin/pedidos', async () => {
   );
 });
 
+rota('/admin/eventos', async () => {
+  if (!exigirAdmin()) return;
+  const ev = await api('GET', '/admin/eventos');
+  const lista = ev.eventos
+    .map(
+      (e) => `<div class="card"><div class="linha"><div><b>${esc(e.nome)}</b><div class="peq">${dataBR(e.data_evento)} · ${esc(e.hora_inicio || '22:00')}${e.local ? ` · ${esc(e.local)}` : ''}</div></div>
+      <div class="acoes">${e.ativo ? '<span class="tag valido">À venda</span>' : `<button class="bt peq" data-ativar="${e.id}">Tornar ativo</button>`}</div></div></div>`,
+    )
+    .join('');
+  layoutAdmin(
+    'eventos',
+    `<p class="peq">Só <b>um evento fica ativo</b> por vez: é o que aparece para venda e o que a portaria usa. Troque o ativo só depois que a portaria da festa anterior encerrar. Os ingressos de festas anteriores continuam salvos.</p>
+    ${lista || '<p class="mudo">Nenhum evento ainda.</p>'}
+    <h2>Novo evento</h2>
+    <form class="card" id="fnovo">
+      <label>Nome</label><input name="nome" placeholder="Festa dos amigos" required>
+      <div class="grade"><div><label>Data</label><input name="data_evento" type="date" required></div>
+      <div><label>Horário de início</label><input name="hora_inicio" type="time" value="22:00" required></div></div>
+      <label>Local</label><input name="local">
+      <label>Descrição</label><textarea name="descricao" rows="3"></textarea>
+      <label><input type="checkbox" name="ativo" style="width:auto"> Já deixar este evento ativo (à venda agora)</label>
+      <p class="peq">Depois de criar, vá em <b>Lotes</b> para cadastrar valor e quantidade (com o evento ativo).</p>
+      <button class="bt bloco">Criar evento</button></form>`,
+  );
+  app.querySelectorAll('[data-ativar]').forEach((b) =>
+    b.addEventListener('click', () => {
+      if (!confirm('Tornar este o evento ativo? A venda e a portaria passam a usar ele.')) return;
+      comEspera(b, async () => {
+        await api('PUT', `/admin/eventos/${b.dataset.ativar}`, { ativo: true });
+        estado.evento = null;
+        aviso('Evento ativado.');
+        navegar();
+      });
+    }),
+  );
+  document.getElementById('fnovo').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    comEspera(f.querySelector('button'), async () => {
+      await api('POST', '/admin/eventos', { nome: f.nome.value, data_evento: f.data_evento.value, hora_inicio: f.hora_inicio.value, local: f.local.value, descricao: f.descricao.value, ativo: f.ativo.checked });
+      estado.evento = null;
+      aviso('Evento criado.');
+      navegar();
+    });
+  });
+});
+
 rota('/admin/lotes', async () => {
   if (!exigirAdmin()) return;
-  const [ev, lo] = await Promise.all([api('GET', '/admin/eventos'), api('GET', '/admin/lotes')]);
+  const ev = await api('GET', '/admin/eventos');
   const evAtivo = ev.eventos.find((e) => e.ativo) || ev.eventos[0];
+  const lo = await api('GET', `/admin/lotes${evAtivo ? `?evento_id=${evAtivo.id}` : ''}`);
   const cards = lo.lotes
     .map(
       (l) => `<form class="card" data-lote="${l.id}">
@@ -886,7 +935,8 @@ rota('/admin/lotes', async () => {
     .join('');
   layoutAdmin(
     'lotes',
-    `<h2>Evento</h2>
+    `<h2>Evento ativo</h2>
+    <p class="peq">Para criar outra festa ou trocar o evento à venda, use a aba <a href="#/admin/eventos">Eventos</a>.</p>
     <form class="card" id="fev" data-id="${evAtivo?.id ?? ''}">
       <label>Nome</label><input name="nome" value="${esc(evAtivo?.nome)}" required>
       <div class="grade"><div><label>Data</label><input name="data_evento" type="date" value="${esc(evAtivo?.data_evento)}" required></div>
