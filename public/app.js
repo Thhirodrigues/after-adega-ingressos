@@ -1062,12 +1062,24 @@ rota('/admin/usuarios', async () => {
     <div class="rolar"><table><tr><th>Nome</th><th>Perfil</th><th>Contato</th><th></th></tr>
     ${u.usuarios
       .map(
-        (x) => `<tr><td>${esc(x.nome)} ${esc(x.sobrenome)}</td><td>${esc(x.papel)}${x.ativo ? '' : ' <span class="tag cancelado">inativo</span>'}</td>
+        (x) => `<tr><td>${esc(x.nome)} ${esc(x.sobrenome)}</td><td>${x.id === estado.eu.id ? esc(x.papel) : `<select data-papel="${x.id}" style="width:auto;padding:.3rem .5rem"><option value="comprador"${x.papel === 'comprador' ? ' selected' : ''}>comprador</option><option value="hostess"${x.papel === 'hostess' ? ' selected' : ''}>hostess</option><option value="admin"${x.papel === 'admin' ? ' selected' : ''}>admin</option></select>`}${x.ativo ? '' : ' <span class="tag cancelado">inativo</span>'}</td>
         <td class="peq">${esc(x.telefone)}<br>${esc(x.email)}</td>
         <td><div class="acoes"><button class="bt sec peq" data-senha="${x.id}" data-cpf="${esc(x.cpf)}">Nova senha</button>
         ${x.id !== estado.eu.id ? `<button class="bt sec peq" data-ativo="${x.id}" data-v="${x.ativo ? 0 : 1}">${x.ativo ? 'Desativar' : 'Reativar'}</button>` : ''}</div></td></tr>`,
       )
       .join('')}</table></div>`,
+  );
+  app.querySelectorAll('select[data-papel]').forEach((sel) =>
+    sel.addEventListener('change', async () => {
+      if (!confirm(`Mudar o perfil desta pessoa para "${sel.value}"?`)) return navegar();
+      try {
+        await api('PUT', `/admin/usuarios/${sel.dataset.papel}`, { papel: sel.value });
+        aviso('Perfil atualizado.');
+      } catch (e) {
+        aviso(e.message, 'erro');
+      }
+      navegar();
+    }),
   );
   const f = document.getElementById('f');
   mascaraCpf(f.cpf);
@@ -1252,7 +1264,7 @@ rota('/portaria', async () => {
     const linhas = [];
     if (r.nome) linhas.push(`<div class="nome">${esc(r.nome)}</div>`);
     if (r.tipo === 'cortesia') linhas.push(`<div>Cortesia${r.motivo ? ` · ${esc(r.motivo)}` : ''}</div>`);
-    if (r.resultado === 'usado') linhas.push(`<div>Já entrou às ${horaCurta(r.usado_em)}</div>${r.usado_por ? `<div class="peq-ov">Entrada registrada na portaria por ${esc(r.usado_por)}</div>` : ''}`);
+    if (r.resultado === 'usado') linhas.push(`<div>Já entrou às ${horaCurta(r.usado_em)}</div>${r.usado_por ? `<div class="peq-ov">Portaria: ${esc(r.usado_por)}</div>` : ''}`);
     if (r.resultado === 'invalido') linhas.push('<div>Código não reconhecido. Peça para atualizar a tela do ingresso.</div>');
     if (r.offline) linhas.push('<div class="peq-ov">conferido sem internet</div>');
     ov.className = `overlay ${cls}`;

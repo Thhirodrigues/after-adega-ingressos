@@ -277,6 +277,15 @@ r.put('/admin/usuarios/:id', async (c) => {
   const db = c.env.DB;
   const admin = c.get('usuario');
   const id = v.inteiro(c.req.param('id'), 'Usuário', 1, 1_000_000_000);
+  if ('papel' in b) {
+    const papel = String(b.papel ?? '');
+    if (!['hostess', 'admin', 'comprador'].includes(papel)) throw new HttpError(400, 'Perfil inválido.');
+    if (id === admin.id) throw new HttpError(409, 'Você não pode mudar o seu próprio perfil.');
+    const res = await db.prepare('UPDATE usuarios SET papel = ?2 WHERE id = ?1').bind(id, papel).run();
+    if (res.meta.changes !== 1) throw new HttpError(404, 'Usuário não encontrado.');
+    await auditar(db, admin.id, 'usuario_papel', `${id}:${papel}`);
+    if (!('ativo' in b)) return c.json({ ok: true });
+  }
   if (!('ativo' in b)) throw new HttpError(400, 'Nada para atualizar.');
   if (id === admin.id && !b.ativo) throw new HttpError(409, 'Você não pode desativar a si mesmo.');
   await db.batch([
