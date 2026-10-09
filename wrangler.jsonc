@@ -2,5 +2,23 @@
   "name": "after-adega-ingressos",
   "main": "src/index.js",
   "compatibility_date": "2025-10-01",
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+
+  // Páginas do site (PWA). Apenas /api/* passa pelo Worker.
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // TROQUE o database_id pelo ID do banco D1 "ingressos" (painel do Cloudflare →
+  // Storage & Databases → D1). Sem isso o deploy falha.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ingressos",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ]
 }

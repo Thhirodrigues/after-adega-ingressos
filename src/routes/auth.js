@@ -1,0 +1,194 @@
+import { Hono } from 'hono';
+import { deleteCookie } from 'hono/cookie';
+import { HttpError, agora, auditar, corpo } from '../lib/http.js';
+import { cpfValido, soDigitos } from '../lib/cpf.js';
+import { igual, sha256Hex } from '../lib/crypto.js';
+import { criarSessao, exigir, guardarSenha } from '../lib/auth.js';
+import * as v from '../lib/validar.js';
+
+const r = new Hono();
+
+const MAX_FALHAS = 5;
+const BLOQUEIO_SEGUNDOS = 15 * 60;
+const MSG_LOGIN = 'CPF ou senha inválidos.';
+
+async function checarBloqueio(db, cpf) {
+  const t = await db
+    .prepare('SELECT bloqueado_ate FROM tentativas_login WHERE cpf = ?1')
+    .bind(cpf)
+    .first();
+  if (t && t.bloqueado_ate > agora()) {
+    throw new HttpError(429, 'Muitas tentativas. Tente novamente em alguns minutos.');
+  }
+}
+
+async function registrarFalha(db, cpf) {
+  const t = agora();
+  await db
+    .prepare(
+      `INSERT INTO tentativas_login (cpf, falhas, bloqueado_ate, atualizado_em) VALUES (?1, 1, 0, ?2)
+       ON CONFLICT(cpf) DO UPDATE SET
+         falhas = CASE WHEN falhas + 1 >= ?3 THEN 0 ELSE falhas + 1 END,
+         bloqueado_ate = CASE WHEN falhas + 1 >= ?3 THEN ?4 ELSE bloqueado_ate END,
+         atualizado_em = ?2`,
+    )
+    .bind(cpf, t, MAX_FALHAS, t + BLOQUEIO_SEGUNDOS)
+    .run();
+}
+
+async function inserirUsuario(c, dados, papel, deveTrocarSenha) {
+  const senhaHash = await guardarSenha(c.env, dados.cpf, dados.senha);
+  try {
+    const res = await c.env.DB.prepare(
+      `INSERT INTO usuarios (cpf, nome, sobrenome, email, telefone, senha_hash, papel, deve_trocar_senha, criado_em)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+    )
+      .bind(
+        dados.cpf,
+        dados.nome,
+        dados.sobrenome,
+        dados.email,
+        dados.telefone,
+        senhaHash,
+        papel,
+        deveTrocarSenha ? 1 : 0,
+        agora(),
+      )
+      .run();
+    return res.meta.last_row_id;
+  } catch (e) {
+    const m = String(e.message);
+    if (/UNIQUE/i.test(m) && /cpf/i.test(m)) {
+      throw new HttpError(409, 'Este CPF já tem cadastro. Use "Esqueci minha senha" se precisar.');
+    }
+    if (/UNIQUE/i.test(m) && /email/i.test(m)) {
+      throw new HttpError(409, 'Este e-mail já está cadastrado.');
+    }
+    throw e;
+  }
+}
+
+export function lerDadosUsuario(b) {
+  return {
+    cpf: v.cpf(b.cpf),
+    nome: v.texto(b.nome, 'Nome', 2, 40),
+    sobrenome: v.texto(b.sobrenome, 'Sobrenome', 2, 60),
+    email: v.email(b.email),
+    telefone: v.telefone(b.telefone),
+    senha: v.senhaDerivada(b.senha),
+  };
+}
+
+export { inserirUsuario };
+
+// Cria o PRIMEIRO admin (e só ele). Exige o segredo SETUP_KEY configurado no Worker.
+r.post('/setup/admin', async (c) => {
+  const b = await corpo(c);
+  if (!c.env.SETUP_KEY) throw new HttpError(404, 'Não encontrado.');
+  const enviada = await sha256Hex(String(b.setup_key ?? ''));
+  if (!igual(enviada, await sha256Hex(c.env.SETUP_KEY))) {
+    throw new HttpError(403, 'Chave de configuração inválida.');
+  }
+  const existe = await c.env.DB.prepare(`SELECT 1 FROM usuarios WHERE papel = 'admin' LIMIT 1`).first();
+  if (existe) throw new HttpError(409, 'Já existe um administrador.');
+  const dados = lerDadosUsuario(b);
+  const id = await inserirUsuario(c, dados, 'admin', false);
+  await auditar(c.env.DB, id, 'setup_admin');
+  return c.json({ ok: true }, 201);
+});
+
+r.post('/auth/cadastro', async (c) => {
+  const dados = lerDadosUsuario(await corpo(c));
+  const id = await inserirUsuario(c, dados, 'comprador', false);
+  await criarSessao(c, id);
+  return c.json({ ok: true, papel: 'comprador' }, 201);
+});
+
+r.post('/auth/login', async (c) => {
+  const b = await corpo(c);
+  const db = c.env.DB;
+  const cpf = soDigitos(b.cpf);
+  const derivada = String(b.senha ?? '');
+  if (!cpfValido(cpf) || !/^[0-9a-f]{64}$/.test(derivada)) throw new HttpError(401, MSG_LOGIN);
+
+  await checarBloqueio(db, cpf);
+  const u = await db
+    .prepare('SELECT id, senha_hash, ativo, deve_trocar_senha, papel FROM usuarios WHERE cpf = ?1')
+    .bind(cpf)
+    .first();
+  const esperado = await guardarSenha(c.env, cpf, derivada);
+  if (!u || !u.ativo || !igual(esperado, u.senha_hash)) {
+    await registrarFalha(db, cpf);
+    throw new HttpError(401, MSG_LOGIN);
+  }
+  await db.prepare('DELETE FROM tentativas_login WHERE cpf = ?1').bind(cpf).run();
+  await criarSessao(c, u.id);
+  return c.json({ ok: true, papel: u.papel, deve_trocar_senha: !!u.deve_trocar_senha });
+});
+
+r.post('/auth/logout', exigir(), async (c) => {
+  await c.env.DB.prepare('DELETE FROM sessoes WHERE id = ?1').bind(c.get('sessaoId')).run();
+  deleteCookie(c, 'sid', { path: '/' });
+  return c.json({ ok: true });
+});
+
+r.get('/me', exigir(), (c) => {
+  const u = c.get('usuario');
+  return c.json({
+    id: u.id,
+    nome: u.nome,
+    sobrenome: u.sobrenome,
+    email: u.email,
+    telefone: u.telefone,
+    papel: u.papel,
+    deve_trocar_senha: !!u.deve_trocar_senha,
+  });
+});
+
+r.post('/auth/trocar-senha', exigir(), async (c) => {
+  const b = await corpo(c);
+  const u = c.get('usuario');
+  const atual = v.senhaDerivada(b.senha_atual);
+  const nova = v.senhaDerivada(b.senha_nova);
+  const db = c.env.DB;
+  const linha = await db.prepare('SELECT senha_hash FROM usuarios WHERE id = ?1').bind(u.id).first();
+  if (!igual(await guardarSenha(c.env, u.cpf, atual), linha.senha_hash)) {
+    throw new HttpError(401, 'Senha atual incorreta.');
+  }
+  await db.batch([
+    db
+      .prepare('UPDATE usuarios SET senha_hash = ?1, deve_trocar_senha = 0 WHERE id = ?2')
+      .bind(await guardarSenha(c.env, u.cpf, nova), u.id),
+    db.prepare('DELETE FROM sessoes WHERE usuario_id = ?1 AND id <> ?2').bind(u.id, c.get('sessaoId')),
+  ]);
+  return c.json({ ok: true });
+});
+
+// "Esqueci minha senha": a resposta é sempre a mesma (não revela se o CPF existe).
+// O admin vê o pedido, confere pelo WhatsApp e define uma senha provisória.
+r.post('/auth/esqueci', async (c) => {
+  const b = await corpo(c);
+  const db = c.env.DB;
+  const cpf = soDigitos(b.cpf);
+  if (cpfValido(cpf)) {
+    const u = await db.prepare('SELECT id FROM usuarios WHERE cpf = ?1 AND ativo = 1').bind(cpf).first();
+    if (u) {
+      const aberto = await db
+        .prepare(`SELECT 1 FROM pedidos_reset WHERE usuario_id = ?1 AND status = 'aberto'`)
+        .bind(u.id)
+        .first();
+      if (!aberto) {
+        await db
+          .prepare('INSERT INTO pedidos_reset (usuario_id, criado_em) VALUES (?1, ?2)')
+          .bind(u.id, agora())
+          .run();
+      }
+    }
+  }
+  return c.json({
+    ok: true,
+    mensagem: 'Pedido registrado. A organização vai entrar em contato pelo WhatsApp cadastrado.',
+  });
+});
+
+export default r;

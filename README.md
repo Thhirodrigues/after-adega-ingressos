@@ -1,43 +1,26 @@
-# after-adega-ingressos
+# After Os Brothers · Ingressos
 
-Venda de ingressos das festas da Os Brothers Adega (projeto separado do Caderninho Digital).
+Venda de ingressos online (Cloudflare Workers + D1). Fase 1: API completa, pagamento por **Pix por chave com conferência manual**.
 
-## Estado atual: TESTE TÉCNICO (spike)
-
-Antes de construir o app, este código responde duas perguntas sobre o plano grátis do
-Cloudflare Workers (limite de 10 ms de CPU por requisição):
-
-1. O hash de senha do login (PBKDF2) cabe no limite? Com quantas iterações?
-2. A criação de um Pix no Mercado Pago funciona a partir do Worker?
-
-Resultado define o caminho: Cloudflare Workers, ou plano B (Render grátis + TiDB).
-
-## Como rodar o teste (pelo painel do Cloudflare, sem terminal)
-
-1. Crie uma conta no Cloudflare só para este projeto.
-2. *Workers & Pages* → *Create* → *Import a repository* → escolha `after-adega-ingressos`
-   (autorize o app do GitHub apenas para este repositório) → *Save and Deploy*.
-3. Abra a URL `https://after-adega-ingressos.<sua-conta>.workers.dev`. A página tem links
-   de teste: toque em **um por vez**, do menor para o maior.
-4. No painel: *Workers & Pages* → seu worker → *Metrics* → olhe **CPU Time** (p50 e p99).
-   Anote também se algum link retornou erro e qual mensagem.
-
-### Teste do Pix (opcional, só depois do teste de senha)
-
-Em *Settings → Variables and Secrets*, crie dois **Secrets**:
-
-- `MP_ACCESS_TOKEN`: use o token de **teste** do Mercado Pago, nunca o de produção.
-- `SPIKE_KEY`: uma senha qualquer que você inventar.
-
-Depois abra `/spike/pix?key=SUA_SPIKE_KEY&valor=1`. O teste cria um Pix pendente de R$ 1,00
-e **não deve ser pago**.
-
-## Rodar localmente
-
-```bash
+## Rodar local
+```
 npm install
-npx wrangler dev --local
+# .dev.vars (não vai pro git): PEPPER=..., QR_SECRET=..., SETUP_KEY=...
+npx wrangler d1 migrations apply ingressos --local
+npx wrangler dev --local     # http://localhost:8787
+npm test                     # com o servidor no ar e banco recém-migrado
 ```
 
-Localmente não existe o limite de 10 ms, então só serve para ver se o código funciona.
-O teste que vale é o do Cloudflare.
+## Publicar
+1. Criar o banco D1 `ingressos` no painel e colocar o `database_id` em `wrangler.jsonc`.
+2. Aplicar a migração no banco real: `npx wrangler d1 migrations apply ingressos --remote` (ou colar `migrations/0001_init.sql` no Console do D1).
+3. Worker → Settings → Variables and Secrets: `PEPPER`, `QR_SECRET`, `SETUP_KEY` (textos longos e aleatórios; **nunca trocar PEPPER/QR_SECRET depois**, senão senhas e QRs deixam de valer).
+4. Push no `main` publica automaticamente.
+5. Criar o primeiro admin: `POST /api/setup/admin` com `setup_key` + dados do usuário (só funciona uma vez).
+6. No painel admin: configurar chave Pix (telefone precisa de `+55`), favorecido e cidade.
+
+## Senha (para o front)
+O navegador deriva a senha antes de enviar: PBKDF2-SHA256, 600.000 iterações, salt `after-adega|v1|<cpf só dígitos>`, 64 hex. O servidor guarda apenas HMAC(PEPPER, ...) disso. O front deve exigir mínimo de 8 caracteres.
+
+## Regras
+Valores em centavos; taxa de serviço 10% (configurável); reserva de 60 min; estoque protegido por SQL atômico. QR = `<id>.<32 hex HMAC>`.
