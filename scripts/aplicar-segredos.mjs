@@ -12,3 +12,11 @@ const json = JSON.stringify(Object.fromEntries(nomes.map((n) => [n, process.env[
 const r = spawnSync('npx', ['wrangler', 'secret', 'bulk'], { input: json, stdio: ['pipe', 'inherit', 'inherit'] });
 if (r.status !== 0) process.exit(r.status ?? 1);
 console.log('Segredos aplicados ao Worker.');
+
+// Cria/atualiza as tabelas no D1 real (só aplica o que ainda não foi aplicado).
+const m = spawnSync('npx', ['wrangler', 'd1', 'migrations', 'apply', 'ingressos', '--remote'], { stdio: 'inherit' });
+if (m.status !== 0) {
+  console.error('FALHA ao aplicar as migrações no D1 (veja a mensagem acima).');
+  process.exit(m.status ?? 1);
+}
+console.log('Migrações do banco aplicadas.');
