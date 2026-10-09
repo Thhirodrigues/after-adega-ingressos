@@ -371,8 +371,8 @@ rota('/meus', async () => {
       let corpo = '';
       if (i.status === 'valido' && i.qr) {
         corpo = `<div class="qrbox">${qrSvg(i.qr)}</div>
-          <p class="peq" style="text-align:center">Aumente o brilho da tela e mostre este QR na entrada.</p>
-          ${offline ? '' : `<div class="acoes" style="justify-content:center">
+          <p class="peq" style="text-align:center">Aumente o brilho da tela e mostre este QR na entrada.${i.transferivel_ate > Date.now() / 1000 ? ` Transferência liberada até ${hora(i.transferivel_ate)}.` : ''}</p>
+          ${offline ? '' : Date.now() / 1000 >= i.transferivel_ate ? '<p class="peq" style="text-align:center">Transferências encerradas.</p>' : `<div class="acoes" style="justify-content:center">
             <button class="bt sec peq" data-transf="${i.id}">Transferir para um amigo</button>
             ${i.transferencia_pendente ? `<button class="bt perigo peq" data-cancela="${i.id}">Cancelar transferência pendente</button>` : ''}</div>`}
           <div id="tr-${i.id}"></div>`;
@@ -798,6 +798,7 @@ rota('/admin/lotes', async () => {
       <label>Nome</label><input name="nome" value="${esc(evAtivo?.nome)}" required>
       <div class="grade"><div><label>Data</label><input name="data_evento" type="date" value="${esc(evAtivo?.data_evento)}" required></div>
       <div><label>Local</label><input name="local" value="${esc(evAtivo?.local)}"></div></div>
+      <label>Horário de início</label><input name="hora_inicio" type="time" value="${esc(evAtivo?.hora_inicio || '22:00')}" required>
       <label>Descrição</label><textarea name="descricao" rows="3">${esc(evAtivo?.descricao)}</textarea>
       <button class="bt peq" style="margin-top:.75rem">Salvar evento</button></form>
     <h2>Lotes</h2>${cards || '<p class="mudo">Nenhum lote ainda.</p>'}
@@ -823,7 +824,7 @@ rota('/admin/lotes', async () => {
     e.preventDefault();
     const f = e.target;
     comEspera(f.querySelector('button'), async () => {
-      const corpo = { nome: f.nome.value, data_evento: f.data_evento.value, local: f.local.value, descricao: f.descricao.value, ativo: true };
+      const corpo = { nome: f.nome.value, data_evento: f.data_evento.value, local: f.local.value, descricao: f.descricao.value, hora_inicio: f.hora_inicio.value, ativo: true };
       if (f.dataset.id) await api('PUT', `/admin/eventos/${f.dataset.id}`, corpo);
       else await api('POST', '/admin/eventos', corpo);
       aviso('Evento salvo.');
@@ -870,7 +871,8 @@ rota('/admin/config', async () => {
       <h2>Regras de venda</h2>
       <div class="grade"><div><label>Taxa de serviço (%)</label><input name="taxa_percentual" inputmode="numeric" value="${esc(c.taxa_percentual)}"></div>
       <div><label>Prazo da reserva (minutos)</label><input name="reserva_minutos" inputmode="numeric" value="${esc(c.reserva_minutos)}"></div>
-      <div><label>Máximo de ingressos por pedido</label><input name="max_ingressos_por_pedido" inputmode="numeric" value="${esc(c.max_ingressos_por_pedido)}"></div></div>
+      <div><label>Máximo de ingressos por pedido</label><input name="max_ingressos_por_pedido" inputmode="numeric" value="${esc(c.max_ingressos_por_pedido)}"></div>
+      <div><label>Transferências encerram (horas antes da festa)</label><input name="transferencia_limite_horas" inputmode="numeric" value="${esc(c.transferencia_limite_horas ?? 48)}"></div></div>
       <p class="peq">Alterar a taxa vale só para pedidos novos; pedidos já feitos mantêm o valor combinado.</p>
       <button class="bt bloco">Salvar</button></form>`,
   );

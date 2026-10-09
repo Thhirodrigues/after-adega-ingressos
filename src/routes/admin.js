@@ -28,6 +28,9 @@ r.put('/admin/config', async (c) => {
   if ('pix_cidade' in b) novos.pix_cidade = v.texto(b.pix_cidade, 'Cidade', 1, 40);
   if ('taxa_percentual' in b) novos.taxa_percentual = String(v.inteiro(b.taxa_percentual, 'Taxa (%)', 0, 30));
   if ('reserva_minutos' in b) novos.reserva_minutos = String(v.inteiro(b.reserva_minutos, 'Prazo da reserva (min)', 5, 1440));
+  if ('transferencia_limite_horas' in b) {
+    novos.transferencia_limite_horas = String(v.inteiro(b.transferencia_limite_horas, 'Prazo de transferência (horas antes)', 0, 720));
+  }
   if ('max_ingressos_por_pedido' in b) {
     novos.max_ingressos_por_pedido = String(v.inteiro(b.max_ingressos_por_pedido, 'Máximo por pedido', 1, 50));
   }
@@ -62,7 +65,7 @@ r.post('/admin/eventos', async (c) => {
   stmts.push(
     db
       .prepare(
-        'INSERT INTO eventos (nome, data_evento, local, descricao, ativo, criado_em) VALUES (?1, ?2, ?3, ?4, ?5, ?6)',
+        'INSERT INTO eventos (nome, data_evento, local, descricao, ativo, criado_em, hora_inicio) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)',
       )
       .bind(
         v.texto(b.nome, 'Nome', 2, 80),
@@ -71,6 +74,7 @@ r.post('/admin/eventos', async (c) => {
         String(b.descricao ?? '').trim().slice(0, 1000),
         ativo,
         agora(),
+        'hora_inicio' in b ? v.horaHM(b.hora_inicio, 'Horário de início') : '22:00',
       ),
   );
   const res = await db.batch(stmts);
@@ -88,12 +92,13 @@ r.put('/admin/eventos/:id', async (c) => {
   const local = 'local' in b ? String(b.local ?? '').trim().slice(0, 120) : atual.local;
   const descricao = 'descricao' in b ? String(b.descricao ?? '').trim().slice(0, 1000) : atual.descricao;
   const ativo = 'ativo' in b ? bool(b.ativo) : atual.ativo;
+  const hora = 'hora_inicio' in b ? v.horaHM(b.hora_inicio, 'Horário de início') : atual.hora_inicio;
   const stmts = [];
   if (ativo) stmts.push(db.prepare('UPDATE eventos SET ativo = 0 WHERE id <> ?1').bind(id));
   stmts.push(
     db
-      .prepare('UPDATE eventos SET nome=?2, data_evento=?3, local=?4, descricao=?5, ativo=?6 WHERE id=?1')
-      .bind(id, nome, data, local, descricao, ativo),
+      .prepare('UPDATE eventos SET nome=?2, data_evento=?3, local=?4, descricao=?5, ativo=?6, hora_inicio=?7 WHERE id=?1')
+      .bind(id, nome, data, local, descricao, ativo, hora),
   );
   await db.batch(stmts);
   return c.json({ ok: true });

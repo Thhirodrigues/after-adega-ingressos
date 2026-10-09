@@ -53,3 +53,9 @@ export function dataISO(v, campo = 'Data') {
   }
   return s;
 }
+
+export function horaHM(v, campo = 'Horário') {
+  const s = String(v ?? '');
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(s)) throw new HttpError(400, `${campo}: use o formato HH:MM.`);
+  return s;
+}

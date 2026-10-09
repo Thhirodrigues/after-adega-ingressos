@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
-import { HttpError, agora, auditar } from '../lib/http.js';
+import { HttpError, agora, auditar, configuracoes } from '../lib/http.js';
+import { formatarSP, limiteTransferencia } from '../lib/prazo.js';
 import { exigir } from '../lib/auth.js';
 import { aleatorioHex, sha256Hex } from '../lib/crypto.js';
 import * as v from '../lib/validar.js';
@@ -12,11 +13,23 @@ r.post('/ingressos/:id/transferir', exigir(), async (c) => {
   const db = c.env.DB;
   const u = c.get('usuario');
   const id = v.inteiro(c.req.param('id'), 'Ingresso', 1, 1_000_000_000);
-  const ing = await db.prepare('SELECT id, status, dono_id FROM ingressos WHERE id = ?1').bind(id).first();
+  const ing = await db
+    .prepare(
+      `SELECT i.id, i.status, i.dono_id, e.data_evento, e.hora_inicio
+         FROM ingressos i JOIN eventos e ON e.id = i.evento_id WHERE i.id = ?1`,
+    )
+    .bind(id)
+    .first();
   if (!ing || ing.dono_id !== u.id) throw new HttpError(404, 'Ingresso não encontrado.');
   if (ing.status !== 'valido') throw new HttpError(409, 'Só ingressos válidos podem ser transferidos.');
-  const token = aleatorioHex(16);
+  const cfg = await configuracoes(db);
+  const limite = limiteTransferencia(ing.data_evento, ing.hora_inicio, cfg.transferencia_limite_horas);
   const t = agora();
+  if (t >= limite) {
+    throw new HttpError(409, `As transferências foram encerradas em ${formatarSP(limite)} (${cfg.transferencia_limite_horas}h antes da festa).`);
+  }
+  const expira = Math.min(t + SETE_DIAS, limite);
+  const token = aleatorioHex(16);
   await db.batch([
     db.prepare(`UPDATE transferencias SET status = 'cancelada' WHERE ingresso_id = ?1 AND status = 'pendente'`).bind(id),
     db
@@ -24,10 +37,10 @@ r.post('/ingressos/:id/transferir', exigir(), async (c) => {
         `INSERT INTO transferencias (token_hash, ingresso_id, de_usuario_id, criado_em, expira_em)
          VALUES (?1, ?2, ?3, ?4, ?5)`,
       )
-      .bind(await sha256Hex(token), id, u.id, t, t + SETE_DIAS),
+      .bind(await sha256Hex(token), id, u.id, t, expira),
   ]);
   await auditar(db, u.id, 'transferencia_criada', String(id));
-  return c.json({ token, expira_em: t + SETE_DIAS }, 201);
+  return c.json({ token, expira_em: expira }, 201);
 });
 
 r.post('/ingressos/:id/cancelar-transferencia', exigir(), async (c) => {

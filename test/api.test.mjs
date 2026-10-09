@@ -308,3 +308,20 @@ test('cortesias: tudo ou nada, aparece para o dono e entra na portaria', async (
   assert.equal((await hostess.post('/api/portaria/validar', { qr: ing[1].qr })).json.resultado, 'cancelado');
   assert.equal((await c.post('/api/admin/cortesias', { itens: [] })).status, 403);
 });
+
+test('transferência: prazo de 48h antes da festa', async () => {
+  const { c, ingressos } = await comprarEConfirmar(1);
+  const ok = await c.post(`/api/ingressos/${ingressos[0].id}/transferir`);
+  assert.equal(ok.status, 201);
+  assert.ok(ingressos[0].transferivel_ate > Date.now() / 1000);
+  const amanha = new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const antigo = (await admin.get('/api/admin/eventos')).json.eventos.find((e) => e.id === eventoId).data_evento;
+  assert.equal((await admin.put(`/api/admin/eventos/${eventoId}`, { data_evento: amanha })).status, 200);
+  const bloq = await c.post(`/api/ingressos/${ingressos[0].id}/transferir`);
+  assert.equal(bloq.status, 409);
+  assert.match(bloq.json.erro, /encerradas/);
+  // link já criado também deixa de valer (expirou no limite)
+  assert.equal((await admin.put(`/api/admin/eventos/${eventoId}`, { data_evento: antigo, hora_inicio: '23:30' })).status, 200);
+  assert.equal((await c.post(`/api/ingressos/${ingressos[0].id}/transferir`)).status, 201);
+  assert.equal((await admin.put(`/api/admin/eventos/${eventoId}`, { hora_inicio: '25:99' })).status, 400);
+});

@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
-import { HttpError, agora, auditar, corpo } from '../lib/http.js';
+import { HttpError, agora, auditar, configuracoes, corpo } from '../lib/http.js';
+import { limiteTransferencia } from '../lib/prazo.js';
 import { exigir } from '../lib/auth.js';
 import { qrDoIngresso } from '../lib/crypto.js';
 import * as v from '../lib/validar.js';
@@ -56,7 +57,7 @@ r.get('/meus-pedidos', exigir(), async (c) => {
 // Ingressos do usuário, com o QR (só para os ainda válidos).
 r.get('/meus-ingressos', exigir(), async (c) => {
   const { results } = await c.env.DB.prepare(
-    `SELECT i.id, i.tipo, i.status, i.qr_versao, i.motivo, e.nome AS evento, e.data_evento, l.nome AS lote,
+    `SELECT i.id, i.tipo, i.status, i.qr_versao, i.motivo, e.nome AS evento, e.data_evento, e.hora_inicio, l.nome AS lote,
             EXISTS (SELECT 1 FROM transferencias t WHERE t.ingresso_id = i.id AND t.status = 'pendente' AND t.expira_em > ?2) AS transferencia_pendente
        FROM ingressos i
        JOIN eventos e ON e.id = i.evento_id
@@ -65,10 +66,12 @@ r.get('/meus-ingressos', exigir(), async (c) => {
   )
     .bind(c.get('usuario').id, agora())
     .all();
+  const cfg = await configuracoes(c.env.DB);
   const ingressos = [];
-  for (const { qr_versao, ...i } of results) {
+  for (const { qr_versao, hora_inicio, ...i } of results) {
     ingressos.push({
       ...i,
+      transferivel_ate: limiteTransferencia(i.data_evento, hora_inicio, cfg.transferencia_limite_horas),
       transferencia_pendente: !!i.transferencia_pendente,
       qr: i.status === 'valido' ? await qrDoIngresso(c.env, i.id, qr_versao) : null,
     });
