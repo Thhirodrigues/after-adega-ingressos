@@ -35,9 +35,10 @@ export function codigoCurto(tamanho = 6) {
   return [...bytes].map((b) => ALFABETO[b % ALFABETO.length]).join('');
 }
 
-// QR do ingresso: "<id>.<token>". O token é derivado (HMAC) e nunca guardado em texto
-// no banco, então um vazamento do banco não revela QR codes válidos.
-export async function qrDoIngresso(env, ingressoId) {
-  const token = (await hmacHex(env.QR_SECRET, `ing|${ingressoId}`)).slice(0, 32);
-  return `${ingressoId}.${token}`;
+// QR do ingresso: "<id>.<versao>.<token>". O token é derivado (HMAC) e nunca guardado
+// no banco, então um vazamento do banco não revela QR codes válidos. A versão muda a
+// cada transferência, invalidando o QR anterior.
+export async function qrDoIngresso(env, ingressoId, versao = 0) {
+  const token = (await hmacHex(env.QR_SECRET, `ing|${ingressoId}|${versao}`)).slice(0, 32);
+  return `${ingressoId}.${versao}.${token}`;
 }

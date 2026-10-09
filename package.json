@@ -9,6 +9,8 @@
     "test": "node --test test/api.test.mjs"
   },
   "devDependencies": {
+    "jsqr": "^1.4.0",
+    "qrcode-generator": "^2.0.4",
     "wrangler": "^4"
   },
   "dependencies": {

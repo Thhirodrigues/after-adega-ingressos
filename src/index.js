@@ -4,6 +4,8 @@ import auth from './routes/auth.js';
 import publico from './routes/publico.js';
 import pedidos from './routes/pedidos.js';
 import admin from './routes/admin.js';
+import portaria from './routes/portaria.js';
+import ingressos from './routes/ingressos.js';
 
 const app = new Hono();
 
@@ -39,6 +41,8 @@ app.use('/api/*', async (c, next) => {
 app.route('/api', auth);
 app.route('/api', publico);
 app.route('/api', pedidos);
+app.route('/api', ingressos);
+app.route('/api', portaria);
 app.route('/api', admin);
 
 app.notFound((c) => c.json({ erro: 'Não encontrado.' }, 404));

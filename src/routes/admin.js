@@ -385,4 +385,81 @@ r.get('/admin/financeiro', async (c) => {
   });
 });
 
+// ---------- Cortesias (ex.: DJ + acompanhante) ----------
+// O destinatário precisa ter conta (e-mail cadastrado). Tudo ou nada: se algum e-mail
+// não existir, nada é emitido e a lista de ausentes volta para você avisar a pessoa.
+r.post('/admin/cortesias', async (c) => {
+  const b = await corpo(c);
+  const db = c.env.DB;
+  const admin = c.get('usuario');
+  const itens = Array.isArray(b.itens) ? b.itens : [];
+  if (!itens.length) throw new HttpError(400, 'Informe ao menos um e-mail.');
+  const motivo = String(b.motivo ?? '').trim().slice(0, 60) || 'Cortesia';
+  const ev = await db
+    .prepare('SELECT id FROM eventos WHERE ativo = 1 ORDER BY data_evento LIMIT 1')
+    .first();
+  if (!ev) throw new HttpError(409, 'Nenhum evento ativo.');
+
+  const alvos = [];
+  const ausentes = [];
+  const ambiguos = [];
+  let total = 0;
+  for (const it of itens) {
+    const email = v.email(it.email);
+    const qtd = v.inteiro(it.quantidade ?? 1, 'Quantidade', 1, 10);
+    total += qtd;
+    const { results } = await db
+      .prepare('SELECT id, nome, sobrenome FROM usuarios WHERE lower(email) = lower(?1) AND ativo = 1')
+      .bind(email)
+      .all();
+    if (results.length === 0) ausentes.push(email);
+    else if (results.length > 1) ambiguos.push(email);
+    else alvos.push({ email, qtd, usuario: results[0] });
+  }
+  if (total > 20) throw new HttpError(400, 'No máximo 20 cortesias por vez.');
+  if (ausentes.length || ambiguos.length) {
+    return c.json({ erro: 'Alguns e-mails não puderam ser usados. Nada foi emitido.', ausentes, ambiguos }, 409);
+  }
+  const stmts = [];
+  for (const a of alvos) {
+    for (let i = 0; i < a.qtd; i++) {
+      stmts.push(
+        db
+          .prepare(
+            `INSERT INTO ingressos (pedido_id, evento_id, lote_id, dono_id, tipo, status, criado_em, motivo)
+             VALUES (NULL, ?1, NULL, ?2, 'cortesia', 'valido', ?3, ?4)`,
+          )
+          .bind(ev.id, a.usuario.id, agora(), motivo),
+      );
+    }
+  }
+  await db.batch(stmts);
+  await auditar(db, admin.id, 'cortesias_emitidas', `${total} (${motivo})`);
+  return c.json({
+    ok: true,
+    emitidos: alvos.map((a) => ({ email: a.email, nome: `${a.usuario.nome} ${a.usuario.sobrenome}`, quantidade: a.qtd })),
+  }, 201);
+});
+
+r.get('/admin/cortesias', async (c) => {
+  const { results } = await c.env.DB.prepare(
+    `SELECT i.id, i.status, i.motivo, i.criado_em, u.nome || ' ' || u.sobrenome AS dono, u.email
+       FROM ingressos i JOIN usuarios u ON u.id = i.dono_id
+      WHERE i.tipo = 'cortesia' ORDER BY i.id DESC LIMIT 200`,
+  ).all();
+  return c.json({ cortesias: results });
+});
+
+r.post('/admin/cortesias/:id/cancelar', async (c) => {
+  const id = v.inteiro(c.req.param('id'), 'Ingresso', 1, 1_000_000_000);
+  const res = await c.env.DB.prepare(
+    `UPDATE ingressos SET status = 'cancelado' WHERE id = ?1 AND tipo = 'cortesia' AND status = 'valido'`,
+  )
+    .bind(id)
+    .run();
+  if (res.meta.changes !== 1) throw new HttpError(409, 'Só cortesias ainda válidas podem ser canceladas.');
+  await auditar(c.env.DB, c.get('usuario').id, 'cortesia_cancelada', String(id));
+  return c.json({ ok: true });
+});
+
 export default r;

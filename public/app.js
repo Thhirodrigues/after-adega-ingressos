@@ -46,6 +46,7 @@ async function api(metodo, caminho, corpo) {
   if (!r.ok) {
     const e = new Error(j?.erro || `Erro ${r.status}`);
     e.status = r.status;
+    e.dados = j;
     throw e;
   }
   return j;
@@ -116,6 +117,7 @@ function desenharNav() {
   if (!eu) h = '<a href="#/entrar">Entrar</a>';
   else {
     if (eu.papel === 'admin') h += '<a href="#/admin">Admin</a>';
+    if (eu.papel === 'admin' || eu.papel === 'hostess') h += '<a href="#/portaria">Portaria</a>';
     h += '<a href="#/meus">Meus ingressos</a><button id="sair">Sair</button>';
   }
   nav.innerHTML = h;
@@ -127,10 +129,12 @@ function desenharNav() {
   });
 }
 
+const limpezas = [];
 const rotas = [];
 const rota = (padrao, fn) => rotas.push([new RegExp('^' + padrao + '$'), fn]);
 
 async function navegar() {
+  while (limpezas.length) { try { limpezas.pop()(); } catch {} }
   const hash = location.hash.replace(/^#/, '') || '/';
   if (estado.eu?.deve_trocar_senha && hash !== '/trocar-senha') {
     location.hash = '#/trocar-senha';
@@ -322,12 +326,38 @@ rota('/pedido/([A-Za-z0-9]+)', async (codigo) => {
   }
 });
 
+// ---------- meus ingressos (QR) e transferência ----------
+function qrSvg(texto) {
+  const q = qrcode(0, 'M');
+  q.addData(texto);
+  q.make();
+  return q.createSvgTag({ cellSize: 4, margin: 4, scalable: true });
+}
+const lerCache = (k) => {
+  try { return JSON.parse(localStorage.getItem(k)); } catch { return null; }
+};
+const gravarCache = (k, v) => {
+  try { localStorage.setItem(k, JSON.stringify(v)); } catch {}
+};
+
 rota('/meus', async () => {
   if (!estado.eu) {
     location.hash = '#/entrar';
     return;
   }
-  const [ped, ing] = await Promise.all([api('GET', '/meus-pedidos'), api('GET', '/meus-ingressos')]);
+  let ing;
+  let offline = false;
+  let ped = { pedidos: [] };
+  try {
+    [ped, ing] = await Promise.all([api('GET', '/meus-pedidos'), api('GET', '/meus-ingressos')]);
+    gravarCache('ing_cache', { eu: estado.eu.id, em: Date.now(), ingressos: ing.ingressos });
+  } catch (e) {
+    if (e.status) throw e;
+    const c = lerCache('ing_cache');
+    if (!c || c.eu !== estado.eu.id) throw e;
+    ing = { ingressos: c.ingressos };
+    offline = true;
+  }
   const pedidos = ped.pedidos
     .map(
       (p) => `<a class="card" style="display:block;text-decoration:none;color:inherit" href="#/pedido/${esc(p.codigo)}">
@@ -335,14 +365,92 @@ rota('/meus', async () => {
       <div class="peq">${p.quantidade}× ${esc(p.lote)} · ${brl(p.total_centavos)} · ${hora(p.criado_em)}</div></a>`,
     )
     .join('');
+  const cards = ing.ingressos
+    .map((i) => {
+      const nome = esc(`${estado.eu.nome} ${estado.eu.sobrenome}`);
+      let corpo = '';
+      if (i.status === 'valido' && i.qr) {
+        corpo = `<div class="qrbox">${qrSvg(i.qr)}</div>
+          <p class="peq" style="text-align:center">Aumente o brilho da tela e mostre este QR na entrada.</p>
+          ${offline ? '' : `<div class="acoes" style="justify-content:center">
+            <button class="bt sec peq" data-transf="${i.id}">Transferir para um amigo</button>
+            ${i.transferencia_pendente ? `<button class="bt perigo peq" data-cancela="${i.id}">Cancelar transferência pendente</button>` : ''}</div>`}
+          <div id="tr-${i.id}"></div>`;
+      } else if (i.status === 'usado') {
+        corpo = '<div class="usado-msg">Este ingresso já foi usado na entrada.</div>';
+      } else {
+        corpo = '<div class="usado-msg">Ingresso cancelado.</div>';
+      }
+      return `<div class="card ${i.status === 'valido' ? 'atual' : ''}">
+        <div class="linha"><b>Ingresso #${i.id}</b> ${tag(i.status)}</div>
+        <div class="peq">${esc(i.evento)} · ${dataBR(i.data_evento)}${i.tipo === 'cortesia' ? ` · cortesia${i.motivo ? ` (${esc(i.motivo)})` : ''}` : ''}</div>
+        <div class="peq">Titular: ${nome}</div>${corpo}</div>`;
+    })
+    .join('');
   app.innerHTML = `
     <h1>Meus ingressos</h1>
-    <p class="mudo">${ing.ingressos.length ? `${ing.ingressos.length} ingresso(s) na sua conta.` : 'Você ainda não tem ingressos liberados.'}</p>
-    <div id="lista-ing"></div>
-    <h2>Meus pedidos</h2>${pedidos || '<p class="mudo">Nenhum pedido ainda.</p>'}`;
-  document.getElementById('lista-ing').innerHTML = ing.ingressos
-    .map((i) => `<div class="card"><div class="linha"><b>Ingresso #${i.id}</b> ${tag(i.status)}</div><div class="peq">${esc(i.evento)} · ${dataBR(i.data_evento)}${i.tipo === 'cortesia' ? ' · cortesia' : ''}</div><p class="peq">O QR Code para a entrada aparece aqui (disponível na próxima atualização, antes da festa).</p></div>`)
-    .join('');
+    ${offline ? '<div class="card" style="border-color:var(--cor2)">Sem conexão: mostrando os ingressos salvos neste aparelho. Eles continuam valendo na entrada.</div>' : ''}
+    <p class="mudo">${ing.ingressos.length ? 'Cada ingresso vale uma única entrada. Para um amigo entrar, transfira o ingresso pelo link: o QR muda para ele.' : 'Você ainda não tem ingressos liberados.'}</p>
+    ${cards}
+    <h2>Meus pedidos</h2>${offline ? '<p class="mudo">Indisponível sem conexão.</p>' : pedidos || '<p class="mudo">Nenhum pedido ainda.</p>'}`;
+
+  app.querySelectorAll('[data-transf]').forEach((b) =>
+    b.addEventListener('click', () =>
+      comEspera(b, async () => {
+        const r = await api('POST', `/ingressos/${b.dataset.transf}/transferir`, {});
+        const link = `${location.origin}/#/aceitar/${r.token}`;
+        const texto = `Seu ingresso para a After Os Brothers está aqui. Abra o link, entre (ou crie sua conta) e aceite: ${link}`;
+        const alvo = document.getElementById(`tr-${b.dataset.transf}`);
+        alvo.innerHTML = `<div class="card" style="background:#0f0f16">
+          <b>Link de transferência (vale 7 dias, uso único)</b>
+          <div class="pix">${esc(link)}</div>
+          <div class="acoes">
+            <a class="bt peq" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(texto)}">Enviar por WhatsApp</a>
+            <button class="bt sec peq" id="cp-${b.dataset.transf}">Copiar link</button>
+          </div>
+          <p class="peq">Seu QR continua valendo até seu amigo aceitar. Depois que ele aceitar, este QR deixa de funcionar.</p></div>`;
+        document.getElementById(`cp-${b.dataset.transf}`).addEventListener('click', async () => {
+          try { await navigator.clipboard.writeText(link); aviso('Link copiado!'); } catch { aviso('Copie o link manualmente.', 'erro'); }
+        });
+      }),
+    ),
+  );
+  app.querySelectorAll('[data-cancela]').forEach((b) =>
+    b.addEventListener('click', () =>
+      comEspera(b, async () => {
+        await api('POST', `/ingressos/${b.dataset.cancela}/cancelar-transferencia`, {});
+        aviso('Transferência cancelada.');
+        navegar();
+      }),
+    ),
+  );
+});
+
+rota('/aceitar/([0-9a-f]{32})', async (token) => {
+  const info = await api('GET', `/transferencias/${token}`);
+  if (!info.valida) {
+    app.innerHTML = '<h1>Link indisponível</h1><div class="card">Este link já foi usado, cancelado ou venceu. Peça um novo a quem enviou.</div><a class="bt sec" href="#/">Início</a>';
+    return;
+  }
+  if (!estado.eu) {
+    sessionStorage.setItem('voltar', `#/aceitar/${token}`);
+    app.innerHTML = `<h1>Você recebeu um ingresso</h1>
+      <div class="card atual"><b>${esc(info.de)}</b> quer te passar um ingresso para <b>${esc(info.evento)}</b> (${dataBR(info.data_evento)}).
+      <p class="peq">Para receber, entre na sua conta ou crie uma (leva 1 minuto).</p>
+      <a class="bt bloco" href="#/entrar">Entrar</a><a class="bt sec bloco" href="#/cadastro">Criar conta</a></div>`;
+    return;
+  }
+  app.innerHTML = `<h1>Você recebeu um ingresso</h1>
+    <div class="card atual"><b>${esc(info.de)}</b> quer te passar um ingresso para <b>${esc(info.evento)}</b> (${dataBR(info.data_evento)}).
+    <p class="peq">Ao aceitar, o ingresso fica na sua conta, com um QR novo só seu.</p>
+    <button class="bt bloco" id="aceitar">Aceitar ingresso</button></div>`;
+  document.getElementById('aceitar').addEventListener('click', (e) =>
+    comEspera(e.target, async () => {
+      await api('POST', `/transferencias/${token}/aceitar`, {});
+      aviso('Ingresso recebido!');
+      location.hash = '#/meus';
+    }),
+  );
 });
 
 // ---------- login / cadastro ----------
@@ -394,7 +502,7 @@ rota('/entrar', async () => {
       await carregarEu();
       const volta = sessionStorage.getItem('voltar');
       sessionStorage.removeItem('voltar');
-      location.hash = estado.eu?.deve_trocar_senha ? '#/trocar-senha' : volta || (estado.eu?.papel === 'admin' ? '#/admin' : '#/');
+      location.hash = estado.eu?.deve_trocar_senha ? '#/trocar-senha' : volta || (estado.eu?.papel === 'admin' ? '#/admin' : estado.eu?.papel === 'hostess' ? '#/portaria' : '#/');
     });
   });
 });
@@ -470,7 +578,7 @@ rota('/trocar-senha', async () => {
       });
       await carregarEu();
       aviso('Senha alterada!');
-      location.hash = estado.eu?.papel === 'admin' ? '#/admin' : '#/';
+      location.hash = estado.eu?.papel === 'admin' ? '#/admin' : estado.eu?.papel === 'hostess' ? '#/portaria' : '#/';
     });
   });
 });
@@ -550,6 +658,7 @@ const ABAS = [
   ['pedidos', 'Pedidos'],
   ['lotes', 'Lotes'],
   ['config', 'Pix e taxas'],
+  ['cortesias', 'Cortesias'],
   ['usuarios', 'Usuários'],
 ];
 function layoutAdmin(ativa, html) {
@@ -848,7 +957,359 @@ rota('/admin/usuarios', async () => {
   );
 });
 
+// ---------- portaria (hostess/admin): leitura de QR com modo offline ----------
+const sha256Txt = async (t) =>
+  [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)))].map((b) => b.toString(16).padStart(2, '0')).join('');
+const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const horaCurta = (t) => (t ? new Date(t * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '');
+
+const PORT_KEY = 'portaria_v1';
+const P = Object.assign({ lista: [], gerado_em: 0, fila: [], conflitos: [], evento: null }, lerCache(PORT_KEY) || {});
+const salvarP = () => gravarCache(PORT_KEY, P);
+
+async function apiTimeout(metodo, caminho, corpo, ms = 4000) {
+  return Promise.race([
+    api(metodo, caminho, corpo),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('Sem conexão (tempo esgotado).')), ms)),
+  ]);
+}
+const contagemLocal = () => ({
+  total: P.lista.filter((i) => i.status !== 'cancelado').length,
+  entraram: P.lista.filter((i) => i.status === 'usado').length,
+});
+
+async function atualizarLista() {
+  const d = await api('GET', '/portaria/lista');
+  const pend = new Set(P.fila.map((f) => f.h).filter(Boolean));
+  const pendIds = new Set(P.fila.map((f) => f.ingresso_id).filter(Boolean));
+  P.lista = d.ingressos.map((i) => (i.status === 'valido' && (pend.has(i.h) || pendIds.has(i.id)) ? { ...i, status: 'usado', usado_em: i.usado_em || Math.floor(Date.now() / 1000) } : i));
+  P.gerado_em = d.gerado_em;
+  P.evento = d.evento;
+  salvarP();
+}
+
+async function sincronizarFila() {
+  if (!P.fila.length) return 0;
+  const lote = P.fila.slice(0, 200);
+  const r = await api('POST', '/portaria/sincronizar', { usos: lote.map(({ qr, ingresso_id, em }) => (qr ? { qr, em } : { ingresso_id, em })) });
+  const falhas = r.resultados.filter((x) => x.resultado !== 'ok');
+  P.fila = P.fila.slice(lote.length);
+  if (falhas.length) P.conflitos.push(...falhas.map((x) => ({ nome: x.nome || '—', resultado: x.resultado, usado_em: x.usado_em, quando: Date.now() })));
+  salvarP();
+  return lote.length;
+}
+
+async function validarQr(qr) {
+  try {
+    const r = await apiTimeout('POST', '/portaria/validar', { qr });
+    const it = P.lista.find((i) => i.id === r.ingresso_id);
+    if (it && (r.resultado === 'ok' || r.resultado === 'usado')) {
+      it.status = 'usado';
+      it.usado_em = r.usado_em;
+      salvarP();
+    }
+    return r;
+  } catch (e) {
+    if (e.status) throw e; // 401/403/409: o servidor respondeu
+  }
+  // Sem internet: confere na lista salva no aparelho.
+  const h = await sha256Txt(qr);
+  const it = P.lista.find((i) => i.h === h);
+  const base = { offline: true };
+  if (!it) return { resultado: 'invalido', ...base };
+  const info = { nome: it.nome, tipo: it.tipo, motivo: it.motivo, ingresso_id: it.id };
+  if (it.status === 'cancelado') return { resultado: 'cancelado', ...info, ...base };
+  if (it.status === 'usado') return { resultado: 'usado', ...info, usado_em: it.usado_em, ...base };
+  it.status = 'usado';
+  it.usado_em = Math.floor(Date.now() / 1000);
+  P.fila.push({ qr, h, em: it.usado_em });
+  salvarP();
+  return { resultado: 'ok', ...info, usado_em: it.usado_em, ...contagemLocal(), ...base };
+}
+
+async function entradaManual(it) {
+  try {
+    const r = await apiTimeout('POST', '/portaria/entrada-manual', { ingresso_id: it.id });
+    if (r.resultado === 'ok' || r.resultado === 'usado') {
+      it.status = 'usado';
+      it.usado_em = r.usado_em;
+      salvarP();
+    }
+    return r;
+  } catch (e) {
+    if (e.status) throw e;
+  }
+  if (it.status !== 'valido') return { resultado: it.status === 'usado' ? 'usado' : 'cancelado', nome: it.nome, usado_em: it.usado_em, offline: true };
+  it.status = 'usado';
+  it.usado_em = Math.floor(Date.now() / 1000);
+  P.fila.push({ ingresso_id: it.id, em: it.usado_em });
+  salvarP();
+  return { resultado: 'ok', nome: it.nome, tipo: it.tipo, motivo: it.motivo, usado_em: it.usado_em, offline: true, ...contagemLocal() };
+}
+
+const TELAS = {
+  ok: ['ok', 'ENTRADA LIBERADA'],
+  usado: ['erro', 'INGRESSO JÁ USADO'],
+  invalido: ['erro', 'QR INVÁLIDO'],
+  cancelado: ['erro', 'INGRESSO CANCELADO'],
+  outro_evento: ['aviso', 'INGRESSO DE OUTRO EVENTO'],
+};
+
+rota('/portaria', async () => {
+  if (!estado.eu) {
+    location.hash = '#/entrar';
+    return;
+  }
+  if (!['hostess', 'admin'].includes(estado.eu.papel)) {
+    app.innerHTML = '<p class="mudo">Acesso restrito à portaria.</p>';
+    return;
+  }
+  let aba = 'ler';
+  let stream = null;
+  let travado = false;
+  let ultimo = { qr: '', t: 0 };
+  let rodando = true;
+  let overlayTimer;
+
+  app.innerHTML = `
+    <div class="linha"><h1 style="margin:0">Portaria</h1><span id="conn" class="tag"></span></div>
+    <p class="mudo" id="resumo"></p>
+    <div id="conflitos"></div>
+    <div class="abas"><a href="#" data-aba="ler" class="on">Ler QR</a><a href="#" data-aba="lista">Lista</a></div>
+    <div id="aba-ler">
+      <div class="camera"><video id="video" playsinline muted></video><canvas id="cv" hidden></canvas></div>
+      <div class="acoes" style="margin:.75rem 0"><button class="bt" id="btcam">Abrir câmera</button><button class="bt sec" id="btatualiza">Atualizar lista</button></div>
+      <p class="peq" id="camerro"></p>
+    </div>
+    <div id="aba-lista" hidden>
+      <input id="busca" placeholder="Buscar por nome…" autocomplete="off">
+      <div id="itens"></div>
+    </div>
+    <div id="overlay" class="overlay" hidden></div>`;
+  const $ = (id) => document.getElementById(id);
+
+  const desenharTopo = () => {
+    const c = navigator.onLine ? null : null;
+    const on = navigator.onLine;
+    $('conn').textContent = on ? 'online' : 'SEM INTERNET';
+    $('conn').className = `tag ${on ? 'valido' : 'aguardando_pagamento'}`;
+    const n = contagemLocal();
+    $('resumo').innerHTML = `${esc(P.evento?.nome || '')} · <b>${n.entraram}</b> entraram de <b>${n.total}</b> ingressos${P.fila.length ? ` · <span style="color:var(--cor2)">${P.fila.length} a sincronizar</span>` : ''}${P.gerado_em ? ` · lista de ${horaCurta(P.gerado_em)}` : ' · lista ainda não baixada'}`;
+    $('conflitos').innerHTML = P.conflitos.length
+      ? `<div class="card" style="border-color:var(--erro)"><b>${P.conflitos.length} conflito(s) ao sincronizar</b> (entradas feitas sem internet que o sistema já tinha como usadas/canceladas):<ul class="peq">${P.conflitos.map((x) => `<li>${esc(x.nome)}: ${esc(x.resultado)}</li>`).join('')}</ul><button class="bt sec peq" id="okconf">Entendi</button></div>`
+      : '';
+    $('okconf')?.addEventListener('click', () => { P.conflitos = []; salvarP(); desenharTopo(); });
+  };
+
+  const mostrarResultado = (r) => {
+    const [cls, titulo] = TELAS[r.resultado] || TELAS.invalido;
+    const ov = $('overlay');
+    const linhas = [];
+    if (r.nome) linhas.push(`<div class="nome">${esc(r.nome)}</div>`);
+    if (r.tipo === 'cortesia') linhas.push(`<div>Cortesia${r.motivo ? ` · ${esc(r.motivo)}` : ''}</div>`);
+    if (r.resultado === 'usado') linhas.push(`<div>Já entrou às ${horaCurta(r.usado_em)}${r.usado_por ? ` (por ${esc(r.usado_por)})` : ''}</div>`);
+    if (r.resultado === 'invalido') linhas.push('<div>Código não reconhecido. Peça para atualizar a tela do ingresso.</div>');
+    if (r.offline) linhas.push('<div class="peq-ov">conferido sem internet</div>');
+    ov.className = `overlay ${cls}`;
+    ov.innerHTML = `<div class="ov-corpo"><div class="ov-titulo">${titulo}</div>${linhas.join('')}<button class="bt bloco" id="prox">${cls === 'ok' ? 'Próximo' : 'Entendi'}</button></div>`;
+    ov.hidden = false;
+    if (navigator.vibrate) navigator.vibrate(cls === 'ok' ? 80 : [200, 80, 200]);
+    const fechar = () => { clearTimeout(overlayTimer); ov.hidden = true; travado = false; };
+    $('prox').addEventListener('click', fechar);
+    if (cls === 'ok') overlayTimer = setTimeout(fechar, 2500);
+    desenharTopo();
+  };
+
+  const processar = async (qr) => {
+    travado = true;
+    try {
+      const r = await validarQr(qr);
+      mostrarResultado(r);
+    } catch (e) {
+      travado = false;
+      aviso(e.status === 401 ? 'Sessão expirada. Entre novamente.' : e.message, 'erro');
+    }
+  };
+
+  const loopCamera = () => {
+    if (!rodando) return;
+    const v = $('video');
+    if (stream && !travado && v.readyState >= 2 && v.videoWidth) {
+      const cv = $('cv');
+      const esc_ = Math.min(1, 640 / v.videoWidth);
+      cv.width = Math.round(v.videoWidth * esc_);
+      cv.height = Math.round(v.videoHeight * esc_);
+      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(v, 0, 0, cv.width, cv.height);
+      const img = ctx.getImageData(0, 0, cv.width, cv.height);
+      const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+      if (code && code.data && (code.data !== ultimo.qr || Date.now() - ultimo.t > 4000)) {
+        ultimo = { qr: code.data, t: Date.now() };
+        processar(code.data);
+      }
+    }
+    setTimeout(() => requestAnimationFrame(loopCamera), 120);
+  };
+
+  const abrirCamera = async () => {
+    $('camerro').textContent = '';
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+      const v = $('video');
+      v.srcObject = stream;
+      await v.play();
+      $('btcam').textContent = 'Fechar câmera';
+    } catch (e) {
+      stream = null;
+      $('camerro').textContent = 'Não consegui abrir a câmera. Permita o acesso à câmera no navegador (cadeado ao lado do endereço).';
+    }
+  };
+  const fecharCamera = () => {
+    stream?.getTracks().forEach((t) => t.stop());
+    stream = null;
+    $('video').srcObject = null;
+    $('btcam').textContent = 'Abrir câmera';
+  };
+  $('btcam').addEventListener('click', () => (stream ? fecharCamera() : abrirCamera()));
+  $('btatualiza').addEventListener('click', (e) =>
+    comEspera(e.target, async () => {
+      await sincronizarFila();
+      await atualizarLista();
+      desenharTopo();
+      desenharLista();
+      aviso('Lista atualizada.');
+    }),
+  );
+
+  const desenharLista = () => {
+    const q = semAcento($('busca').value.trim());
+    const itens = P.lista.filter((i) => !q || semAcento(i.nome).includes(q)).slice(0, 150);
+    $('itens').innerHTML = itens.length
+      ? itens
+          .map(
+            (i) => `<div class="card"><div class="linha"><div><b>${esc(i.nome)}</b><div class="peq">#${i.id}${i.tipo === 'cortesia' ? ` · cortesia${i.motivo ? ` (${esc(i.motivo)})` : ''}` : ''}${i.status === 'usado' ? ` · entrou ${horaCurta(i.usado_em)}` : ''}</div></div>
+            <div class="acoes">${tag(i.status)}${i.status === 'valido' ? `<button class="bt peq" data-man="${i.id}">Dar entrada</button>` : ''}</div></div></div>`,
+          )
+          .join('')
+      : '<p class="mudo">Nenhum ingresso encontrado.</p>';
+    $('itens').querySelectorAll('[data-man]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const it = P.lista.find((x) => x.id === Number(b.dataset.man));
+        if (!it || !confirm(`Dar entrada manual para ${it.nome}? Use só se o QR não puder ser lido.`)) return;
+        try {
+          mostrarResultado(await entradaManual(it));
+          desenharLista();
+        } catch (e) {
+          aviso(e.message, 'erro');
+        }
+      }),
+    );
+  };
+  $('busca').addEventListener('input', desenharLista);
+
+  app.querySelectorAll('[data-aba]').forEach((a) =>
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      aba = a.dataset.aba;
+      app.querySelectorAll('[data-aba]').forEach((x) => x.classList.toggle('on', x === a));
+      $('aba-ler').hidden = aba !== 'ler';
+      $('aba-lista').hidden = aba !== 'lista';
+      if (aba === 'lista') desenharLista();
+    }),
+  );
+
+  // Rotina de fundo: sincroniza entradas feitas offline e renova a lista.
+  const rotina = async () => {
+    if (!navigator.onLine || !rodando) return;
+    try {
+      await sincronizarFila();
+      if (Date.now() / 1000 - P.gerado_em > 120) await atualizarLista();
+    } catch {}
+    if (rodando) {
+      desenharTopo();
+      if (aba === 'lista') desenharLista();
+    }
+  };
+  const timer = setInterval(rotina, 15000);
+  const aoVoltar = () => { desenharTopo(); rotina(); };
+  window.addEventListener('online', aoVoltar);
+  window.addEventListener('offline', desenharTopo);
+  limpezas.push(() => {
+    rodando = false;
+    clearInterval(timer);
+    clearTimeout(overlayTimer);
+    window.removeEventListener('online', aoVoltar);
+    window.removeEventListener('offline', desenharTopo);
+    stream?.getTracks().forEach((t) => t.stop());
+  });
+
+  desenharTopo();
+  loopCamera();
+  if (navigator.onLine) {
+    try {
+      await sincronizarFila();
+      await atualizarLista();
+    } catch (e) {
+      if (e.status) aviso(e.message, 'erro');
+    }
+    desenharTopo();
+  } else if (!P.lista.length) {
+    aviso('Sem internet e sem lista salva. Conecte-se ao menos uma vez antes da festa.', 'erro');
+  }
+});
+
+rota('/admin/cortesias', async () => {
+  if (!exigirAdmin()) return;
+  const lista = await api('GET', '/admin/cortesias');
+  layoutAdmin(
+    'cortesias',
+    `<form class="card" id="f">
+      <label>Motivo (aparece na portaria)</label><input name="motivo" value="DJ + acompanhante" maxlength="60">
+      <label>E-mails (um por linha). Cada pessoa precisa ter conta no site com esse e-mail.</label>
+      <textarea name="emails" rows="4" placeholder="dj@email.com&#10;acompanhante@email.com"></textarea>
+      <label>Ingressos para cada e-mail</label><select name="qtd"><option>1</option><option>2</option><option>3</option><option>4</option></select>
+      <p class="peq">DJ + acompanhante: coloque os dois e-mails com 1 ingresso cada, ou só o do DJ com 2 (ele repassa o segundo por link, na tela "Meus ingressos").</p>
+      <button class="bt bloco">Emitir cortesias</button></form>
+    <div id="erro-cort"></div>
+    <h2>Emitidas (${lista.cortesias.length})</h2>
+    ${lista.cortesias.length ? `<div class="rolar"><table><tr><th>Ingresso</th><th>Titular</th><th>Motivo</th><th></th></tr>${lista.cortesias
+      .map((x) => `<tr><td>#${x.id}<br>${tag(x.status)}</td><td>${esc(x.dono)}<br><span class="peq">${esc(x.email)}</span></td><td>${esc(x.motivo)}</td><td>${x.status === 'valido' ? `<button class="bt perigo peq" data-canc="${x.id}">Cancelar</button>` : ''}</td></tr>`)
+      .join('')}</table></div>` : '<p class="mudo">Nenhuma cortesia emitida.</p>'}`,
+  );
+  const f = document.getElementById('f');
+  f.addEventListener('submit', (e) => {
+    e.preventDefault();
+    comEspera(f.querySelector('button'), async () => {
+      const emails = f.emails.value.split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
+      if (!emails.length) throw new Error('Informe ao menos um e-mail.');
+      document.getElementById('erro-cort').innerHTML = '';
+      try {
+        await api('POST', '/admin/cortesias', { motivo: f.motivo.value, itens: emails.map((email) => ({ email, quantidade: Number(f.qtd.value) })) });
+      } catch (err) {
+        const d = err.dados;
+        if (d?.ausentes?.length || d?.ambiguos?.length) {
+          document.getElementById('erro-cort').innerHTML = `<div class="card" style="border-color:var(--erro)"><b>Nada foi emitido.</b>${d.ausentes?.length ? `<p>Estes e-mails não têm conta: ${d.ausentes.map(esc).join(', ')}. Peça para criarem a conta no site e tente de novo.</p>` : ''}${d.ambiguos?.length ? `<p>E-mails repetidos em mais de uma conta: ${d.ambiguos.map(esc).join(', ')}.</p>` : ''}</div>`;
+          return;
+        }
+        throw err;
+      }
+      aviso('Cortesias emitidas.');
+      navegar();
+    });
+  });
+  app.querySelectorAll('[data-canc]').forEach((b) =>
+    b.addEventListener('click', () => {
+      if (!confirm('Cancelar esta cortesia?')) return;
+      comEspera(b, async () => {
+        await api('POST', `/admin/cortesias/${b.dataset.canc}/cancelar`, {});
+        navegar();
+      });
+    }),
+  );
+});
+
 // ---------- início ----------
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 window.addEventListener('hashchange', navegar);
 (async () => {
   await carregarEu();

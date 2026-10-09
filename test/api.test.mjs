@@ -163,7 +163,7 @@ test('QR únicos entre ingressos de um pedido de vários', async () => {
   const ing = (await c.get('/api/meus-ingressos')).json.ingressos;
   assert.equal(ing.length, 3);
   assert.equal(new Set(ing.map((i) => i.qr)).size, 3);
-  assert.ok(ing.every((i) => /^\d+\.[0-9a-f]{32}$/.test(i.qr)), JSON.stringify(ing));
+  assert.ok(ing.every((i) => /^\d+\.\d+\.[0-9a-f]{32}$/.test(i.qr)), JSON.stringify(ing));
   // estorno cancela ingressos
   assert.equal((await admin.post(`/api/admin/pedidos/${id}/cancelar`)).status, 200);
   const dep = (await c.get('/api/meus-ingressos')).json.ingressos;
@@ -197,4 +197,114 @@ test('esqueci a senha: admin define provisória e usuário precisa trocar', asyn
   assert.equal((await c.post('/api/auth/login', { cpf: d.cpf, senha: nova })).status, 200);
   const me = (await c.get('/api/me')).json;
   assert.ok(JSON.stringify(me).includes('"deve_trocar_senha":true') || JSON.stringify(me).includes('"deve_trocar_senha":1'), JSON.stringify(me));
+});
+
+// ---------- Fase 2: portaria, transferência e cortesias ----------
+const sha = (t) => createHash('sha256').update(t).digest('hex');
+
+async function comprarEConfirmar(qtd) {
+  const { c, d } = await novoComprador();
+  const r = await c.post('/api/pedidos', { lote_id: loteId, quantidade: qtd, nome_pagador: 'Pagador Teste' });
+  assert.equal(r.status, 201, JSON.stringify(r.json));
+  const id = (await admin.get('/api/admin/pedidos')).json.pedidos.find((p) => p.codigo === r.json.codigo).id;
+  assert.equal((await admin.post(`/api/admin/pedidos/${id}/confirmar`)).status, 200);
+  return { c, d, ingressos: (await c.get('/api/meus-ingressos')).json.ingressos };
+}
+
+let hostess;
+test('admin cadastra hostess e ela entra', async () => {
+  const d = dados();
+  const r = await admin.post('/api/admin/usuarios', { ...d, papel: 'hostess' });
+  assert.equal(r.status, 201, JSON.stringify(r.json));
+  hostess = new Cliente();
+  assert.equal((await hostess.post('/api/auth/login', { cpf: d.cpf, senha: d.senha })).status, 200);
+  assert.equal((await hostess.get('/api/admin/config')).status, 403); // hostess não é admin
+});
+
+test('portaria: só hostess/admin; QR vale uma vez; adulterado é inválido', async () => {
+  const { c, ingressos } = await comprarEConfirmar(2);
+  assert.equal((await c.post('/api/portaria/validar', { qr: ingressos[0].qr })).status, 403);
+  assert.equal((await new Cliente().post('/api/portaria/validar', { qr: ingressos[0].qr })).status, 401);
+
+  const lista = (await hostess.get('/api/portaria/lista')).json;
+  const item = lista.ingressos.find((i) => i.id === ingressos[0].id);
+  assert.equal(item.h, sha(ingressos[0].qr)); // lista offline = hash do QR
+  assert.ok(!JSON.stringify(lista).includes(ingressos[0].qr)); // QR em si nunca vai na lista
+
+  const a = (await hostess.post('/api/portaria/validar', { qr: ingressos[0].qr })).json;
+  assert.equal(a.resultado, 'ok');
+  assert.ok(a.nome);
+  const b = (await hostess.post('/api/portaria/validar', { qr: ingressos[0].qr })).json;
+  assert.equal(b.resultado, 'usado');
+  assert.ok(b.usado_em);
+  const ruim = ingressos[1].qr.replace(/.$/, (x) => (x === '0' ? '1' : '0'));
+  assert.equal((await hostess.post('/api/portaria/validar', { qr: ruim })).json.resultado, 'invalido');
+  assert.equal((await hostess.post('/api/portaria/validar', { qr: 'lixo' })).json.resultado, 'invalido');
+
+  // corrida: 6 leituras simultâneas do mesmo QR → exatamente uma entra
+  const rs = await Promise.all(Array.from({ length: 6 }, () => hostess.post('/api/portaria/validar', { qr: ingressos[1].qr })));
+  const oks = rs.filter((x) => x.json.resultado === 'ok').length;
+  assert.equal(oks, 1, rs.map((x) => x.json.resultado).join(','));
+});
+
+test('portaria: sincronização offline e entrada manual', async () => {
+  const { ingressos } = await comprarEConfirmar(3);
+  const antes = Math.floor(Date.now() / 1000) - 600;
+  const s = (await hostess.post('/api/portaria/sincronizar', {
+    usos: [{ qr: ingressos[0].qr, em: antes }, { qr: ingressos[0].qr, em: antes + 5 }, { qr: 'x.y.z', em: antes }],
+  })).json;
+  assert.deepEqual(s.resultados.map((x) => x.resultado), ['ok', 'usado', 'invalido']);
+  assert.equal(s.resultados[0].usado_em, antes); // guarda a hora real da entrada offline
+  const m = (await hostess.post('/api/portaria/entrada-manual', { ingresso_id: ingressos[1].id })).json;
+  assert.equal(m.resultado, 'ok');
+  assert.equal((await hostess.post('/api/portaria/entrada-manual', { ingresso_id: ingressos[1].id })).json.resultado, 'usado');
+});
+
+test('ingresso cancelado não entra', async () => {
+  const { c, ingressos } = await comprarEConfirmar(1);
+  const id = (await admin.get('/api/admin/pedidos?status=pago')).json.pedidos[0].id; // pedido mais recente
+  assert.equal((await admin.post(`/api/admin/pedidos/${id}/cancelar`)).status, 200);
+  const r = (await hostess.post('/api/portaria/validar', { qr: ingressos[0].qr })).json;
+  assert.equal(r.resultado, 'cancelado');
+});
+
+test('transferência: novo QR, antigo morre, link de uso único', async () => {
+  const { c: dono, ingressos } = await comprarEConfirmar(1);
+  const ing = ingressos[0];
+  const t = await dono.post(`/api/ingressos/${ing.id}/transferir`);
+  assert.equal(t.status, 201);
+  assert.match(t.json.token, /^[0-9a-f]{32}$/);
+  assert.equal((await new Cliente().get(`/api/transferencias/${t.json.token}`)).json.valida, true);
+  assert.equal((await dono.post(`/api/transferencias/${t.json.token}/aceitar`)).status, 400); // não aceita o próprio
+  assert.equal((await new Cliente().post(`/api/transferencias/${t.json.token}/aceitar`)).status, 401);
+
+  const { c: amigo } = await novoComprador();
+  assert.equal((await amigo.post(`/api/transferencias/${t.json.token}/aceitar`)).status, 200);
+  const novo = (await amigo.get('/api/meus-ingressos')).json.ingressos.find((i) => i.id === ing.id);
+  assert.ok(novo.qr && novo.qr !== ing.qr);
+  assert.equal((await dono.get('/api/meus-ingressos')).json.ingressos.length, 0);
+  assert.equal((await hostess.post('/api/portaria/validar', { qr: ing.qr })).json.resultado, 'invalido'); // QR antigo
+  assert.equal((await new Cliente().get(`/api/transferencias/${t.json.token}`)).json.valida, false);
+  const { c: outro } = await novoComprador();
+  assert.equal((await outro.post(`/api/transferencias/${t.json.token}/aceitar`)).status, 409); // link já usado
+  assert.equal((await amigo.post(`/api/ingressos/${ing.id}/transferir`)).status, 201); // novo dono pode repassar
+  assert.equal((await hostess.post('/api/portaria/validar', { qr: novo.qr })).json.resultado, 'ok');
+  assert.equal((await amigo.post(`/api/ingressos/${ing.id}/transferir`)).status, 409); // usado não transfere
+});
+
+test('cortesias: tudo ou nada, aparece para o dono e entra na portaria', async () => {
+  const { c, d } = await novoComprador();
+  const falha = await admin.post('/api/admin/cortesias', { motivo: 'DJ', itens: [{ email: d.email, quantidade: 2 }, { email: 'nao@existe.com' }] });
+  assert.equal(falha.status, 409);
+  assert.deepEqual(falha.json.ausentes, ['nao@existe.com']);
+  assert.equal((await c.get('/api/meus-ingressos')).json.ingressos.length, 0); // nada emitido
+  const ok = await admin.post('/api/admin/cortesias', { motivo: 'DJ + acompanhante', itens: [{ email: d.email, quantidade: 2 }] });
+  assert.equal(ok.status, 201, JSON.stringify(ok.json));
+  const ing = (await c.get('/api/meus-ingressos')).json.ingressos;
+  assert.equal(ing.length, 2);
+  assert.ok(ing.every((i) => i.tipo === 'cortesia' && i.motivo === 'DJ + acompanhante' && i.qr));
+  assert.equal((await hostess.post('/api/portaria/validar', { qr: ing[0].qr })).json.resultado, 'ok');
+  assert.equal((await admin.post(`/api/admin/cortesias/${ing[1].id}/cancelar`)).status, 200);
+  assert.equal((await hostess.post('/api/portaria/validar', { qr: ing[1].qr })).json.resultado, 'cancelado');
+  assert.equal((await c.post('/api/admin/cortesias', { itens: [] })).status, 403);
 });

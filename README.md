@@ -24,3 +24,12 @@ O navegador deriva a senha antes de enviar: PBKDF2-SHA256, 600.000 iterações, 
 
 ## Regras
 Valores em centavos; taxa de serviço 10% (configurável); reserva de 60 min; estoque protegido por SQL atômico. QR = `<id>.<32 hex HMAC>`.
+
+## Portaria, transferência e cortesias (fase 2)
+- QR do ingresso: `<id>.<versao>.<token>`; a versão sobe a cada transferência e o QR antigo deixa de valer.
+- Portaria (`#/portaria`, hostess ou admin): lê o QR pela câmera (jsQR, embutido no site). Online valida no servidor; sem internet confere numa lista de hashes baixada antes e sincroniza depois (conflitos aparecem na tela).
+- O site é instalável (PWA) e abre sem internet (`sw.js`).
+- Transferência: link de uso único, vale 7 dias, gerado em "Meus ingressos".
+- Cortesias: admin → aba Cortesias (o e-mail precisa ter conta).
+- Migrações novas rodam sozinhas no build (`scripts/aplicar-segredos.mjs`).
+- Testes: `npm test` (API) com o servidor local no ar e banco recém-migrado.
