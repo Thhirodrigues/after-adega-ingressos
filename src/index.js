@@ -6,6 +6,7 @@ import pedidos from './routes/pedidos.js';
 import admin from './routes/admin.js';
 import portaria from './routes/portaria.js';
 import ingressos from './routes/ingressos.js';
+import mp from './routes/mp.js';
 
 const app = new Hono();
 
@@ -20,7 +21,7 @@ app.get('/api/saude', async (c) => {
   return c.json({
     db,
     tabelas_criadas: `${tabelas} de 10`,
-    segredos: { PEPPER: !!c.env.PEPPER, QR_SECRET: !!c.env.QR_SECRET, SETUP_KEY: !!c.env.SETUP_KEY },
+    segredos: { PEPPER: !!c.env.PEPPER, QR_SECRET: !!c.env.QR_SECRET, SETUP_KEY: !!c.env.SETUP_KEY, MP_ACCESS_TOKEN: !!c.env.MP_ACCESS_TOKEN, MP_WEBHOOK_SECRET: !!c.env.MP_WEBHOOK_SECRET },
   });
 });
 
@@ -42,6 +43,7 @@ app.route('/api', auth);
 app.route('/api', publico);
 app.route('/api', pedidos);
 app.route('/api', ingressos);
+app.route('/api', mp);
 app.route('/api', portaria);
 app.route('/api', admin);
 

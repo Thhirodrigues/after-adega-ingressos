@@ -56,3 +56,11 @@ Valores em centavos; taxa de serviço 10% (configurável); reserva de 60 min; es
 - CSV de vendas ganhou colunas Canal e Forma; lista da porta mostra nomes de convidados avulsos.
 - Quantidade agora usa botões − / + (home e tela de compra).
 - Regras/termos na versão `2026-10-v3` (menciona venda presencial); migração `0006`.
+
+## Fase 6 — Mercado Pago (Checkout Pro)
+
+- Tela do pedido ganha **"Pagar com cartão ou Pix"** (só aparece com `MP_ACCESS_TOKEN` cadastrado). O servidor cria a preferência (valor = total do pedido, sem boleto, cartão só à vista, expira junto com a reserva) e o comprador paga no Mercado Pago.
+- **Webhook** `POST /api/mp/webhook`: confere `x-signature` (se `MP_WEBHOOK_SECRET` existir), **re-consulta o pagamento na API**, confere moeda e valor, grava o `mp_payment_id` (único) e confirma o pedido uma vez só (forma `mercadopago`). Pagamento sem estoque, valor diferente, estorno e chargeback geram aviso ao admin.
+- O Pix pela chave continua como alternativa (confirmação manual).
+- Segredos no Worker (Settings → Variables and secrets, tipo Secret): `MP_ACCESS_TOKEN` e `MP_WEBHOOK_SECRET`. Webhook no painel do MP: `https://<site>/api/mp/webhook`, evento Pagamentos.
+- Testes: `MP_TEST=1` com `wrangler dev --var MP_ACCESS_TOKEN:teste --var MP_API_BASE:http://localhost:9911 --var MP_WEBHOOK_SECRET:segredo-mp` (o teste sobe um Mercado Pago falso). Migração `0007`.

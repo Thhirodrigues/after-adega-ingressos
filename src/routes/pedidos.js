@@ -34,7 +34,7 @@ r.post('/pedidos', exigir(), async (c) => {
   await auditar(c.env.DB, usuario.id, 'pedido_criado', codigo);
   const cents = (n) => (n / 100).toFixed(2).replace('.', ',');
   await alertar(c, 'novo_pedido', `Novo pedido ${codigo}: ${usuario.nome} ${usuario.sobrenome} — ${quantidade} ingresso(s), R$ ${cents(pedido.total_centavos)}. Aguardando Pix.`);
-  return c.json(await visaoPedido(c.env.DB, pedido), 201);
+  return c.json({ ...(await visaoPedido(c.env.DB, pedido)), mp_disponivel: !!c.env.MP_ACCESS_TOKEN }, 201);
 });
 
 r.get('/pedidos/:codigo', exigir(), async (c) => {
@@ -43,7 +43,7 @@ r.get('/pedidos/:codigo', exigir(), async (c) => {
   if (!pedido || (pedido.comprador_id !== usuario.id && usuario.papel !== 'admin')) {
     throw new HttpError(404, 'Pedido não encontrado.');
   }
-  return c.json(await visaoPedido(c.env.DB, pedido));
+  return c.json({ ...(await visaoPedido(c.env.DB, pedido)), mp_disponivel: !!c.env.MP_ACCESS_TOKEN });
 });
 
 r.post('/pedidos/:codigo/cancelar', exigir(), async (c) => {

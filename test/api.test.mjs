@@ -536,3 +536,78 @@ test('venda presencial: dinheiro/porta, sem taxa, estoque atômico, lote só-por
   assert.equal((await admin.post(`/api/admin/pedidos/${ped.id}/confirmar`, { forma: 'dinheiro' })).status, 200);
   assert.equal((await admin.get('/api/admin/pedidos?status=pago')).json.pedidos.find((x) => x.id === ped.id).forma_pagamento, 'dinheiro');
 });
+
+// ---- Mercado Pago (roda só com o servidor iniciado com MP_API_BASE apontando para o falso abaixo) ----
+// wrangler dev --port 8788 --var MP_ACCESS_TOKEN:teste --var MP_API_BASE:http://localhost:9911 --var MP_WEBHOOK_SECRET:segredo-mp
+import http from 'node:http';
+import { createHmac } from 'node:crypto';
+const MP = process.env.MP_TEST === '1';
+test('mercado pago: link, webhook assinado, valor conferido, idempotência', { skip: !MP }, async () => {
+  const lm = (await admin.post('/api/admin/lotes', { evento_id: eventoId, nome: 'MP', valor_centavos: 2000, quantidade: 50, ativo: true, canal: 'online' })).json.id;
+  const pagamentos = {};
+  const prefs = [];
+  const srv = http.createServer((req, res) => {
+    let b = '';
+    req.on('data', (d) => (b += d));
+    req.on('end', () => {
+      res.setHeader('content-type', 'application/json');
+      if (req.headers.authorization !== 'Bearer teste') { res.statusCode = 401; return res.end('{}'); }
+      if (req.url === '/checkout/preferences') {
+        const p = JSON.parse(b); prefs.push(p);
+        return res.end(JSON.stringify({ id: 'pref1', init_point: 'https://mp.exemplo/pagar/' + p.external_reference }));
+      }
+      const m = /^\/v1\/payments\/(\d+)$/.exec(req.url);
+      if (m && pagamentos[m[1]]) return res.end(JSON.stringify(pagamentos[m[1]]));
+      res.statusCode = 404; res.end('{}');
+    });
+  });
+  await new Promise((ok) => srv.listen(9911, ok));
+  try {
+    const assinar = (id, ts = '1700000000', reqId = 'req-1') => ({ 'x-signature': `ts=${ts},v1=${createHmac('sha256', 'segredo-mp').update(`id:${id};request-id:${reqId};ts:${ts};`).digest('hex')}`, 'x-request-id': reqId });
+    const hook = (id, headers) => fetch(`${BASE}/api/mp/webhook?type=payment&data.id=${id}`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ type: 'payment', data: { id: String(id) } }) });
+
+    const { c } = await novoComprador();
+    const p = await c.post('/api/pedidos', { aceito_termos: true, lote_id: lm, quantidade: 2, nome_pagador: 'Fulano de Tal' });
+    assert.equal(p.status, 201, JSON.stringify(p.json));
+    assert.equal(p.json.mp_disponivel, true);
+    const cod = p.json.codigo;
+    // link de pagamento: só o dono; valor = total do pedido; sem boleto, sem parcelamento
+    const outro = (await novoComprador()).c;
+    assert.equal((await outro.post(`/api/pedidos/${cod}/pagar-mp`)).status, 404);
+    const l = await c.post(`/api/pedidos/${cod}/pagar-mp`);
+    assert.equal(l.status, 200, JSON.stringify(l.json));
+    assert.ok(l.json.url.endsWith(cod));
+    assert.equal(prefs[0].items[0].unit_price, p.json.total_centavos / 100);
+    assert.equal(prefs[0].external_reference, cod);
+    assert.equal(prefs[0].payment_methods.installments, 1);
+    // assinatura inválida/ausente → 401
+    assert.equal((await hook(111, {})).status, 401);
+    assert.equal((await hook(111, { 'x-signature': 'ts=1,v1=00', 'x-request-id': 'x' })).status, 401);
+    // pagamento com valor diferente não confirma
+    pagamentos[111] = { id: 111, status: 'approved', currency_id: 'BRL', transaction_amount: 1, external_reference: cod };
+    assert.equal((await hook(111, assinar(111))).status, 200);
+    assert.equal((await c.get(`/api/pedidos/${cod}`)).json.status, 'aguardando_pagamento');
+    // pendente não confirma
+    pagamentos[112] = { id: 112, status: 'pending', currency_id: 'BRL', transaction_amount: p.json.total_centavos / 100, external_reference: cod };
+    await hook(112, assinar(112));
+    assert.equal((await c.get(`/api/pedidos/${cod}`)).json.status, 'aguardando_pagamento');
+    // aprovado e correto confirma, gera ingressos, é idempotente
+    pagamentos[113] = { id: 113, status: 'approved', currency_id: 'BRL', transaction_amount: p.json.total_centavos / 100, external_reference: cod };
+    assert.equal((await hook(113, assinar(113))).status, 200);
+    assert.equal((await hook(113, assinar(113))).status, 200);
+    assert.equal((await c.get(`/api/pedidos/${cod}`)).json.status, 'pago');
+    assert.equal((await c.get('/api/meus-ingressos')).json.ingressos.length, 2);
+    // o mesmo pagamento não confirma outro pedido
+    const { c: c2 } = await novoComprador();
+    const p2 = await c2.post('/api/pedidos', { aceito_termos: true, lote_id: lm, quantidade: 2, nome_pagador: 'Beltrano Silva' });
+    pagamentos[113].external_reference = p2.json.codigo;
+    await hook(113, assinar(113));
+    assert.equal((await c2.get(`/api/pedidos/${p2.json.codigo}`)).json.status, 'aguardando_pagamento');
+    // forma registrada e aviso ao admin
+    const f = (await admin.get('/api/admin/financeiro')).json;
+    assert.ok(f.por_forma.some((x) => x.forma === 'mercadopago' && x.canal === 'online'));
+    assert.ok((await admin.get('/api/admin/alertas')).json.alertas.some((a) => a.tipo === 'pedido_pago_mp'));
+  } finally {
+    srv.close();
+  }
+});

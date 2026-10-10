@@ -18,6 +18,7 @@ function centavos(txt) {
   const n = Number(String(txt).replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, ''));
   return Number.isFinite(n) ? Math.round(n * 100) : NaN;
 }
+const nomeForma = (f) => ({ dinheiro: 'Dinheiro', mercadopago: 'Mercado Pago' }[f] || 'Pix');
 const reais = (c) => (c / 100).toFixed(2).replace('.', ',');
 // Seletor de quantidade com botões − e +. O valor fica num <input type="hidden"> (mesmo
 // nome/atributos de antes), então o resto do código lê .value e escuta "change".
@@ -365,9 +366,15 @@ rota('/pedido/([A-Za-z0-9]+)', async (codigo) => {
     let corpo = '';
     if (p.status === 'aguardando_pagamento') {
       const falta = Math.max(0, p.expira_em - Math.floor(Date.now() / 1000));
-      corpo = `
-      <div class="card atual">
-        <b>Pague ${brl(p.pix.valor_centavos)} via Pix</b>
+      const mp = p.mp_disponivel
+        ? `<div class="card atual"><b>Pague ${brl(p.total_centavos)} com cartão ou Pix</b>
+        <p class="peq">Pagamento seguro pelo Mercado Pago. A confirmação é automática: assim que aprovar, seus ingressos aparecem aqui. Cartão só à vista.</p>
+        <button class="bt bloco" id="pagarmp">Pagar com cartão ou Pix</button></div>
+        <p class="peq">Prefere pagar direto na chave Pix? Use o código abaixo; nesse caso a confirmação é manual e pode demorar.</p>`
+        : '';
+      corpo = mp + `
+      <div class="card ${p.mp_disponivel ? '' : 'atual'}">
+        <b>Pague ${brl(p.pix.valor_centavos)} via Pix${p.mp_disponivel ? ' (chave, confirmação manual)' : ''}</b>
         <p class="peq">Reserva válida por <b id="cont">${Math.floor(falta / 60)} min</b>. Pague pelo app do seu banco usando "Pix copia e cola".</p>
         <div class="pix" id="pixcode">${esc(p.pix.copia_e_cola)}</div>
         <button class="bt bloco" id="copiar">Copiar código Pix</button>
@@ -392,6 +399,12 @@ rota('/pedido/([A-Za-z0-9]+)', async (codigo) => {
         <div class="linha"><span><b>Total</b></span><b>${brl(p.total_centavos)}</b></div>
         <div class="peq">${esc(p.evento)} · ${dataBR(p.data_evento)}</div>
       </div>${corpo}`;
+    document.getElementById('pagarmp')?.addEventListener('click', (e) =>
+      comEspera(e.target, async () => {
+        const r = await api('POST', `/pedidos/${p.codigo}/pagar-mp`, {});
+        location.href = r.url;
+      }),
+    );
     document.getElementById('copiar')?.addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(p.pix.copia_e_cola);
@@ -426,7 +439,7 @@ rota('/pedido/([A-Za-z0-9]+)', async (codigo) => {
           if (n.status !== 'aguardando_pagamento') clearInterval(pollTimer);
         }
       } catch {}
-    }, 15000);
+    }, p.mp_disponivel ? 5000 : 15000);
   }
 });
 
@@ -938,9 +951,9 @@ rota('/admin/financeiro', async () => {
     </div>
     <h2>Por forma de pagamento</h2>
     <div class="rolar"><table><tr><th>Canal</th><th>Forma</th><th class="num">Pedidos</th><th class="num">Ingressos</th><th class="num">Total</th></tr>
-    ${(f.por_forma || []).map((x) => `<tr><td>${x.canal === 'porta' ? 'Porta' : 'Online'}</td><td>${x.forma === 'dinheiro' ? 'Dinheiro' : 'Pix'}</td><td class="num">${x.pedidos}</td><td class="num">${x.ingressos}</td><td class="num">${brl(x.total_centavos)}</td></tr>`).join('') || '<tr><td colspan="5" class="mudo">Sem vendas ainda.</td></tr>'}</table></div>
+    ${(f.por_forma || []).map((x) => `<tr><td>${x.canal === 'porta' ? 'Porta' : 'Online'}</td><td>${nomeForma(x.forma)}</td><td class="num">${x.pedidos}</td><td class="num">${x.ingressos}</td><td class="num">${brl(x.total_centavos)}</td></tr>`).join('') || '<tr><td colspan="5" class="mudo">Sem vendas ainda.</td></tr>'}</table></div>
     ${(f.por_vendedor || []).length ? `<h2>Vendas na porta por vendedor</h2><p class="peq">Dinheiro que cada pessoa deve prestar contas.</p>
-    <div class="rolar"><table><tr><th>Vendedor</th><th>Forma</th><th class="num">Ingressos</th><th class="num">Total</th></tr>${f.por_vendedor.map((x) => `<tr><td>${esc(x.vendedor)}</td><td>${x.forma === 'dinheiro' ? 'Dinheiro' : 'Pix'}</td><td class="num">${x.ingressos}</td><td class="num">${brl(x.total_centavos)}</td></tr>`).join('')}</table></div>` : ''}
+    <div class="rolar"><table><tr><th>Vendedor</th><th>Forma</th><th class="num">Ingressos</th><th class="num">Total</th></tr>${f.por_vendedor.map((x) => `<tr><td>${esc(x.vendedor)}</td><td>${nomeForma(x.forma)}</td><td class="num">${x.ingressos}</td><td class="num">${brl(x.total_centavos)}</td></tr>`).join('')}</table></div>` : ''}
     <h2>Por lote</h2>
     <div class="rolar"><table><tr><th>Lote</th><th class="num">Preço</th><th class="num">Vendidos</th><th class="num">Reservados</th><th class="num">Qtd.</th><th class="num">Receita</th></tr>
     ${f.lotes
@@ -963,7 +976,7 @@ rota('/admin/pedidos', async () => {
       return `<tr>
         <td><b>${esc(p.codigo)}</b><br>${tag(st)}</td>
         <td>${esc(p.comprador)}<br><span class="peq">${esc(p.telefone)} · CPF ${esc(fmtCpf(p.cpf))}</span></td>
-        <td>${p.quantidade}× ${esc(p.lote)}<br><span class="peq">${p.canal === 'porta' ? 'Venda na porta' : 'Pagador'}: ${esc(p.nome_pagador)}${p.status === 'pago' ? ` · ${p.forma_pagamento === 'dinheiro' ? 'dinheiro' : 'Pix'}` : ''}</span></td>
+        <td>${p.quantidade}× ${esc(p.lote)}<br><span class="peq">${p.canal === 'porta' ? 'Venda na porta' : 'Pagador'}: ${esc(p.nome_pagador)}${p.status === 'pago' ? ` · ${nomeForma(p.forma_pagamento).toLowerCase()}` : ''}</span></td>
         <td class="num"><b>${brl(p.total_centavos)}</b><br><span class="peq">${hora(p.criado_em)}</span></td>
         <td><div class="acoes">
           ${confirmavel ? `<button class="bt ok peq" data-conf="${p.id}">Confirmar Pix</button>` : ''}
