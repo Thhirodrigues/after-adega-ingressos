@@ -966,7 +966,7 @@ rota('/admin/pedidos', async () => {
         <td>${p.quantidade}× ${esc(p.lote)}<br><span class="peq">${p.canal === 'porta' ? 'Venda na porta' : 'Pagador'}: ${esc(p.nome_pagador)}${p.status === 'pago' ? ` · ${p.forma_pagamento === 'dinheiro' ? 'dinheiro' : 'Pix'}` : ''}</span></td>
         <td class="num"><b>${brl(p.total_centavos)}</b><br><span class="peq">${hora(p.criado_em)}</span></td>
         <td><div class="acoes">
-          ${confirmavel ? `<button class="bt ok peq" data-conf="${p.id}">Confirmar Pix</button><button class="bt sec peq" data-conf="${p.id}" data-forma="dinheiro">Recebi em dinheiro</button>` : ''}
+          ${confirmavel ? `<button class="bt ok peq" data-conf="${p.id}">Confirmar Pix</button>` : ''}
           ${p.status !== 'cancelado' ? `<button class="bt perigo peq" data-canc="${p.id}" data-pago="${p.status === 'pago' ? 1 : 0}">${p.status === 'pago' ? 'Estornar' : 'Cancelar'}</button>` : ''}
         </div></td></tr>`;
     })
@@ -1549,12 +1549,11 @@ rota('/portaria', async () => {
       <select name="lote">${lotes.map((l) => `<option value="${l.id}" data-v="${l.valor_centavos}" data-max="${Math.min(20, l.disponiveis)}">${esc(l.nome)} — ${brl(l.valor_centavos)}</option>`).join('')}</select>
       <label>Quantidade</label>
       ${stepperHtml('name="quantidade"', Math.min(20, lotes[0].disponiveis))}
-      <label>Nome do convidado</label>
-      <input name="nome" required minlength="2" maxlength="80" autocomplete="off" placeholder="Nome e sobrenome">
+      <div id="vnomes"></div>
       <label>Forma de pagamento</label>
       <div class="grade"><label class="check" style="margin:0"><input type="radio" name="forma" value="dinheiro" checked> <span>Dinheiro</span></label>
       <label class="check" style="margin:0"><input type="radio" name="forma" value="pix_chave"> <span>Pix</span></label></div>
-      <label class="check"><input type="checkbox" name="entra" checked> <span>Entra agora (venda na porta). Desmarque se for compra antecipada em dinheiro: o ingresso fica válido no nome e a entrada é conferida pela Lista.</span></label>
+      <p class="peq">A entrada de todos é marcada na hora, sem QR.</p>
       <div class="card" style="background:#0f0f16;margin-top:1rem"><div class="linha"><span><b>Total a receber</b></span><b class="preco" id="vtotal"></b></div><p class="peq" style="margin:.4rem 0 0">Sem taxa de serviço na venda presencial.</p></div>
       <button class="bt bloco">Registrar venda</button></form>`;
     const f = $('fvenda');
@@ -1564,6 +1563,10 @@ rota('/portaria', async () => {
       f.querySelector('.qtd').dataset.max = op.dataset.max;
       f.querySelector('.qtd').setValor(Number(f.quantidade.value));
       $('vtotal').textContent = brl(Number(op.dataset.v) * Number(f.quantidade.value));
+      const q = Number(f.quantidade.value);
+      const box2 = $('vnomes');
+      const atuais = [...box2.querySelectorAll('input')].map((i) => i.value);
+      box2.innerHTML = Array.from({ length: q }, (_, i) => `<label>${q > 1 ? `Nome da pessoa ${i + 1}` : 'Nome do convidado'}</label><input name="nome${i}" required minlength="2" maxlength="80" autocomplete="off" placeholder="Nome e sobrenome" value="${esc(atuais[i] || '')}">`).join('');
     };
     f.lote.addEventListener('change', calc);
     f.quantidade.addEventListener('change', calc);
@@ -1572,8 +1575,8 @@ rota('/portaria', async () => {
       e.preventDefault();
       comEspera(f.querySelector('button'), async () => {
         try {
-          const r = await api('POST', '/portaria/venda', { lote_id: Number(f.lote.value), quantidade: Number(f.quantidade.value), nome: f.nome.value, forma: f.forma.value, entrar_agora: f.entra.checked });
-          aviso(`Venda registrada: ${r.quantidade} ingresso(s), ${brl(r.total_centavos)} em ${r.forma === 'dinheiro' ? 'dinheiro' : 'Pix'}${r.entrou ? ' · entrada marcada' : ''}.`);
+          const r = await api('POST', '/portaria/venda', { lote_id: Number(f.lote.value), quantidade: Number(f.quantidade.value), nomes: [...$('vnomes').querySelectorAll('input')].map((i) => i.value), forma: f.forma.value });
+          aviso(`Venda registrada: ${r.quantidade} ingresso(s), ${brl(r.total_centavos)} em ${r.forma === 'dinheiro' ? 'dinheiro' : 'Pix'} · entrada marcada.`);
           try { await atualizarLista(); } catch {}
           desenharTopo();
           abrirVenda();

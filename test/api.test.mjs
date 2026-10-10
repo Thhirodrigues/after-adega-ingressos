@@ -50,7 +50,7 @@ async function novoComprador() {
   assert.equal(r.status, 201, JSON.stringify(r.json));
   return { c, d };
 }
-const sql = (q) => execSync(`npx wrangler d1 execute ingressos --local --command "${q}"`, { stdio: 'pipe' });
+const sql = (q) => execSync(`npx wrangler d1 execute ingressos --local ${process.env.PERSIST ? `--persist-to ${process.env.PERSIST} ` : ""}--command "${q}"`, { stdio: "pipe" });
 
 const admin = new Cliente();
 const adminDados = dados();
@@ -493,7 +493,7 @@ test('venda presencial: dinheiro/porta, sem taxa, estoque atômico, lote só-por
   const lv = (await hostess.get('/api/portaria/lotes-venda')).json.lotes;
   assert.ok(lv.some((l) => l.id === portaId));
   // venda na porta: entra na hora
-  const v1 = await hostess.post('/api/portaria/venda', { lote_id: portaId, quantidade: 2, nome: 'Maria da Porta', forma: 'dinheiro' });
+  const v1 = await hostess.post('/api/portaria/venda', { lote_id: portaId, quantidade: 2, nomes: ['Maria da Porta', 'Ana da Porta'], forma: 'dinheiro' });
   assert.equal(v1.status, 201, JSON.stringify(v1.json));
   assert.equal(v1.json.total_centavos, 10000);
   assert.equal(v1.json.entrou, true);
@@ -501,7 +501,7 @@ test('venda presencial: dinheiro/porta, sem taxa, estoque atômico, lote só-por
   assert.equal((await hostess.post('/api/portaria/venda', { lote_id: portaId, quantidade: 1, nome: 'Zé Ninguém', forma: 'cheque' })).status, 400);
   assert.equal((await hostess.post('/api/portaria/venda', { lote_id: portaId, quantidade: 1, nome: 'a', forma: 'dinheiro' })).status, 400);
   // antecipada em dinheiro: fica válido no nome
-  const v2 = await hostess.post('/api/portaria/venda', { lote_id: portaId, quantidade: 1, nome: 'João Antecipado', forma: 'pix_chave', entrar_agora: false });
+  const v2 = await hostess.post('/api/portaria/venda', { lote_id: portaId, quantidade: 1, nome: 'João Antecipado', forma: 'pix_chave' });
   assert.equal(v2.status, 201, JSON.stringify(v2.json));
   // estoque esgotado
   const v3 = await hostess.post('/api/portaria/venda', { lote_id: portaId, quantidade: 1, nome: 'Sem Estoque', forma: 'dinheiro' });
@@ -512,10 +512,10 @@ test('venda presencial: dinheiro/porta, sem taxa, estoque atômico, lote só-por
   assert.equal(rs.filter((x) => x.status === 201).length, 1);
   // lista da portaria mostra os nomes avulsos
   const lista = (await hostess.get('/api/portaria/lista')).json.ingressos;
-  assert.equal(lista.filter((i) => i.nome === 'Maria da Porta').length, 2);
+  assert.equal(lista.filter((i) => i.nome === 'Maria da Porta' || i.nome === 'Ana da Porta').length, 2);
+  assert.equal((await hostess.post('/api/portaria/venda', { lote_id: portaId, quantidade: 2, nomes: ['Só Um'], forma: 'dinheiro' })).status, 400);
   const joao = lista.find((i) => i.nome === 'João Antecipado');
-  assert.equal(joao.status, 'valido');
-  assert.equal((await hostess.post('/api/portaria/entrada-manual', { ingresso_id: joao.id })).json.resultado, 'ok');
+  assert.equal(joao.status, 'usado');
   // não aparece em "meus ingressos"/"meus pedidos" da hostess
   assert.equal((await hostess.get('/api/meus-ingressos')).json.ingressos.filter((i) => i.lote === 'Só porta').length, 0);
   assert.equal((await hostess.get('/api/meus-pedidos')).json.pedidos.length, 0);

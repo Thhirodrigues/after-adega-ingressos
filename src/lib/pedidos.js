@@ -258,9 +258,8 @@ export async function visaoPedido(db, p) {
 
 // Venda presencial (porta ou dinheiro em mãos): sem taxa de serviço, já nasce paga.
 // Reaproveita a reserva + confirmação atômicas; depois grava o nome do convidado.
-// entrarAgora = true marca a entrada na hora (venda na porta); false deixa o ingresso
-// válido no nome do convidado (compra antecipada em dinheiro, confere por nome na portaria).
-export async function venderPresencial(db, vendedor, { loteId, quantidade, nome, forma, entrarAgora }) {
+// Cada ingresso recebe o nome de uma pessoa e a entrada é marcada na hora (sem QR).
+export async function venderPresencial(db, vendedor, { loteId, quantidade, nomes, forma }) {
   await liberarExpirados(db);
   const lote = await db
     .prepare(
@@ -291,7 +290,7 @@ export async function venderPresencial(db, vendedor, { loteId, quantidade, nome,
               WHERE l.id = ?8 AND l.ativo = 1 AND l.canal <> 'online'
                 AND (l.quantidade - l.vendidos - l.reservados) >= ?3`,
           )
-          .bind(cod, vendedor.id, quantidade, nome, t, t + 120, forma, loteId),
+          .bind(cod, vendedor.id, quantidade, nomes[0], t, t + 120, forma, loteId),
         db
           .prepare(
             `UPDATE lotes SET reservados = reservados + ?1
@@ -310,15 +309,14 @@ export async function venderPresencial(db, vendedor, { loteId, quantidade, nome,
   if (!codigo) throw new HttpError(500, 'Não foi possível registrar a venda. Tente novamente.');
   const p = await db.prepare('SELECT id FROM pedidos WHERE codigo = ?1').bind(codigo).first();
   await confirmarPedido(db, p.id, vendedor.id);
-  await db
-    .prepare(
-      `UPDATE ingressos SET nome_avulso = ?2,
-              status = CASE WHEN ?3 = 1 THEN 'usado' ELSE status END,
-              usado_em = CASE WHEN ?3 = 1 THEN ?4 ELSE usado_em END,
-              usado_por = CASE WHEN ?3 = 1 THEN ?5 ELSE usado_por END
-        WHERE pedido_id = ?1`,
-    )
-    .bind(p.id, nome, entrarAgora ? 1 : 0, t, vendedor.id)
-    .run();
+  // Venda na porta: cada ingresso leva o nome de uma pessoa e já entra.
+  const { results: ings } = await db.prepare('SELECT id FROM ingressos WHERE pedido_id = ?1 ORDER BY id').bind(p.id).all();
+  await db.batch(
+    ings.map((ing, i) =>
+      db
+        .prepare(`UPDATE ingressos SET nome_avulso = ?2, status = 'usado', usado_em = ?3, usado_por = ?4 WHERE id = ?1`)
+        .bind(ing.id, nomes[i] ?? nomes[0], t, vendedor.id),
+    ),
+  );
   return { id: p.id, codigo };
 }

@@ -186,16 +186,17 @@ r.post('/portaria/venda', async (c) => {
   const ev = await eventoAtivo(db);
   const loteId = v.inteiro(b.lote_id, 'Lote', 1, 1_000_000_000);
   const quantidade = v.inteiro(b.quantidade, 'Quantidade', 1, 20);
-  const nome = v.texto(b.nome, 'Nome do convidado', 2, 80);
+  const brutos = Array.isArray(b.nomes) ? b.nomes : [b.nome];
+  if (brutos.length !== quantidade) throw new HttpError(400, `Informe o nome de cada uma das ${quantidade} pessoas.`);
+  const nomes = brutos.map((n, i) => v.texto(n, `Nome da pessoa ${i + 1}`, 2, 80));
   const forma = ['dinheiro', 'pix_chave'].includes(b.forma) ? b.forma : null;
   if (!forma) throw new HttpError(400, 'Escolha a forma de pagamento: dinheiro ou Pix.');
   const lote = await db.prepare('SELECT evento_id FROM lotes WHERE id = ?1').bind(loteId).first();
   if (!lote || lote.evento_id !== ev.id) throw new HttpError(404, 'Lote indisponível para venda presencial.');
-  const entrarAgora = b.entrar_agora !== false;
-  const { codigo, id } = await venderPresencial(db, u, { loteId, quantidade, nome, forma, entrarAgora });
+  const { codigo, id } = await venderPresencial(db, u, { loteId, quantidade, nomes, forma });
   const p = await db.prepare('SELECT total_centavos FROM pedidos WHERE id = ?1').bind(id).first();
   await auditar(db, u.id, 'venda_presencial', `${codigo} ${quantidade}x ${forma} ${p.total_centavos}`);
-  return c.json({ ok: true, codigo, quantidade, total_centavos: p.total_centavos, forma, entrou: entrarAgora, ...(await contagem(db, ev.id)) }, 201);
+  return c.json({ ok: true, codigo, quantidade, total_centavos: p.total_centavos, forma, entrou: true, ...(await contagem(db, ev.id)) }, 201);
 });
 
 export default r;

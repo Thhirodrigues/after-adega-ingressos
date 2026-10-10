@@ -49,7 +49,7 @@ Valores em centavos; taxa de serviço 10% (configurável); reserva de 60 min; es
 
 ## Fase 5 — venda presencial e seletor de quantidade
 
-- **Venda na porta / dinheiro**: aba **Venda** na Portaria (hostess e admin). Registra o pagamento em dinheiro ou Pix, sem taxa de serviço; "Entra agora" marca a entrada na hora, ou fica válido no nome do convidado (compra antecipada em dinheiro; entrada conferida pela Lista). Exige internet (estoque decidido no servidor, atômico).
+- **Venda na porta**: aba **Venda** na Portaria (hostess e admin). Registra dinheiro ou Pix, sem taxa de serviço, com um campo de nome para cada ingresso; a entrada é marcada na hora e não gera QR. Venda antecipada é só online. Exige internet (estoque decidido no servidor, atômico).
 - **Lotes por canal** (Admin → Lotes): "Online e na porta", "Só online" ou "Só na porta" (lote só-porta nunca aparece no site).
 - Admin pode confirmar um pedido online como **"Recebi em dinheiro"**.
 - Financeiro: quadro por forma de pagamento e **por vendedor** (prestação de contas do dinheiro).
