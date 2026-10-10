@@ -325,10 +325,14 @@ rota('/comprar/(\\d+)', async (id) => {
       </div>
       <label class="check"><input type="checkbox" name="aceito" required> <span>Li e aceito as <a href="#/regras" target="_blank" rel="noopener">regras de compra</a>. Sei que ingresso é pessoal e de uso único e que <b>qualquer envio de print ou foto do QR Code é de minha inteira responsabilidade</b>, podendo resultar em entrada negada.</span></label>
       <p class="peq">${d.pagamento_automatico ? 'Na próxima tela você escolhe cartão ou Pix.' : 'Ao gerar o Pix,'} Seguramos seus ingressos por ${d.reserva_minutos || 20} minutos para você pagar.</p>
-      <button class="bt bloco">${d.pagamento_automatico ? 'Ir para o pagamento' : 'Gerar Pix'}</button>
+      <button class="bt bloco" id="btpagar" disabled>${d.pagamento_automatico ? 'Ir para o pagamento' : 'Gerar Pix'}</button>
     </form>`;
   const f = document.getElementById('f');
   ligarSteppers(f);
+  const btPagar = document.getElementById('btpagar');
+  const travarPagar = () => (btPagar.disabled = !f.aceito.checked);
+  f.aceito.addEventListener('change', travarPagar);
+  travarPagar();
   try {
     const g = JSON.parse(sessionStorage.getItem('qtd') || 'null');
     if (g && String(g.lote) === id && Number(g.q) >= 1 && Number(g.q) <= max) f.querySelector('.qtd').setValor(Number(g.q));
@@ -345,7 +349,7 @@ rota('/comprar/(\\d+)', async (id) => {
   calc();
   f.addEventListener('submit', (e) => {
     e.preventDefault();
-    comEspera(f.querySelector('button'), async () => {
+    comEspera(btPagar, async () => {
       try {
         const r = await api('POST', '/pedidos', { lote_id: l.id, quantidade: Number(f.quantidade.value), nome_pagador: f.nome_pagador.value, aceito_termos: f.aceito.checked === true });
         location.hash = `#/pedido/${r.codigo}`;
