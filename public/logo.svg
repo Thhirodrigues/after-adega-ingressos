@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Fast Pass">
+<defs>
+<linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#38bdf8"/><stop offset=".55" stop-color="#6366f1"/><stop offset="1" stop-color="#a78bfa"/></linearGradient>
+<radialGradient id="f" cx=".5" cy="0" r="1"><stop offset="0" stop-color="#1b2540"/><stop offset="1" stop-color="#0b0f19"/></radialGradient>
+</defs>
+<rect width="512" height="512" fill="url(#f)"/>
+<path fill="url(#g)" fill-rule="evenodd" d="M104 150a30 30 0 0 1 30-30h244a30 30 0 0 1 30 30v62a44 44 0 0 0 0 88v62a30 30 0 0 1-30 30H134a30 30 0 0 1-30-30v-62a44 44 0 0 0 0-88z M286 150l-98 124h62l-24 88 98-124h-62z"/>
+</svg>

@@ -1,6 +1,6 @@
 // Deixa o site abrir sem internet (ingressos e portaria). Rede primeiro; se falhar, usa o salvo.
-const VERSAO = 'fastpass-v15';
-const BASE = ['/', '/index.html', '/style.css', '/app.js', '/vendor/qrcode.js', '/vendor/jsQR.js', '/manifest.webmanifest', '/icon-192.png'];
+const VERSAO = 'fastpass-v16';
+const BASE = ['/', '/index.html', '/style.css', '/app.js', '/vendor/qrcode.js', '/vendor/jsQR.js', '/manifest.webmanifest', '/icon-192.png', '/logo.svg', '/logo-marca.svg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSAO).then((c) => c.addAll(BASE)).then(() => self.skipWaiting()));

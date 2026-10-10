@@ -318,7 +318,7 @@ rota('/comprar/(\\d+)', async (id) => {
         ? `<input type="hidden" name="nome_pagador" value="${esc(`${estado.eu.nome} ${estado.eu.sobrenome}`)}">`
         : `<label>Nome de quem vai fazer o Pix (para conferirmos o pagamento)</label>
       <input name="nome_pagador" required minlength="3" maxlength="80" value="${esc(`${estado.eu.nome} ${estado.eu.sobrenome}`)}">`}
-      <div class="card" style="background:#0f0f16;margin-top:1rem">
+      <div class="card" style="background:var(--campo);margin-top:1rem">
         <div class="linha"><span>Ingressos</span><b id="t_sub"></b></div>
         <div class="linha"><span>Taxa de serviço</span><b id="t_taxa"></b></div>
         <div class="linha"><span><b>Total</b></span><b class="preco" id="t_tot"></b></div>
@@ -522,7 +522,7 @@ rota('/meus', async () => {
         const link = `${location.origin}/#/aceitar/${r.token}`;
         const texto = `Seu ingresso para a After Os Brothers está aqui. Abra o link, entre (ou crie sua conta) e aceite: ${link}`;
         const alvo = document.getElementById(`tr-${b.dataset.transf}`);
-        alvo.innerHTML = `<div class="card" style="background:#0f0f16">
+        alvo.innerHTML = `<div class="card" style="background:var(--campo)">
           <b>Link de transferência (vale 7 dias, uso único)</b>
           <div class="pix">${esc(link)}</div>
           <div class="acoes">
@@ -1571,7 +1571,7 @@ rota('/portaria', async () => {
       <div class="grade"><label class="check" style="margin:0"><input type="radio" name="forma" value="dinheiro" checked> <span>Dinheiro</span></label>
       <label class="check" style="margin:0"><input type="radio" name="forma" value="pix_chave"> <span>Pix</span></label></div>
       <p class="peq">A entrada de todos é marcada na hora, sem QR.</p>
-      <div class="card" style="background:#0f0f16;margin-top:1rem"><div class="linha"><span><b>Total a receber</b></span><b class="preco" id="vtotal"></b></div><p class="peq" style="margin:.4rem 0 0">Sem taxa de serviço na venda presencial.</p></div>
+      <div class="card" style="background:var(--campo);margin-top:1rem"><div class="linha"><span><b>Total a receber</b></span><b class="preco" id="vtotal"></b></div><p class="peq" style="margin:.4rem 0 0">Sem taxa de serviço na venda presencial.</p></div>
       <button class="bt bloco">Registrar venda</button></form>`;
     const f = $('fvenda');
     ligarSteppers(f);
