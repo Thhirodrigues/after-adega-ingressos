@@ -5,7 +5,7 @@ body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.5 'Inter',system
 a{color:var(--cor2)}
 .topo{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.75rem 1rem;border-bottom:1px solid var(--linha);position:sticky;top:0;background:rgba(11,15,25,.88);backdrop-filter:blur(8px);z-index:5}
 .marca{display:flex;align-items:center;gap:.55rem;font-weight:800;letter-spacing:.06em;text-decoration:none;color:var(--txt)}
-.marca img{width:34px;height:auto;filter:drop-shadow(0 0 8px rgba(99,102,241,.55))}
+.marca img{width:auto;height:30px;filter:drop-shadow(0 0 8px rgba(99,102,241,.55))}
 .marca b{font-weight:800}
 .marca span{background:linear-gradient(135deg,#38bdf8,#a78bfa);-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:800}
 #nav{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:flex-end}
