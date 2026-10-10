@@ -584,6 +584,7 @@ test('mercado pago: link, webhook assinado, valor conferido, idempotência', { s
     assert.equal(lp.status, 200);
     const exc = (n) => prefs[n].payment_methods.excluded_payment_types.map((x) => x.id);
     assert.ok(exc(1).includes('credit_card') && !exc(1).includes('bank_transfer'));
+    assert.equal(exc(0).length, 2);
     await c.post(`/api/pedidos/${cod}/pagar-mp`, { metodo: 'cartao' });
     assert.ok(exc(2).includes('bank_transfer') && !exc(2).includes('credit_card'));
     assert.equal((await new Cliente().get('/api/evento')).json.pagamento_automatico, true);

@@ -19,7 +19,13 @@ r.post('/pedidos/:codigo/pagar-mp', exigir(), async (c) => {
   const pedido = await buscarPedido(db, { codigo: c.req.param('codigo').toUpperCase() });
   if (!pedido || pedido.comprador_id !== u.id) throw new HttpError(404, 'Pedido não encontrado.');
   if (pedido.status !== 'aguardando_pagamento') throw new HttpError(409, 'Este pedido não está aguardando pagamento.');
-  const pref = await criarPreferencia(c.env, { origem: new URL(c.req.url).origin, pedido, metodo });
+  let pref;
+  try {
+    pref = await criarPreferencia(c.env, { origem: new URL(c.req.url).origin, pedido, metodo });
+  } catch (e) {
+    if (e.mpDetalhe) await alertar(c, 'mp_erro', `Falha ao criar link do Mercado Pago (pedido ${pedido.codigo}, ${metodo || 'todos'}): ${e.mpDetalhe}`).catch(() => {});
+    throw e;
+  }
   return c.json({ url: pref.url });
 });
 

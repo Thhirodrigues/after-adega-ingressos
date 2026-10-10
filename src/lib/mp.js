@@ -18,8 +18,11 @@ async function chamar(env, metodo, caminho, corpo, chaveIdem) {
   let json = null;
   try { json = await r.json(); } catch {}
   if (!r.ok) {
-    console.error('mercadopago', metodo, caminho, r.status, JSON.stringify(json)?.slice(0, 300));
-    throw new HttpError(502, 'Não foi possível falar com o Mercado Pago agora. Tente novamente ou pague pelo Pix com a chave.');
+    const detalhe = `HTTP ${r.status} ${JSON.stringify(json)?.slice(0, 220)}`;
+    console.error('mercadopago', metodo, caminho, detalhe);
+    const erro = new HttpError(502, 'Não foi possível falar com o Mercado Pago agora. Tente novamente ou pague pelo Pix com a chave.');
+    erro.mpDetalhe = detalhe;
+    throw erro;
   }
   return json;
 }
@@ -27,9 +30,9 @@ async function chamar(env, metodo, caminho, corpo, chaveIdem) {
 // Cria o link de pagamento do pedido. Pix e cartão (à vista, sem parcelar); sem boleto.
 // metodo: 'cartao' (só cartão de crédito), 'pix' (só Pix) ou nada (o comprador escolhe no Mercado Pago).
 export async function criarPreferencia(env, { origem, pedido, metodo = null }) {
-  const sem = ['ticket', 'atm', 'prepaid_card'];
-  if (metodo === 'cartao') sem.push('bank_transfer', 'account_money', 'debit_card');
-  if (metodo === 'pix') sem.push('credit_card', 'debit_card', 'account_money');
+  const sem = ['ticket', 'atm'];
+  if (metodo === 'cartao') sem.push('bank_transfer');
+  if (metodo === 'pix') sem.push('credit_card', 'debit_card', 'prepaid_card');
   const exp = new Date(pedido.expira_em * 1000).toISOString();
   const corpo = {
     items: [{
