@@ -33,7 +33,7 @@ r.post('/pedidos', exigir(), async (c) => {
   const pedido = await buscarPedido(c.env.DB, { codigo });
   await auditar(c.env.DB, usuario.id, 'pedido_criado', codigo);
   const cents = (n) => (n / 100).toFixed(2).replace('.', ',');
-  await alertar(c, 'novo_pedido', `Novo pedido ${codigo}: ${usuario.nome} ${usuario.sobrenome} — ${quantidade} ingresso(s), R$ ${cents(pedido.total_centavos)}. Aguardando Pix.`);
+  await alertar(c, 'novo_pedido', `Novo pedido ${codigo}: ${usuario.nome} ${usuario.sobrenome} — ${quantidade} ingresso(s), R$ ${cents(pedido.total_centavos)}. Aguardando pagamento.`);
   return c.json({ ...(await visaoPedido(c.env.DB, pedido)), mp_disponivel: !!c.env.MP_ACCESS_TOKEN }, 201);
 });
 
