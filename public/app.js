@@ -129,7 +129,24 @@ async function carregarEu() {
     estado.eu = null;
   }
   desenharNav();
+  atualizarBadgeAvisos();
 }
+
+// Mantém a bolinha vermelha de avisos não lidos (aba Avisos) sempre em dia.
+function atualizarBadgeAvisos() {
+  const n = estado.eu?.papel === 'admin' ? estado.eu.nao_lidos || 0 : 0;
+  document.querySelectorAll('[data-badge-avisos]').forEach((el) => {
+    el.textContent = n || '';
+    el.hidden = !n;
+  });
+}
+setInterval(() => {
+  if (estado.eu?.papel === 'admin' && document.visibilityState === 'visible') carregarEu();
+}, 20000);
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', (e) => { if (e.data?.tipo === 'push' && estado.eu?.papel === 'admin') carregarEu(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && estado.eu?.papel === 'admin') carregarEu();
+});
 
 function desenharNav() {
   const eu = estado.eu;
@@ -790,7 +807,7 @@ const ABAS = [
 function layoutAdmin(ativa, html) {
   app.innerHTML = `
     <h1>Administração</h1>
-    <div class="abas">${ABAS.map(([k, n]) => `<a href="#/admin/${k}" class="${k === ativa ? 'on' : ''}">${n}</a>`).join('')}</div>
+    <div class="abas">${ABAS.map(([k, n]) => `<a href="#/admin/${k}" class="${k === ativa ? 'on' : ''}">${n}${k === 'avisos' ? `<span class="badge" data-badge-avisos${estado.eu?.nao_lidos ? '' : ' hidden'}>${estado.eu?.nao_lidos || ''}</span>` : ''}</a>`).join('')}</div>
     ${html}`;
 }
 function exigirAdmin() {
@@ -1398,8 +1415,7 @@ rota('/portaria', async () => {
         const it = P.lista.find((x) => x.id === Number(b.dataset.des));
         if (!it) return;
         if (!navigator.onLine) return aviso('Desfazer só funciona com internet.', 'erro');
-        const admin = estado.eu?.papel === 'admin';
-        const pin = admin ? '' : await pedirPin(`Desfazer a entrada de ${it.nome}`);
+        const pin = await pedirPin(`Desfazer a entrada de ${it.nome}`);
         if (pin === null) return;
         try {
           const r = await api('POST', '/portaria/desfazer', { ingresso_id: it.id, pin });
@@ -1408,7 +1424,7 @@ rota('/portaria', async () => {
           it.desfeitos = r.desfeitos;
           salvarP();
           desenharLista();
-          aviso('Entrada desfeita. O administrador foi avisado.');
+          aviso('Entrada desfeita.');
         } catch (e) {
           aviso(e.message, 'erro');
         }

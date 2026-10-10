@@ -400,8 +400,9 @@ test('desfazer entrada: PIN, bloqueio, aviso ao admin e contador', async () => {
   // 3 erros seguidos bloqueiam (tentativas zeradas após o acerto acima)
   for (let i = 0; i < 3; i++) await hostess.post('/api/portaria/desfazer', { ingresso_id: id, pin: 'zzzz' });
   assert.equal((await hostess.post('/api/portaria/desfazer', { ingresso_id: id, pin: '4821' })).status, 429);
-  // admin desfaz sem PIN
-  assert.equal((await admin.post('/api/portaria/desfazer', { ingresso_id: id })).status, 200);
+  // admin também precisa da senha
+  assert.equal((await admin.post('/api/portaria/desfazer', { ingresso_id: id })).status, 401);
+  assert.equal((await admin.post('/api/portaria/desfazer', { ingresso_id: id, pin: '4821' })).status, 200);
 });
 
 test('avisos: marcar como lidos; push (chave, assinatura, teste)', async () => {

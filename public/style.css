@@ -74,3 +74,5 @@ th{color:var(--mudo);font-weight:600;font-size:.8rem}
 .check input{width:auto;margin-top:.25rem;flex:none}
 .regras h2{font-size:1rem;margin:1rem 0 .25rem}.regras p{margin:.2rem 0;color:var(--mudo)}
 .overlay.modal{background:rgba(0,0,0,.75);text-align:left}
+.badge[hidden]{display:none}
+.abas .badge{margin-left:.4rem}

@@ -1,5 +1,5 @@
 // Deixa o site abrir sem internet (ingressos e portaria). Rede primeiro; se falhar, usa o salvo.
-const VERSAO = 'fastpass-v8';
+const VERSAO = 'fastpass-v10';
 const BASE = ['/', '/index.html', '/style.css', '/app.js', '/vendor/qrcode.js', '/vendor/jsQR.js', '/manifest.webmanifest', '/icon-192.png'];
 
 self.addEventListener('install', (e) => {
@@ -48,6 +48,8 @@ self.addEventListener('push', (e) => {
           }
         }
       } catch {}
+      const abas = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      abas.forEach((a) => a.postMessage({ tipo: 'push' }));
       await self.registration.showNotification(titulo, { body: corpo, icon: '/icon-192.png', badge: '/icon-192.png', tag: 'aviso-admin', renotify: true });
     })(),
   );

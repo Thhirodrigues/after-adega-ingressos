@@ -112,7 +112,7 @@ r.post('/portaria/sincronizar', async (c) => {
 });
 
 // Desfaz uma entrada marcada por engano. A recepcionista precisa da senha de desbloqueio
-// (definida pelo admin); cada uso gera um aviso para o admin. O admin desfaz sem senha.
+// (definida pelo admin); cada uso gera um aviso para o admin. O admin também digita a senha.
 r.post('/portaria/desfazer', async (c) => {
   const b = await corpo(c);
   const db = c.env.DB;
@@ -120,7 +120,7 @@ r.post('/portaria/desfazer', async (c) => {
   const ev = await eventoAtivo(db);
   const id = v.inteiro(b.ingresso_id, 'Ingresso', 1, 1_000_000_000);
   const chaveTent = `pin:${u.id}`;
-  if (u.papel !== 'admin') {
+  {
     const cfg = await configuracoes(db);
     if (!cfg.pin_hash) throw new HttpError(409, 'A senha de desbloqueio ainda não foi definida pelo administrador.');
     const t = agora();
@@ -138,7 +138,7 @@ r.post('/portaria/desfazer', async (c) => {
         )
         .bind(chaveTent, t, t + 900)
         .run();
-      await alertar(c, 'pin_errado', `${u.nome} ${u.sobrenome} errou a senha de desbloqueio ao tentar desfazer uma entrada.`);
+      if (u.papel !== 'admin') await alertar(c, 'pin_errado', `${u.nome} ${u.sobrenome} errou a senha de desbloqueio ao tentar desfazer uma entrada.`);
       throw new HttpError(401, 'Senha de desbloqueio incorreta.');
     }
     await db.prepare('DELETE FROM tentativas_login WHERE cpf = ?1').bind(chaveTent).run();
