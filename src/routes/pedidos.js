@@ -62,7 +62,7 @@ r.post('/pedidos/:codigo/cancelar', exigir(), async (c) => {
 r.get('/meus-pedidos', exigir(), async (c) => {
   const db = c.env.DB;
   const { results } = await db
-    .prepare(`SELECT id FROM pedidos WHERE comprador_id = ?1 ORDER BY id DESC LIMIT 50`)
+    .prepare(`SELECT id FROM pedidos WHERE comprador_id = ?1 AND canal = 'online' ORDER BY id DESC LIMIT 50`)
     .bind(c.get('usuario').id)
     .all();
   const pedidos = [];
@@ -78,7 +78,7 @@ r.get('/meus-ingressos', exigir(), async (c) => {
        FROM ingressos i
        JOIN eventos e ON e.id = i.evento_id
        LEFT JOIN lotes l ON l.id = i.lote_id
-      WHERE i.dono_id = ?1 ORDER BY i.id`,
+      WHERE i.dono_id = ?1 AND i.nome_avulso IS NULL ORDER BY i.id`,
   )
     .bind(c.get('usuario').id, agora())
     .all();

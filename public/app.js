@@ -19,6 +19,28 @@ function centavos(txt) {
   return Number.isFinite(n) ? Math.round(n * 100) : NaN;
 }
 const reais = (c) => (c / 100).toFixed(2).replace('.', ',');
+// Seletor de quantidade com botões − e +. O valor fica num <input type="hidden"> (mesmo
+// nome/atributos de antes), então o resto do código lê .value e escuta "change".
+const stepperHtml = (attrs, max, valor = 1) =>
+  `<div class="qtd" data-max="${max}"><button type="button" class="qb" data-d="-1" aria-label="Diminuir quantidade">−</button><output aria-live="polite">${valor}</output><button type="button" class="qb" data-d="1" aria-label="Aumentar quantidade">+</button><input type="hidden" ${attrs} value="${valor}"></div>`;
+function ligarSteppers(raiz) {
+  raiz.querySelectorAll('.qtd').forEach((el) => {
+    const inp = el.querySelector('input');
+    const out = el.querySelector('output');
+    const [menos, mais] = el.querySelectorAll('.qb');
+    const max = () => Number(el.dataset.max) || 1;
+    const pinta = () => { out.textContent = inp.value; menos.disabled = Number(inp.value) <= 1; mais.disabled = Number(inp.value) >= max(); };
+    el.addEventListener('click', (e) => {
+      const b = e.target.closest('.qb');
+      if (!b || b.disabled) return;
+      inp.value = String(Math.min(max(), Math.max(1, Number(inp.value) + Number(b.dataset.d))));
+      pinta();
+      inp.dispatchEvent(new Event('change'));
+    });
+    el.setValor = (n) => { inp.value = String(Math.min(max(), Math.max(1, Number(n) || 1))); pinta(); };
+    pinta();
+  });
+}
 
 let avisoTimer;
 function aviso(msg, tipo = 'ok') {
@@ -226,7 +248,7 @@ rota('/', async () => {
           ? ''
           : `<div class="linha" style="margin-top:.75rem">
         <div><label style="margin:0 0 .2rem">Quantidade</label>
-          <select data-qtd="${l.id}" style="width:auto;min-width:5rem">${Array.from({ length: max }, (_, k) => `<option value="${k + 1}">${k + 1}</option>`).join('')}</select></div>
+          ${stepperHtml(`data-qtd="${l.id}"`, max)}</div>
         <div style="text-align:right"><div class="peq" data-taxa="${l.id}"></div><div><b data-total="${l.id}"></b></div></div>
       </div>
       <button class="bt bloco" data-lote="${l.id}">Comprar</button>`
@@ -242,6 +264,7 @@ rota('/', async () => {
     <h2>Ingressos</h2>${lotesHtml}
     <p class="peq">O comprador é responsável pelos ingressos do seu pedido.</p>
     <p class="peq"><a href="#/regras">Termos e regras</a> · <a href="#/privacidade">Privacidade</a></p>`;
+  ligarSteppers(app);
   const calcLote = (l, q) => {
     const sub = l.valor_centavos * q;
     const taxa = Math.floor((sub * d.taxa_percentual + 50) / 100);
@@ -289,7 +312,7 @@ rota('/comprar/(\\d+)', async (id) => {
     <p class="mudo">${esc(d.evento.nome)} · ${dataBR(d.evento.data_evento)}</p>
     <form class="card" id="f">
       <label>Quantidade de ingressos</label>
-      <select name="quantidade">${Array.from({ length: max }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('')}</select>
+      ${stepperHtml('name="quantidade"', max)}
       <label>Nome de quem vai fazer o Pix (para conferirmos o pagamento)</label>
       <input name="nome_pagador" required minlength="3" maxlength="80" value="${esc(`${estado.eu.nome} ${estado.eu.sobrenome}`)}">
       <div class="card" style="background:#0f0f16;margin-top:1rem">
@@ -302,9 +325,10 @@ rota('/comprar/(\\d+)', async (id) => {
       <button class="bt bloco">Gerar Pix</button>
     </form>`;
   const f = document.getElementById('f');
+  ligarSteppers(f);
   try {
     const g = JSON.parse(sessionStorage.getItem('qtd') || 'null');
-    if (g && String(g.lote) === id && [...f.quantidade.options].some((o) => o.value === String(g.q))) f.quantidade.value = String(g.q);
+    if (g && String(g.lote) === id && Number(g.q) >= 1 && Number(g.q) <= max) f.querySelector('.qtd').setValor(Number(g.q));
   } catch {}
   const calc = () => {
     const q = Number(f.quantidade.value);
@@ -682,7 +706,7 @@ rota('/conta', async () => {
 });
 
 // Termos de uso, regras de compra e privacidade (rascunho: vale revisão jurídica antes de divulgar em larga escala).
-const TERMOS_VERSAO = '2026-10-v2';
+const TERMOS_VERSAO = '2026-10-v3';
 const contatoHtml = (c) => (c ? `<b>${esc(c)}</b>` : 'o contato informado pela organização na página do evento');
 const TEXTO_REGRAS = (contato) => `
   <h2>1. Sua conta</h2>
@@ -694,7 +718,7 @@ const TEXTO_REGRAS = (contato) => `
   <h2>4. Presenteando ou passando o ingresso</h2>
   <p>Para dar o ingresso a outra pessoa, use o botão <b>Transferir</b> em “Meus ingressos”. Isso gera um novo QR para quem recebe e invalida o seu. A transferência encerra 48 horas antes da festa.</p>
   <h2>5. Pagamento</h2>
-  <p>O pagamento é por Pix, com a taxa de serviço informada na compra. Ao gerar o Pix, o seu pedido fica reservado por 20 minutos; passado esse prazo sem pagamento, a reserva é cancelada. O ingresso só é liberado depois que a organização confirmar o pagamento. Se você pagar depois do prazo, fale com a organização: confirmamos o pedido se ainda houver ingresso; caso contrário, devolvemos o valor.</p>
+  <p>A compra pelo aplicativo é por Pix, com a taxa de serviço informada na compra. Também pode haver venda presencial (dinheiro ou Pix na porta), sem taxa de serviço, diretamente com a equipe da organização. Ao gerar o Pix, o seu pedido fica reservado por 20 minutos; passado esse prazo sem pagamento, a reserva é cancelada. O ingresso só é liberado depois que a organização confirmar o pagamento. Compras em dinheiro são confirmadas na hora, por quem recebeu. Se você pagar depois do prazo, fale com a organização: confirmamos o pedido se ainda houver ingresso; caso contrário, devolvemos o valor.</p>
   <h2>6. Desistência, cancelamento e reembolso</h2>
   <p>Você pode desistir em até 7 dias após a compra, desde que faltem mais de 48 horas para a festa. Se a festa for cancelada pela organização, o reembolso é integral, incluindo a taxa de serviço. Todo reembolso é feito por Pix, manualmente, para quem pagou, <b>em até 2 dias úteis após a data da festa</b>.</p>
   <h2>7. Entrada</h2>
@@ -912,6 +936,11 @@ rota('/admin/financeiro', async () => {
       ${kpi('Cortesias', r.cortesias)}
       ${kpi('Já entraram', r.entraram)}
     </div>
+    <h2>Por forma de pagamento</h2>
+    <div class="rolar"><table><tr><th>Canal</th><th>Forma</th><th class="num">Pedidos</th><th class="num">Ingressos</th><th class="num">Total</th></tr>
+    ${(f.por_forma || []).map((x) => `<tr><td>${x.canal === 'porta' ? 'Porta' : 'Online'}</td><td>${x.forma === 'dinheiro' ? 'Dinheiro' : 'Pix'}</td><td class="num">${x.pedidos}</td><td class="num">${x.ingressos}</td><td class="num">${brl(x.total_centavos)}</td></tr>`).join('') || '<tr><td colspan="5" class="mudo">Sem vendas ainda.</td></tr>'}</table></div>
+    ${(f.por_vendedor || []).length ? `<h2>Vendas na porta por vendedor</h2><p class="peq">Dinheiro que cada pessoa deve prestar contas.</p>
+    <div class="rolar"><table><tr><th>Vendedor</th><th>Forma</th><th class="num">Ingressos</th><th class="num">Total</th></tr>${f.por_vendedor.map((x) => `<tr><td>${esc(x.vendedor)}</td><td>${x.forma === 'dinheiro' ? 'Dinheiro' : 'Pix'}</td><td class="num">${x.ingressos}</td><td class="num">${brl(x.total_centavos)}</td></tr>`).join('')}</table></div>` : ''}
     <h2>Por lote</h2>
     <div class="rolar"><table><tr><th>Lote</th><th class="num">Preço</th><th class="num">Vendidos</th><th class="num">Reservados</th><th class="num">Qtd.</th><th class="num">Receita</th></tr>
     ${f.lotes
@@ -934,10 +963,10 @@ rota('/admin/pedidos', async () => {
       return `<tr>
         <td><b>${esc(p.codigo)}</b><br>${tag(st)}</td>
         <td>${esc(p.comprador)}<br><span class="peq">${esc(p.telefone)} · CPF ${esc(fmtCpf(p.cpf))}</span></td>
-        <td>${p.quantidade}× ${esc(p.lote)}<br><span class="peq">Pagador: ${esc(p.nome_pagador)}</span></td>
+        <td>${p.quantidade}× ${esc(p.lote)}<br><span class="peq">${p.canal === 'porta' ? 'Venda na porta' : 'Pagador'}: ${esc(p.nome_pagador)}${p.status === 'pago' ? ` · ${p.forma_pagamento === 'dinheiro' ? 'dinheiro' : 'Pix'}` : ''}</span></td>
         <td class="num"><b>${brl(p.total_centavos)}</b><br><span class="peq">${hora(p.criado_em)}</span></td>
         <td><div class="acoes">
-          ${confirmavel ? `<button class="bt ok peq" data-conf="${p.id}">Confirmar Pix</button>` : ''}
+          ${confirmavel ? `<button class="bt ok peq" data-conf="${p.id}">Confirmar Pix</button><button class="bt sec peq" data-conf="${p.id}" data-forma="dinheiro">Recebi em dinheiro</button>` : ''}
           ${p.status !== 'cancelado' ? `<button class="bt perigo peq" data-canc="${p.id}" data-pago="${p.status === 'pago' ? 1 : 0}">${p.status === 'pago' ? 'Estornar' : 'Cancelar'}</button>` : ''}
         </div></td></tr>`;
     })
@@ -961,9 +990,10 @@ rota('/admin/pedidos', async () => {
   document.getElementById('atualiza').addEventListener('click', navegar);
   app.querySelectorAll('[data-conf]').forEach((b) =>
     b.addEventListener('click', () => {
-      if (!confirm('Confirmar que o Pix deste pedido caiu na conta?')) return;
+      const din = b.dataset.forma === 'dinheiro';
+      if (!confirm(din ? 'Confirmar que você recebeu o valor deste pedido em dinheiro?' : 'Confirmar que o Pix deste pedido caiu na conta?')) return;
       comEspera(b, async () => {
-        await api('POST', `/admin/pedidos/${b.dataset.conf}/confirmar`, {});
+        await api('POST', `/admin/pedidos/${b.dataset.conf}/confirmar`, din ? { forma: 'dinheiro' } : {});
         aviso('Pedido confirmado. Ingressos liberados.');
         navegar();
       });
@@ -1043,6 +1073,7 @@ rota('/admin/lotes', async () => {
         <div><label>Valor do ingresso (R$)</label><input name="valor" inputmode="decimal" value="${reais(l.valor_centavos)}" required></div>
         <div><label>Quantidade total</label><input name="quantidade" inputmode="numeric" value="${l.quantidade}" required></div>
         <div><label>Ordem de venda (1 = primeiro)</label><input name="ordem" inputmode="numeric" value="${l.ordem}"></div>
+        <div><label>Quem pode comprar</label><select name="canal"><option value="todos" ${l.canal === 'todos' ? 'selected' : ''}>Online e na porta</option><option value="online" ${l.canal === 'online' ? 'selected' : ''}>Só online</option><option value="porta" ${l.canal === 'porta' ? 'selected' : ''}>Só na porta</option></select></div>
       </div>
       <label><input type="checkbox" name="ativo" ${l.ativo ? 'checked' : ''} style="width:auto"> Lote ativo (visível para venda)</label>
       <button class="bt peq" style="margin-top:.75rem">Salvar lote</button></form>`,
@@ -1067,6 +1098,7 @@ rota('/admin/lotes', async () => {
         <div><label>Valor do ingresso (R$)</label><input name="valor" inputmode="decimal" placeholder="35,00" required></div>
         <div><label>Quantidade</label><input name="quantidade" inputmode="numeric" required></div>
         <div><label>Ordem de venda (1 = primeiro)</label><input name="ordem" inputmode="numeric" value="${lo.lotes.length + 1}"></div>
+        <div><label>Quem pode comprar</label><select name="canal"><option value="todos">Online e na porta</option><option value="online">Só online</option><option value="porta">Só na porta</option></select></div>
       </div>
       <p class="peq">Ordem de venda: o lote de menor número é vendido primeiro; quando esgota, o site destaca o próximo automaticamente. A taxa de serviço (%) é aplicada por cima do valor e aparece para o comprador.</p>
       <button class="bt peq">Criar lote</button></form>`,
@@ -1076,7 +1108,7 @@ rota('/admin/lotes', async () => {
     const quantidade = Number(soDig(f.quantidade.value));
     if (!Number.isFinite(valor) || valor < 0) throw new Error('Valor inválido.');
     if (f.quantidade.value.trim() === '' || !Number.isInteger(quantidade)) throw new Error('Quantidade inválida.');
-    return { nome: f.nome.value.trim(), valor_centavos: valor, quantidade, ordem: Number(soDig(f.ordem.value) || 0) };
+    return { nome: f.nome.value.trim(), valor_centavos: valor, quantidade, ordem: Number(soDig(f.ordem.value) || 0), canal: f.canal.value };
   };
   document.getElementById('fev').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -1348,7 +1380,7 @@ rota('/portaria', async () => {
     <div class="linha"><h1 style="margin:0">Portaria</h1><span id="conn" class="tag"></span></div>
     <p class="mudo" id="resumo"></p>
     <div id="conflitos"></div>
-    <div class="abas"><a href="#" data-aba="ler" class="on">Ler QR</a><a href="#" data-aba="lista">Lista</a></div>
+    <div class="abas"><a href="#" data-aba="ler" class="on">Ler QR</a><a href="#" data-aba="lista">Lista</a><a href="#" data-aba="venda">Venda</a></div>
     <div id="aba-ler">
       <div class="camera"><video id="video" playsinline muted></video><canvas id="cv" hidden></canvas></div>
       <div class="acoes" style="margin:.75rem 0"><button class="bt" id="btcam">Abrir câmera</button><button class="bt sec" id="btatualiza">Atualizar lista</button></div>
@@ -1358,6 +1390,7 @@ rota('/portaria', async () => {
       <input id="busca" placeholder="Buscar por nome…" autocomplete="off">
       <div id="itens"></div>
     </div>
+    <div id="aba-venda" hidden></div>
     <div id="overlay" class="overlay" hidden></div>`;
   const $ = (id) => document.getElementById(id);
 
@@ -1500,6 +1533,57 @@ rota('/portaria', async () => {
   };
   $('busca').addEventListener('input', desenharLista);
 
+  // Venda presencial (dinheiro ou Pix na porta). Exige internet: o estoque é decidido no servidor.
+  const abrirVenda = async () => {
+    const box = $('aba-venda');
+    if (!navigator.onLine) {
+      box.innerHTML = '<div class="card">A venda precisa de internet, para nunca vender o mesmo ingresso duas vezes. A leitura de QR continua funcionando sem internet.</div>';
+      return;
+    }
+    let d;
+    try { d = await api('GET', '/portaria/lotes-venda'); } catch (e) { box.innerHTML = `<div class="card">${esc(e.message)}</div>`; return; }
+    const lotes = d.lotes.filter((l) => l.disponiveis > 0);
+    if (!lotes.length) { box.innerHTML = '<div class="card">Nenhum lote liberado para venda presencial. O administrador define isso em Lotes (“Online e na porta” ou “Só na porta”).</div>'; return; }
+    box.innerHTML = `<form class="card" id="fvenda">
+      <label>Lote</label>
+      <select name="lote">${lotes.map((l) => `<option value="${l.id}" data-v="${l.valor_centavos}" data-max="${Math.min(20, l.disponiveis)}">${esc(l.nome)} — ${brl(l.valor_centavos)}</option>`).join('')}</select>
+      <label>Quantidade</label>
+      ${stepperHtml('name="quantidade"', Math.min(20, lotes[0].disponiveis))}
+      <label>Nome do convidado</label>
+      <input name="nome" required minlength="2" maxlength="80" autocomplete="off" placeholder="Nome e sobrenome">
+      <label>Forma de pagamento</label>
+      <div class="grade"><label class="check" style="margin:0"><input type="radio" name="forma" value="dinheiro" checked> <span>Dinheiro</span></label>
+      <label class="check" style="margin:0"><input type="radio" name="forma" value="pix_chave"> <span>Pix</span></label></div>
+      <label class="check"><input type="checkbox" name="entra" checked> <span>Entra agora (venda na porta). Desmarque se for compra antecipada em dinheiro: o ingresso fica válido no nome e a entrada é conferida pela Lista.</span></label>
+      <div class="card" style="background:#0f0f16;margin-top:1rem"><div class="linha"><span><b>Total a receber</b></span><b class="preco" id="vtotal"></b></div><p class="peq" style="margin:.4rem 0 0">Sem taxa de serviço na venda presencial.</p></div>
+      <button class="bt bloco">Registrar venda</button></form>`;
+    const f = $('fvenda');
+    ligarSteppers(f);
+    const calc = () => {
+      const op = f.lote.selectedOptions[0];
+      f.querySelector('.qtd').dataset.max = op.dataset.max;
+      f.querySelector('.qtd').setValor(Number(f.quantidade.value));
+      $('vtotal').textContent = brl(Number(op.dataset.v) * Number(f.quantidade.value));
+    };
+    f.lote.addEventListener('change', calc);
+    f.quantidade.addEventListener('change', calc);
+    calc();
+    f.addEventListener('submit', (e) => {
+      e.preventDefault();
+      comEspera(f.querySelector('button'), async () => {
+        try {
+          const r = await api('POST', '/portaria/venda', { lote_id: Number(f.lote.value), quantidade: Number(f.quantidade.value), nome: f.nome.value, forma: f.forma.value, entrar_agora: f.entra.checked });
+          aviso(`Venda registrada: ${r.quantidade} ingresso(s), ${brl(r.total_centavos)} em ${r.forma === 'dinheiro' ? 'dinheiro' : 'Pix'}${r.entrou ? ' · entrada marcada' : ''}.`);
+          try { await atualizarLista(); } catch {}
+          desenharTopo();
+          abrirVenda();
+        } catch (err) {
+          aviso(err.message, 'erro');
+        }
+      });
+    });
+  };
+
   app.querySelectorAll('[data-aba]').forEach((a) =>
     a.addEventListener('click', (e) => {
       e.preventDefault();
@@ -1507,7 +1591,9 @@ rota('/portaria', async () => {
       app.querySelectorAll('[data-aba]').forEach((x) => x.classList.toggle('on', x === a));
       $('aba-ler').hidden = aba !== 'ler';
       $('aba-lista').hidden = aba !== 'lista';
+      $('aba-venda').hidden = aba !== 'venda';
       if (aba === 'lista') desenharLista();
+      if (aba === 'venda') abrirVenda();
     }),
   );
 

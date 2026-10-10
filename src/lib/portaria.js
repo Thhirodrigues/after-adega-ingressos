@@ -15,7 +15,7 @@ async function dadosIngresso(db, id) {
   return db
     .prepare(
       `SELECT i.id, i.status, i.tipo, i.motivo, i.evento_id, i.qr_versao, i.usado_em,
-              u.nome || ' ' || u.sobrenome AS nome, p.nome || ' ' || p.sobrenome AS usado_por_nome
+              COALESCE(i.nome_avulso, u.nome || ' ' || u.sobrenome) AS nome, p.nome || ' ' || p.sobrenome AS usado_por_nome
          FROM ingressos i
          JOIN usuarios u ON u.id = i.dono_id
          LEFT JOIN usuarios p ON p.id = i.usado_por

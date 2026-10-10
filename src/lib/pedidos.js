@@ -58,12 +58,12 @@ export async function criarPedido(env, usuario, { loteId, quantidade, nomePagado
 
   const lote = await db
     .prepare(
-      `SELECT l.id, l.ativo, e.ativo AS evento_ativo
+      `SELECT l.id, l.ativo, l.canal, e.ativo AS evento_ativo
          FROM lotes l JOIN eventos e ON e.id = l.evento_id WHERE l.id = ?1`,
     )
     .bind(loteId)
     .first();
-  if (!lote || !lote.ativo || !lote.evento_ativo) throw new HttpError(404, 'Lote indisponível.');
+  if (!lote || !lote.ativo || !lote.evento_ativo || lote.canal === 'porta') throw new HttpError(404, 'Lote indisponível.');
 
   const t = agora();
   const expira = t + reservaMin * 60;
@@ -85,7 +85,7 @@ export async function criarPedido(env, usuario, { loteId, quantidade, nomePagado
                       + CAST((?3 * l.valor_centavos * ?4 + 50) / 100 AS INTEGER),
                     ?5, 'aguardando_pagamento', 1, 0, ?6, ?7
                FROM lotes l
-              WHERE l.id = ?8 AND l.ativo = 1
+              WHERE l.id = ?8 AND l.ativo = 1 AND l.canal <> 'porta'
                 AND (l.quantidade - l.vendidos - l.reservados) >= ?3`,
           )
           .bind(codigo, usuario.id, quantidade, pct, nomePagador, t, expira, loteId),
@@ -111,18 +111,19 @@ export async function criarPedido(env, usuario, { loteId, quantidade, nomePagado
 
 // Admin confirma que o Pix caiu na conta. Idempotente: confirmar duas vezes não duplica nada.
 // Se o pedido já tinha vencido (cliente pagou atrasado), só confirma se ainda houver estoque.
-export async function confirmarPedido(db, pedidoId, adminId) {
+export async function confirmarPedido(db, pedidoId, adminId, forma = null) {
   const t = agora();
   await db.batch([
     db
       .prepare(
-        `UPDATE pedidos SET status = 'pago', pago_em = ?2, confirmado_por = ?3, contabilizado = 0
+        `UPDATE pedidos SET status = 'pago', pago_em = ?2, confirmado_por = ?3, contabilizado = 0,
+                forma_pagamento = COALESCE(?4, forma_pagamento)
           WHERE id = ?1 AND status IN ('aguardando_pagamento', 'expirado')
             AND (reserva_ativa = 1 OR
                  (SELECT l.quantidade - l.vendidos - l.reservados FROM lotes l
                    WHERE l.id = pedidos.lote_id) >= pedidos.quantidade)`,
       )
-      .bind(pedidoId, t, adminId),
+      .bind(pedidoId, t, adminId, forma),
     db
       .prepare(
         `UPDATE lotes
@@ -253,4 +254,71 @@ export async function visaoPedido(db, p) {
     };
   }
   return visao;
+}
+
+// Venda presencial (porta ou dinheiro em mãos): sem taxa de serviço, já nasce paga.
+// Reaproveita a reserva + confirmação atômicas; depois grava o nome do convidado.
+// entrarAgora = true marca a entrada na hora (venda na porta); false deixa o ingresso
+// válido no nome do convidado (compra antecipada em dinheiro, confere por nome na portaria).
+export async function venderPresencial(db, vendedor, { loteId, quantidade, nome, forma, entrarAgora }) {
+  await liberarExpirados(db);
+  const lote = await db
+    .prepare(
+      `SELECT l.id, l.ativo, l.canal, e.ativo AS evento_ativo
+         FROM lotes l JOIN eventos e ON e.id = l.evento_id WHERE l.id = ?1`,
+    )
+    .bind(loteId)
+    .first();
+  if (!lote || !lote.ativo || !lote.evento_ativo || lote.canal === 'online') {
+    throw new HttpError(404, 'Lote indisponível para venda presencial.');
+  }
+  const t = agora();
+  let codigo = null;
+  for (let tentativa = 0; tentativa < 5 && !codigo; tentativa++) {
+    const cod = codigoCurto();
+    try {
+      const [ins] = await db.batch([
+        db
+          .prepare(
+            `INSERT INTO pedidos
+               (codigo, comprador_id, evento_id, lote_id, quantidade, valor_unit_centavos,
+                subtotal_centavos, taxa_centavos, total_centavos, nome_pagador, status,
+                reserva_ativa, contabilizado, criado_em, expira_em, canal, vendedor_id, forma_pagamento)
+             SELECT ?1, ?2, l.evento_id, l.id, ?3, l.valor_centavos,
+                    CAST(?3 * l.valor_centavos AS INTEGER), 0, CAST(?3 * l.valor_centavos AS INTEGER),
+                    ?4, 'aguardando_pagamento', 1, 0, ?5, ?6, 'porta', ?2, ?7
+               FROM lotes l
+              WHERE l.id = ?8 AND l.ativo = 1 AND l.canal <> 'online'
+                AND (l.quantidade - l.vendidos - l.reservados) >= ?3`,
+          )
+          .bind(cod, vendedor.id, quantidade, nome, t, t + 120, forma, loteId),
+        db
+          .prepare(
+            `UPDATE lotes SET reservados = reservados + ?1
+              WHERE id = ?2 AND ativo = 1 AND (quantidade - vendidos - reservados) >= ?1`,
+          )
+          .bind(quantidade, loteId),
+      ]);
+      if (ins.meta.changes !== 1) throw new HttpError(409, 'Não há ingressos suficientes neste lote.');
+      codigo = cod;
+    } catch (e) {
+      if (e instanceof HttpError) throw e;
+      if (/UNIQUE/i.test(String(e.message)) && /pedidos\.codigo/i.test(String(e.message))) continue;
+      throw e;
+    }
+  }
+  if (!codigo) throw new HttpError(500, 'Não foi possível registrar a venda. Tente novamente.');
+  const p = await db.prepare('SELECT id FROM pedidos WHERE codigo = ?1').bind(codigo).first();
+  await confirmarPedido(db, p.id, vendedor.id);
+  await db
+    .prepare(
+      `UPDATE ingressos SET nome_avulso = ?2,
+              status = CASE WHEN ?3 = 1 THEN 'usado' ELSE status END,
+              usado_em = CASE WHEN ?3 = 1 THEN ?4 ELSE usado_em END,
+              usado_por = CASE WHEN ?3 = 1 THEN ?5 ELSE usado_por END
+        WHERE pedido_id = ?1`,
+    )
+    .bind(p.id, nome, entrarAgora ? 1 : 0, t, vendedor.id)
+    .run();
+  return { id: p.id, codigo };
 }

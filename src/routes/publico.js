@@ -23,7 +23,7 @@ r.get('/evento', async (c) => {
                 + COALESCE((SELECT SUM(p.quantidade) FROM pedidos p
                              WHERE p.lote_id = l.id AND p.status = 'aguardando_pagamento'
                                AND p.reserva_ativa = 1 AND p.expira_em < ?2), 0)) AS disponiveis
-         FROM lotes l WHERE l.evento_id = ?1 AND l.ativo = 1 ORDER BY l.ordem, l.id`,
+         FROM lotes l WHERE l.evento_id = ?1 AND l.ativo = 1 AND l.canal <> 'porta' ORDER BY l.ordem, l.id`,
     )
     .bind(evento.id, agora())
     .all();

@@ -114,6 +114,8 @@ r.put('/admin/eventos/:id', async (c) => {
   return c.json({ ok: true });
 });
 
+const canalLote = (x) => (['todos', 'online', 'porta'].includes(x) ? x : 'todos');
+
 r.get('/admin/lotes', async (c) => {
   const eventoId = c.req.query('evento_id');
   const { results } = await c.env.DB.prepare(
@@ -133,8 +135,8 @@ r.post('/admin/lotes', async (c) => {
   }
   const res = await db
     .prepare(
-      `INSERT INTO lotes (evento_id, nome, valor_centavos, quantidade, ativo, ordem, criado_em)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+      `INSERT INTO lotes (evento_id, nome, valor_centavos, quantidade, ativo, ordem, criado_em, canal)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
     )
     .bind(
       eventoId,
@@ -144,6 +146,7 @@ r.post('/admin/lotes', async (c) => {
       bool(b.ativo),
       'ordem' in b ? v.inteiro(b.ordem, 'Ordem', 0, 1000) : 0,
       agora(),
+      canalLote(b.canal),
     )
     .run();
   await auditar(db, c.get('usuario').id, 'lote_criado', String(res.meta.last_row_id));
@@ -162,6 +165,7 @@ r.put('/admin/lotes/:id', async (c) => {
   const quantidade = 'quantidade' in b ? v.inteiro(b.quantidade, 'Quantidade', 0, 100_000) : atual.quantidade;
   const ativo = 'ativo' in b ? bool(b.ativo) : atual.ativo;
   const ordem = 'ordem' in b ? v.inteiro(b.ordem, 'Ordem', 0, 1000) : atual.ordem;
+  const canal = 'canal' in b ? canalLote(b.canal) : atual.canal;
   if (quantidade < atual.vendidos + atual.reservados) {
     throw new HttpError(
       409,
@@ -170,8 +174,8 @@ r.put('/admin/lotes/:id', async (c) => {
   }
   try {
     await db
-      .prepare('UPDATE lotes SET nome=?2, valor_centavos=?3, quantidade=?4, ativo=?5, ordem=?6 WHERE id=?1')
-      .bind(id, nome, valor, quantidade, ativo, ordem)
+      .prepare('UPDATE lotes SET nome=?2, valor_centavos=?3, quantidade=?4, ativo=?5, ordem=?6, canal=?7 WHERE id=?1')
+      .bind(id, nome, valor, quantidade, ativo, ordem, canal)
       .run();
   } catch (e) {
     if (/CHECK/i.test(String(e.message))) throw new HttpError(409, 'Quantidade menor que os ingressos já vendidos ou reservados.');
@@ -203,9 +207,9 @@ r.get('/admin/export/convidados.csv', async (c) => {
   const ev = await c.env.DB.prepare('SELECT id, nome, data_evento FROM eventos WHERE ativo = 1 LIMIT 1').first();
   if (!ev) throw new HttpError(404, 'Nenhum evento ativo.');
   const { results } = await c.env.DB.prepare(
-    `SELECT i.id, u.nome || ' ' || u.sobrenome AS nome, i.tipo, i.motivo, i.status, i.usado_em
+    `SELECT i.id, COALESCE(i.nome_avulso, u.nome || ' ' || u.sobrenome) AS nome, i.tipo, i.motivo, i.status, i.usado_em
        FROM ingressos i JOIN usuarios u ON u.id = i.dono_id
-      WHERE i.evento_id = ?1 AND i.status <> 'cancelado' ORDER BY u.nome, u.sobrenome, i.id`,
+      WHERE i.evento_id = ?1 AND i.status <> 'cancelado' ORDER BY 2, i.id`,
   )
     .bind(ev.id)
     .all();
@@ -220,7 +224,7 @@ r.get('/admin/export/vendas.csv', async (c) => {
   const ev = await c.env.DB.prepare('SELECT id, data_evento FROM eventos WHERE ativo = 1 LIMIT 1').first();
   if (!ev) throw new HttpError(404, 'Nenhum evento ativo.');
   const { results } = await c.env.DB.prepare(
-    `SELECT p.codigo, p.status, p.quantidade, p.subtotal_centavos, p.taxa_centavos, p.total_centavos, p.nome_pagador,
+    `SELECT p.codigo, p.status, p.quantidade, p.subtotal_centavos, p.taxa_centavos, p.total_centavos, p.nome_pagador, p.canal, p.forma_pagamento,
             p.criado_em, p.pago_em, u.nome || ' ' || u.sobrenome AS comprador, u.email, u.telefone, l.nome AS lote
        FROM pedidos p JOIN usuarios u ON u.id = p.comprador_id JOIN lotes l ON l.id = p.lote_id
       WHERE p.evento_id = ?1 ORDER BY p.id`,
@@ -229,8 +233,8 @@ r.get('/admin/export/vendas.csv', async (c) => {
     .all();
   await auditar(c.env.DB, c.get('usuario').id, 'export_vendas', String(results.length));
   const reais = (n) => (n / 100).toFixed(2).replace('.', ',');
-  const linhas = [['Pedido', 'Situação', 'Lote', 'Qtd', 'Ingressos (R$)', 'Taxa (R$)', 'Total (R$)', 'Comprador', 'Pagador (Pix)', 'E-mail', 'Celular', 'Criado em', 'Pago em']];
-  for (const p of results) linhas.push([p.codigo, p.status, p.lote, p.quantidade, reais(p.subtotal_centavos), reais(p.taxa_centavos), reais(p.total_centavos), p.comprador, p.nome_pagador, p.email, p.telefone, fmtData(p.criado_em), fmtData(p.pago_em)]);
+  const linhas = [['Pedido', 'Situação', 'Lote', 'Qtd', 'Ingressos (R$)', 'Taxa (R$)', 'Total (R$)', 'Comprador', 'Pagador (Pix)', 'Canal', 'Forma', 'E-mail', 'Celular', 'Criado em', 'Pago em']];
+  for (const p of results) linhas.push([p.codigo, p.status, p.lote, p.quantidade, reais(p.subtotal_centavos), reais(p.taxa_centavos), reais(p.total_centavos), p.comprador, p.nome_pagador, p.canal === 'porta' ? 'porta' : 'online', p.forma_pagamento === 'dinheiro' ? 'dinheiro' : 'pix', p.email, p.telefone, fmtData(p.criado_em), fmtData(p.pago_em)]);
   return resp(c, `vendas-${ev.data_evento}.csv`, csv(linhas));
 });
 
@@ -239,7 +243,7 @@ r.get('/admin/pedidos', async (c) => {
   const eventoId = c.req.query('evento_id') ? Number(c.req.query('evento_id')) : null;
   const { results } = await c.env.DB.prepare(
     `SELECT p.id, p.codigo, p.status, p.quantidade, p.subtotal_centavos, p.taxa_centavos,
-            p.total_centavos, p.nome_pagador, p.criado_em, p.expira_em, p.pago_em, p.reserva_ativa,
+            p.total_centavos, p.nome_pagador, p.criado_em, p.expira_em, p.pago_em, p.reserva_ativa, p.canal, p.forma_pagamento,
             u.nome || ' ' || u.sobrenome AS comprador, u.telefone, u.cpf, l.nome AS lote
        FROM pedidos p
        JOIN usuarios u ON u.id = p.comprador_id
@@ -265,7 +269,9 @@ r.post('/admin/pedidos/:id/confirmar', async (c) => {
   const antes = await buscarPedido(db, { id });
   if (!antes) throw new HttpError(404, 'Pedido não encontrado.');
   if (antes.status === 'cancelado') throw new HttpError(409, 'Este pedido foi cancelado.');
-  await confirmarPedido(db, id, admin.id);
+  const b = await corpo(c).catch(() => ({}));
+  const forma = ['pix_chave', 'dinheiro'].includes(b.forma) ? b.forma : null;
+  await confirmarPedido(db, id, admin.id, forma);
   const depois = await buscarPedido(db, { id });
   if (depois.status !== 'pago') {
     throw new HttpError(
@@ -396,7 +402,7 @@ r.get('/admin/financeiro', async (c) => {
 
   const { results: lotes } = await db
     .prepare(
-      `SELECT l.id, l.nome, l.valor_centavos, l.quantidade, l.vendidos, l.reservados, l.ativo,
+      `SELECT l.id, l.nome, l.valor_centavos, l.quantidade, l.vendidos, l.reservados, l.ativo, l.canal,
               (SELECT COUNT(*) FROM pedidos p WHERE p.lote_id = l.id AND p.status = 'pago') AS pedidos_pagos,
               COALESCE((SELECT SUM(p.subtotal_centavos) FROM pedidos p WHERE p.lote_id = l.id AND p.status = 'pago'), 0) AS receita_ingressos_centavos,
               COALESCE((SELECT SUM(p.taxa_centavos) FROM pedidos p WHERE p.lote_id = l.id AND p.status = 'pago'), 0) AS taxa_servico_centavos
@@ -434,6 +440,25 @@ r.get('/admin/financeiro', async (c) => {
     .bind(eventoId)
     .first();
 
+  const { results: porForma } = await db
+    .prepare(
+      `SELECT canal, forma_pagamento AS forma, COUNT(*) AS pedidos, SUM(quantidade) AS ingressos,
+              SUM(total_centavos) AS total_centavos
+         FROM pedidos WHERE evento_id = ?1 AND status = 'pago' GROUP BY canal, forma_pagamento`,
+    )
+    .bind(eventoId)
+    .all();
+  const { results: porVendedor } = await db
+    .prepare(
+      `SELECT u.nome || ' ' || u.sobrenome AS vendedor, p.forma_pagamento AS forma, COUNT(*) AS pedidos,
+              SUM(p.quantidade) AS ingressos, SUM(p.total_centavos) AS total_centavos
+         FROM pedidos p JOIN usuarios u ON u.id = p.vendedor_id
+        WHERE p.evento_id = ?1 AND p.status = 'pago' AND p.canal = 'porta'
+        GROUP BY p.vendedor_id, p.forma_pagamento ORDER BY vendedor`,
+    )
+    .bind(eventoId)
+    .all();
+
   const soma = (campo) => lotes.reduce((a, l) => a + l[campo], 0);
   const receitaIngressos = soma('receita_ingressos_centavos');
   const taxaServico = soma('taxa_servico_centavos');
@@ -457,6 +482,8 @@ r.get('/admin/financeiro', async (c) => {
       observacao: 'Pix recebido na chave: sem taxa de gateway. Valores em centavos.',
     },
     lotes,
+    por_forma: porForma,
+    por_vendedor: porVendedor,
   });
 });
 

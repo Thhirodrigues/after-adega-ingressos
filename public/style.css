@@ -76,3 +76,8 @@ th{color:var(--mudo);font-weight:600;font-size:.8rem}
 .overlay.modal{background:rgba(0,0,0,.75);text-align:left}
 .badge[hidden]{display:none}
 .abas .badge{margin-left:.4rem}
+
+.qtd{display:inline-flex;align-items:center;gap:.25rem;border:1px solid var(--linha);border-radius:12px;background:#0f0f16;padding:.2rem}
+.qtd .qb{width:2.6rem;height:2.6rem;border:0;border-radius:9px;background:var(--cor);color:#fff;font-size:1.4rem;line-height:1;cursor:pointer;font-family:inherit}
+.qtd .qb:disabled{opacity:.3;cursor:default}
+.qtd output{min-width:2.6rem;text-align:center;font-size:1.15rem;font-weight:700}

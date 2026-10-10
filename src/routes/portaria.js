@@ -5,6 +5,7 @@ import { hmacHex, igual, qrDoIngresso, sha256Hex } from '../lib/crypto.js';
 import { alertar } from '../lib/alertas.js';
 import * as v from '../lib/validar.js';
 import { lerQr, registrarEntrada } from '../lib/portaria.js';
+import { venderPresencial } from '../lib/pedidos.js';
 
 const r = new Hono();
 r.use('/portaria/*', exigir('hostess', 'admin'));
@@ -35,9 +36,9 @@ r.get('/portaria/lista', async (c) => {
   const ev = await eventoAtivo(db);
   const { results } = await db
     .prepare(
-      `SELECT i.id, i.status, i.tipo, i.motivo, i.qr_versao, i.usado_em, i.desfeitos, u.nome || ' ' || u.sobrenome AS nome
+      `SELECT i.id, i.status, i.tipo, i.motivo, i.qr_versao, i.usado_em, i.desfeitos, COALESCE(i.nome_avulso, u.nome || ' ' || u.sobrenome) AS nome
          FROM ingressos i JOIN usuarios u ON u.id = i.dono_id
-        WHERE i.evento_id = ?1 ORDER BY u.nome, u.sobrenome, i.id`,
+        WHERE i.evento_id = ?1 ORDER BY 8, i.id`,
     )
     .bind(ev.id)
     .all();
@@ -152,7 +153,7 @@ r.post('/portaria/desfazer', async (c) => {
     .run();
   if (res.meta.changes !== 1) throw new HttpError(409, 'Este ingresso não está marcado como usado.');
   const ing = await db
-    .prepare(`SELECT i.desfeitos, u.nome || ' ' || u.sobrenome AS nome FROM ingressos i JOIN usuarios u ON u.id = i.dono_id WHERE i.id = ?1`)
+    .prepare(`SELECT i.desfeitos, COALESCE(i.nome_avulso, u.nome || ' ' || u.sobrenome) AS nome FROM ingressos i JOIN usuarios u ON u.id = i.dono_id WHERE i.id = ?1`)
     .bind(id)
     .first();
   await auditar(db, u.id, 'entrada_desfeita', String(id));
@@ -160,6 +161,41 @@ r.post('/portaria/desfazer', async (c) => {
     await alertar(c, 'entrada_desfeita', `${u.nome} ${u.sobrenome} desfez a entrada de ${ing.nome} (ingresso #${id}). Total de desfeitos neste ingresso: ${ing.desfeitos}.`);
   }
   return c.json({ ok: true, nome: ing.nome, desfeitos: ing.desfeitos, ...(await contagem(db, ev.id)) });
+});
+
+// Lotes que podem ser vendidos presencialmente (porta ou dinheiro), do evento ativo.
+r.get('/portaria/lotes-venda', async (c) => {
+  const db = c.env.DB;
+  const ev = await eventoAtivo(db);
+  const { results } = await db
+    .prepare(
+      `SELECT id, nome, valor_centavos, canal, (quantidade - vendidos - reservados) AS disponiveis
+         FROM lotes WHERE evento_id = ?1 AND ativo = 1 AND canal <> 'online' ORDER BY ordem, id`,
+    )
+    .bind(ev.id)
+    .all();
+  return c.json({ evento: ev, lotes: results });
+});
+
+// Venda presencial: dinheiro ou Pix na hora. Sem taxa de serviço. Precisa de internet
+// (o estoque é decidido no servidor, para nunca vender o mesmo ingresso duas vezes).
+r.post('/portaria/venda', async (c) => {
+  const b = await corpo(c);
+  const db = c.env.DB;
+  const u = c.get('usuario');
+  const ev = await eventoAtivo(db);
+  const loteId = v.inteiro(b.lote_id, 'Lote', 1, 1_000_000_000);
+  const quantidade = v.inteiro(b.quantidade, 'Quantidade', 1, 20);
+  const nome = v.texto(b.nome, 'Nome do convidado', 2, 80);
+  const forma = ['dinheiro', 'pix_chave'].includes(b.forma) ? b.forma : null;
+  if (!forma) throw new HttpError(400, 'Escolha a forma de pagamento: dinheiro ou Pix.');
+  const lote = await db.prepare('SELECT evento_id FROM lotes WHERE id = ?1').bind(loteId).first();
+  if (!lote || lote.evento_id !== ev.id) throw new HttpError(404, 'Lote indisponível para venda presencial.');
+  const entrarAgora = b.entrar_agora !== false;
+  const { codigo, id } = await venderPresencial(db, u, { loteId, quantidade, nome, forma, entrarAgora });
+  const p = await db.prepare('SELECT total_centavos FROM pedidos WHERE id = ?1').bind(id).first();
+  await auditar(db, u.id, 'venda_presencial', `${codigo} ${quantidade}x ${forma} ${p.total_centavos}`);
+  return c.json({ ok: true, codigo, quantidade, total_centavos: p.total_centavos, forma, entrou: entrarAgora, ...(await contagem(db, ev.id)) }, 201);
 });
 
 export default r;

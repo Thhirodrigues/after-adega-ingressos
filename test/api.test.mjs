@@ -477,3 +477,62 @@ test('exportações CSV: só admin; sem CPF; protege contra fórmula', async () 
   const v2 = await (await fetch(BASE + '/api/admin/export/vendas.csv', { headers: { cookie: admin.cookie } })).text();
   assert.ok(v2.includes('"\'=SOMA Teste"'));
 });
+
+test('venda presencial: dinheiro/porta, sem taxa, estoque atômico, lote só-porta oculto online', async () => {
+  const r0 = await admin.post('/api/admin/lotes', { evento_id: eventoId, nome: 'Só porta', valor_centavos: 5000, quantidade: 3, ativo: true, canal: 'porta' });
+  assert.equal(r0.status, 201, JSON.stringify(r0.json));
+  const portaId = r0.json.id;
+  // não aparece online nem aceita pedido online
+  const ev = (await new Cliente().get('/api/evento')).json;
+  assert.ok(!ev.lotes.some((l) => l.id === portaId));
+  const { c } = await novoComprador();
+  assert.equal((await c.post('/api/pedidos', { aceito_termos: true, lote_id: portaId, quantidade: 1, nome_pagador: 'Fulano de Tal' })).status, 404);
+  // comprador não vende
+  assert.equal((await c.post('/api/portaria/venda', { lote_id: portaId, quantidade: 1, nome: 'X Y', forma: 'dinheiro' })).status, 403);
+  // lotes de venda da portaria
+  const lv = (await hostess.get('/api/portaria/lotes-venda')).json.lotes;
+  assert.ok(lv.some((l) => l.id === portaId));
+  // venda na porta: entra na hora
+  const v1 = await hostess.post('/api/portaria/venda', { lote_id: portaId, quantidade: 2, nome: 'Maria da Porta', forma: 'dinheiro' });
+  assert.equal(v1.status, 201, JSON.stringify(v1.json));
+  assert.equal(v1.json.total_centavos, 10000);
+  assert.equal(v1.json.entrou, true);
+  // forma inválida e nome curto
+  assert.equal((await hostess.post('/api/portaria/venda', { lote_id: portaId, quantidade: 1, nome: 'Zé Ninguém', forma: 'cheque' })).status, 400);
+  assert.equal((await hostess.post('/api/portaria/venda', { lote_id: portaId, quantidade: 1, nome: 'a', forma: 'dinheiro' })).status, 400);
+  // antecipada em dinheiro: fica válido no nome
+  const v2 = await hostess.post('/api/portaria/venda', { lote_id: portaId, quantidade: 1, nome: 'João Antecipado', forma: 'pix_chave', entrar_agora: false });
+  assert.equal(v2.status, 201, JSON.stringify(v2.json));
+  // estoque esgotado
+  const v3 = await hostess.post('/api/portaria/venda', { lote_id: portaId, quantidade: 1, nome: 'Sem Estoque', forma: 'dinheiro' });
+  assert.equal(v3.status, 409);
+  // concorrência no último ingresso de um lote novo
+  const r1 = await admin.post('/api/admin/lotes', { evento_id: eventoId, nome: 'Último', valor_centavos: 1000, quantidade: 1, ativo: true, canal: 'porta' });
+  const rs = await Promise.all(Array.from({ length: 5 }, (_, i) => hostess.post('/api/portaria/venda', { lote_id: r1.json.id, quantidade: 1, nome: `Corrida ${i}`, forma: 'dinheiro' })));
+  assert.equal(rs.filter((x) => x.status === 201).length, 1);
+  // lista da portaria mostra os nomes avulsos
+  const lista = (await hostess.get('/api/portaria/lista')).json.ingressos;
+  assert.equal(lista.filter((i) => i.nome === 'Maria da Porta').length, 2);
+  const joao = lista.find((i) => i.nome === 'João Antecipado');
+  assert.equal(joao.status, 'valido');
+  assert.equal((await hostess.post('/api/portaria/entrada-manual', { ingresso_id: joao.id })).json.resultado, 'ok');
+  // não aparece em "meus ingressos"/"meus pedidos" da hostess
+  assert.equal((await hostess.get('/api/meus-ingressos')).json.ingressos.filter((i) => i.lote === 'Só porta').length, 0);
+  assert.equal((await hostess.get('/api/meus-pedidos')).json.pedidos.length, 0);
+  // financeiro: taxa zero nas vendas da porta, separado por forma
+  const f = (await admin.get('/api/admin/financeiro')).json;
+  const lp = f.lotes.find((l) => l.id === portaId);
+  assert.equal(lp.vendidos, 3);
+  assert.equal(lp.taxa_servico_centavos, 0);
+  assert.equal(lp.receita_ingressos_centavos, 15000);
+  assert.ok(f.por_forma.some((x) => x.canal === 'porta' && x.forma === 'dinheiro' && x.total_centavos >= 10000));
+  // CSV traz canal
+  const csv = await (await fetch(BASE + '/api/admin/export/vendas.csv', { headers: { cookie: admin.cookie } })).text();
+  assert.ok(csv.includes('"Canal"') && csv.includes('porta'));
+  // admin confirma pedido online como dinheiro
+  const { c: c3 } = await novoComprador();
+  const p = await c3.post('/api/pedidos', { aceito_termos: true, lote_id: loteId, quantidade: 1, nome_pagador: 'Fulano de Tal' });
+  const ped = (await admin.get('/api/admin/pedidos?status=aguardando_pagamento')).json.pedidos.find((x) => x.codigo === p.json.codigo);
+  assert.equal((await admin.post(`/api/admin/pedidos/${ped.id}/confirmar`, { forma: 'dinheiro' })).status, 200);
+  assert.equal((await admin.get('/api/admin/pedidos?status=pago')).json.pedidos.find((x) => x.id === ped.id).forma_pagamento, 'dinheiro');
+});

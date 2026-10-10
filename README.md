@@ -46,3 +46,13 @@ Valores em centavos; taxa de serviço 10% (configurável); reserva de 60 min; es
 - **CSV** (Admin → Financeiro/Pedidos): `/api/admin/export/convidados.csv` (sem CPF, para imprimir) e `/api/admin/export/vendas.csv`. Separador `;`, BOM para o Excel, células neutralizadas contra fórmula.
 - **Termos de uso / regras de compra (`#/regras`) e Política de Privacidade (`#/privacidade`)**; o cadastro exige aceite (`aceito_termos`, versão e hora gravadas em `usuarios`). Contato da organização editável em Admin → Pix e taxas. Textos são rascunho: revisar com advogado. Versão em `src/lib/termos.js` e `TERMOS_VERSAO` no `app.js` (mudar os dois juntos).
 - Reembolso por Pix manual em até 2 dias úteis após a festa (nas regras).
+
+## Fase 5 — venda presencial e seletor de quantidade
+
+- **Venda na porta / dinheiro**: aba **Venda** na Portaria (hostess e admin). Registra o pagamento em dinheiro ou Pix, sem taxa de serviço; "Entra agora" marca a entrada na hora, ou fica válido no nome do convidado (compra antecipada em dinheiro; entrada conferida pela Lista). Exige internet (estoque decidido no servidor, atômico).
+- **Lotes por canal** (Admin → Lotes): "Online e na porta", "Só online" ou "Só na porta" (lote só-porta nunca aparece no site).
+- Admin pode confirmar um pedido online como **"Recebi em dinheiro"**.
+- Financeiro: quadro por forma de pagamento e **por vendedor** (prestação de contas do dinheiro).
+- CSV de vendas ganhou colunas Canal e Forma; lista da porta mostra nomes de convidados avulsos.
+- Quantidade agora usa botões − / + (home e tela de compra).
+- Regras/termos na versão `2026-10-v3` (menciona venda presencial); migração `0006`.
