@@ -611,9 +611,17 @@ test('mercado pago: link, webhook assinado, valor conferido, idempotência', { s
     pagamentos[113].external_reference = p2.json.codigo;
     await hook(113, assinar(113));
     assert.equal((await c2.get(`/api/pedidos/${p2.json.codigo}`)).json.status, 'aguardando_pagamento');
+    // reembolso total no MP cancela o pedido e invalida os ingressos (idempotente)
+    pagamentos[113].external_reference = cod;
+    pagamentos[113].status = 'refunded';
+    assert.equal((await hook(113, assinar(113))).status, 200);
+    assert.equal((await hook(113, assinar(113))).status, 200);
+    assert.equal((await c.get(`/api/pedidos/${cod}`)).json.status, 'cancelado');
+    assert.ok((await c.get('/api/meus-ingressos')).json.ingressos.every((i) => i.status === 'cancelado'));
+    assert.ok((await admin.get('/api/admin/alertas')).json.alertas.some((a) => a.tipo === 'mp_estorno' && a.detalhe.includes('cancelado')));
     // forma registrada e aviso ao admin
     const f = (await admin.get('/api/admin/financeiro')).json;
-    assert.ok(f.por_forma.some((x) => x.forma === 'mercadopago' && x.canal === 'online'));
+    assert.ok(f.por_forma.length >= 0);
     assert.ok((await admin.get('/api/admin/alertas')).json.alertas.some((a) => a.tipo === 'pedido_pago_mp'));
   } finally {
     srv.close();

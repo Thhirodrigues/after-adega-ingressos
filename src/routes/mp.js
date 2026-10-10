@@ -3,7 +3,7 @@ import { HttpError, auditar } from '../lib/http.js';
 import { exigir } from '../lib/auth.js';
 import { alertar } from '../lib/alertas.js';
 import { assinaturaValida, buscarPagamento, criarPreferencia, mpAtivo } from '../lib/mp.js';
-import { buscarPedido, confirmarPedido, liberarExpirados } from '../lib/pedidos.js';
+import { buscarPedido, confirmarPedido, estornarPago, liberarExpirados } from '../lib/pedidos.js';
 
 const r = new Hono();
 const reais = (n) => (n / 100).toFixed(2).replace('.', ',');
@@ -49,8 +49,21 @@ r.post('/mp/webhook', async (c) => {
   if (!pedido) return c.json({ ok: true });
 
   if (['refunded', 'charged_back'].includes(pg.status)) {
-    if (String(pedido.mp_payment_id) === String(pg.id)) {
-      await alertar(c, 'mp_estorno', `Pedido ${codigo}: pagamento ${pg.status === 'refunded' ? 'estornado' : 'contestado (chargeback)'} no Mercado Pago. Cancele/estorne o pedido no painel se for o caso.`);
+    if (String(pedido.mp_payment_id) !== String(pg.id)) return c.json({ ok: true });
+    if (pg.status === 'refunded') {
+      // Reembolso total feito no Mercado Pago: cancela o pedido e invalida os ingressos (a menos que algum já tenha entrado).
+      if (pedido.status === 'pago') {
+        await estornarPago(db, pedido.id);
+        const depois = await buscarPedido(db, { id: pedido.id });
+        if (depois.status === 'cancelado') {
+          await auditar(db, null, 'pedido_estornado_mp', codigo);
+          await alertar(c, 'mp_estorno', `Pedido ${codigo} reembolsado no Mercado Pago: pedido cancelado e ingressos invalidados automaticamente.`);
+        } else {
+          await alertar(c, 'mp_estorno', `ATENÇÃO: pedido ${codigo} foi reembolsado no Mercado Pago, mas algum ingresso já foi usado na portaria, então NÃO foi cancelado. Veja o pedido.`);
+        }
+      }
+    } else {
+      await alertar(c, 'mp_estorno', `ATENÇÃO: pedido ${codigo} teve chargeback (contestação) no Mercado Pago. Decida se cancela o pedido em Admin → Pedidos.`);
     }
     return c.json({ ok: true });
   }
