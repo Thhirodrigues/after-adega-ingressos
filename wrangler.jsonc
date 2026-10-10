@@ -4,6 +4,9 @@
   "compatibility_date": "2025-10-01",
   "observability": { "enabled": true },
 
+  // Mantém variáveis/segredos criados no painel (ex.: MP_ACCESS_TOKEN) quando o deploy roda.
+  "keep_vars": true,
+
   // Páginas do site (PWA). Apenas /api/* passa pelo Worker.
   "assets": {
     "directory": "./public",
