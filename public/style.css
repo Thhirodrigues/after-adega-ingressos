@@ -94,3 +94,15 @@ h1{background:linear-gradient(90deg,#fff 30%,#f0abfc 65%,#67e8f9);-webkit-backgr
 
 .marca b.nome{display:block;line-height:1.1}
 .marca b.nome small{display:block;margin-top:.15rem;font-size:.62rem;font-weight:500;letter-spacing:.04em;color:var(--mudo);-webkit-text-fill-color:var(--mudo)}
+
+/* ---- organização mobile (topo, abas, botões) ---- */
+.topo{flex-direction:column;align-items:stretch;gap:.55rem;padding:.65rem 1rem .7rem}
+.marca,.marca b.nome,.marca b.nome small{white-space:nowrap}
+.marca{flex:none}
+#nav{flex-wrap:wrap;justify-content:space-between;gap:.35rem}
+#nav a,#nav button{flex:1 1 auto;text-align:center;white-space:nowrap;font-size:.85rem;padding:.4rem .55rem}
+@media(min-width:720px){.topo{flex-direction:row;align-items:center;justify-content:space-between}#nav{flex:0 1 auto;justify-content:flex-end}#nav a,#nav button{flex:none;font-size:.9rem;padding:.35rem .8rem}}
+.abas{display:grid;grid-template-columns:repeat(auto-fill,minmax(7.4rem,1fr));gap:.45rem}
+.abas a{text-align:center;padding:.5rem .4rem}
+.acoes .bt{flex:1 1 14rem}
+#nav button{font-family:inherit}
