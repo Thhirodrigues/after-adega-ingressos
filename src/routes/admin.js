@@ -18,6 +18,40 @@ r.use('/admin/*', exigir('admin'));
 
 const bool = (x) => (x ? 1 : 0);
 
+
+// ---------- Zerar dados de teste (antes da primeira festa) ----------
+// Apaga pedidos, ingressos, avisos, auditoria e todos os usuários que não são admin.
+// Mantém: administradores, configurações (Pix, taxa, termos), eventos e lotes (contadores zerados).
+const FRASE_ZERAR = 'ZERAR DADOS DE TESTE';
+r.post('/admin/zerar-teste', async (c) => {
+  const b = await corpo(c);
+  if (String(b.confirmacao ?? '').trim() !== FRASE_ZERAR) throw new HttpError(400, `Digite exatamente: ${FRASE_ZERAR}`);
+  const db = c.env.DB;
+  const eu = c.get('usuario').id;
+  const cont = async (sql) => (await db.prepare(sql).first()).n;
+  const antes = {
+    pedidos: await cont('SELECT COUNT(*) n FROM pedidos'),
+    ingressos: await cont('SELECT COUNT(*) n FROM ingressos'),
+    usuarios: await cont("SELECT COUNT(*) n FROM usuarios WHERE papel <> 'admin'"),
+  };
+  const NAO_ADMIN = "(SELECT id FROM usuarios WHERE papel <> 'admin')";
+  await db.batch([
+    db.prepare('DELETE FROM transferencias'),
+    db.prepare('DELETE FROM ingressos'),
+    db.prepare('DELETE FROM pedidos'),
+    db.prepare('DELETE FROM alertas'),
+    db.prepare(`DELETE FROM push_assinaturas WHERE usuario_id IN ${NAO_ADMIN}`),
+    db.prepare('DELETE FROM pedidos_reset'),
+    db.prepare(`DELETE FROM sessoes WHERE usuario_id IN ${NAO_ADMIN}`),
+    db.prepare('DELETE FROM tentativas_login'),
+    db.prepare('DELETE FROM auditoria'),
+    db.prepare("DELETE FROM usuarios WHERE papel <> 'admin'"),
+    db.prepare('UPDATE lotes SET vendidos = 0, reservados = 0'),
+  ]);
+  await auditar(db, eu, 'dados_de_teste_zerados', JSON.stringify(antes));
+  return c.json({ ok: true, apagados: antes });
+});
+
 // ---------- Configuração (chave Pix, taxa, prazo da reserva) ----------
 
 const SEGREDOS_CONFIG = ['vapid_privada', 'pin_hash'];

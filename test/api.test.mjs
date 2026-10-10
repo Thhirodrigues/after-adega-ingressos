@@ -627,3 +627,20 @@ test('mercado pago: link, webhook assinado, valor conferido, idempotência', { s
     srv.close();
   }
 });
+
+test('zerar dados de teste: exige frase, apaga tudo menos admin/config/eventos/lotes', async () => {
+  assert.equal((await admin.post('/api/admin/zerar-teste', { confirmacao: 'zerar' })).status, 400);
+  const { c: comprador } = await novoComprador();
+  assert.equal((await comprador.post('/api/admin/zerar-teste', { confirmacao: 'ZERAR DADOS DE TESTE' })).status, 403);
+  const antes = (await admin.get('/api/admin/usuarios')).json.usuarios.length;
+  assert.ok(antes > 1);
+  const cfgAntes = (await admin.get('/api/admin/config')).json;
+  const r = await admin.post('/api/admin/zerar-teste', { confirmacao: 'ZERAR DADOS DE TESTE' });
+  assert.equal(r.status, 200);
+  assert.ok(r.json.apagados.usuarios >= 1);
+  const us = (await admin.get('/api/admin/usuarios')).json.usuarios;
+  assert.ok(us.length >= 1 && us.every((u) => u.papel === 'admin'));
+  assert.equal((await admin.get('/api/admin/config')).json.pix_chave, cfgAntes.pix_chave);
+  assert.ok((await admin.get('/api/admin/lotes')).json.lotes.every((l) => l.vendidos === 0 && l.reservados === 0));
+  assert.equal((await admin.get('/api/admin/pedidos')).json.pedidos.length, 0);
+});

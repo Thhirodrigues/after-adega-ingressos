@@ -1182,8 +1182,22 @@ rota('/admin/config', async () => {
       <div><label>Máximo de ingressos por pedido</label><input name="max_ingressos_por_pedido" inputmode="numeric" value="${esc(c.max_ingressos_por_pedido)}"></div>
       <div><label>Transferências encerram (horas antes da festa)</label><input name="transferencia_limite_horas" inputmode="numeric" value="${esc(c.transferencia_limite_horas ?? 48)}"></div></div>
       <p class="peq">Alterar a taxa vale só para pedidos novos; pedidos já feitos mantêm o valor combinado.</p>
-      <button class="bt bloco">Salvar</button></form>`,
+      <button class="bt bloco">Salvar</button></form>
+    <form class="card" id="fzerar" style="border-color:rgba(244,63,94,.45)">
+      <h2 style="margin-top:0">Zerar dados de teste</h2>
+      <p class="peq">Apaga todos os pedidos, ingressos, avisos, histórico e todos os usuários que não são administradores (inclusive hostess). Mantém administradores, configurações, eventos e lotes. <b>Não dá para desfazer.</b></p>
+      <label>Para confirmar, digite: ZERAR DADOS DE TESTE</label><input name="confirmacao" autocomplete="off" autocapitalize="characters">
+      <button class="bt perigo bloco">Zerar agora</button></form>`,
   );
+  document.getElementById('fzerar').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const fz = e.target;
+    comEspera(fz.querySelector('button'), async () => {
+      const r = await api('POST', '/admin/zerar-teste', { confirmacao: fz.confirmacao.value });
+      fz.confirmacao.value = '';
+      aviso(`Pronto: ${r.apagados.pedidos} pedidos, ${r.apagados.ingressos} ingressos e ${r.apagados.usuarios} usuários apagados.`);
+    });
+  });
   const f = document.getElementById('f');
   f.pix_tipo.value = detectarTipoPix(f.pix_chave.value);
   const dicaPix = () => (document.getElementById('dica-pix').textContent = DICAS_PIX[f.pix_tipo.value]);
