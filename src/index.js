@@ -47,7 +47,7 @@ app.route('/api', admin);
 
 app.notFound((c) => c.json({ erro: 'Não encontrado.' }, 404));
 app.onError((err, c) => {
-  if (err instanceof HttpError) return c.json({ erro: err.message }, err.status);
+  if (err instanceof HttpError) return c.json({ erro: err.message, ...(err.extra || {}) }, err.status);
   console.error(err);
   return c.json({ erro: 'Erro interno.' }, 500);
 });

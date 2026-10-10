@@ -240,7 +240,8 @@ rota('/', async () => {
     <p><b>${dataBR(ev.data_evento)}</b>${ev.local ? ` · ${esc(ev.local)}` : ''}</p>
     ${ev.descricao ? `<p class="mudo">${esc(ev.descricao)}</p>` : ''}
     <h2>Ingressos</h2>${lotesHtml}
-    <p class="peq">O comprador é responsável pelos ingressos do seu pedido.</p>`;
+    <p class="peq">O comprador é responsável pelos ingressos do seu pedido.</p>
+    <p class="peq"><a href="#/regras">Termos e regras</a> · <a href="#/privacidade">Privacidade</a></p>`;
   const calcLote = (l, q) => {
     const sub = l.valor_centavos * q;
     const taxa = Math.floor((sub * d.taxa_percentual + 50) / 100);
@@ -297,7 +298,7 @@ rota('/comprar/(\\d+)', async (id) => {
         <div class="linha"><span><b>Total</b></span><b class="preco" id="t_tot"></b></div>
       </div>
       <label class="check"><input type="checkbox" name="aceito" required> <span>Li e aceito as <a href="#/regras" target="_blank" rel="noopener">regras de compra</a>. Sei que ingresso é pessoal e de uso único e que <b>qualquer envio de print ou foto do QR Code é de minha inteira responsabilidade</b>, podendo resultar em entrada negada.</span></label>
-      <p class="peq">Ao continuar seguramos seus ingressos por um tempo limitado para você pagar via Pix.</p>
+      <p class="peq">Ao gerar o Pix, seguramos seus ingressos por ${d.reserva_minutos || 20} minutos para você pagar.</p>
       <button class="bt bloco">Gerar Pix</button>
     </form>`;
   const f = document.getElementById('f');
@@ -318,8 +319,17 @@ rota('/comprar/(\\d+)', async (id) => {
   f.addEventListener('submit', (e) => {
     e.preventDefault();
     comEspera(f.querySelector('button'), async () => {
-      const r = await api('POST', '/pedidos', { lote_id: l.id, quantidade: Number(f.quantidade.value), nome_pagador: f.nome_pagador.value, aceito_termos: f.aceito.checked === true });
-      location.hash = `#/pedido/${r.codigo}`;
+      try {
+        const r = await api('POST', '/pedidos', { lote_id: l.id, quantidade: Number(f.quantidade.value), nome_pagador: f.nome_pagador.value, aceito_termos: f.aceito.checked === true });
+        location.hash = `#/pedido/${r.codigo}`;
+      } catch (e) {
+        if (e.status === 409 && e.dados?.pedido_aberto) {
+          aviso('Você já tem um pedido aguardando pagamento. Pague ou cancele esse pedido antes de fazer outro.', 'erro');
+          location.hash = `#/pedido/${e.dados.pedido_aberto}`;
+          return;
+        }
+        throw e;
+      }
     });
   });
 });
@@ -583,7 +593,7 @@ rota('/cadastro', async () => {
     <h1>Criar conta</h1>
     <form class="card" id="f">
       ${campoUsuario(campoSenha() + campoSenha('senha2', 'Repita a senha') + campoResposta())}
-      <p class="peq">Seus dados são usados apenas para identificar o comprador dos ingressos.</p>
+      <label class="check"><input type="checkbox" name="aceito" required> <span>Li e aceito os <a href="#/regras" target="_blank" rel="noopener">termos de uso e regras de compra</a> e a <a href="#/privacidade" target="_blank" rel="noopener">política de privacidade</a>.</span></label>
       <button class="bt bloco">Criar conta</button>
     </form>
     <p>Já tem conta? <a href="#/entrar">Entrar</a></p>`;
@@ -593,7 +603,7 @@ rota('/cadastro', async () => {
     e.preventDefault();
     comEspera(f.querySelector('button'), async () => {
       const d = await dadosCadastro(f);
-      await api('POST', '/auth/cadastro', d);
+      await api('POST', '/auth/cadastro', { ...d, aceito_termos: f.aceito.checked === true });
       await carregarEu();
       const volta = sessionStorage.getItem('voltar');
       sessionStorage.removeItem('voltar');
@@ -671,25 +681,53 @@ rota('/conta', async () => {
   });
 });
 
-// Regras de compra (rascunho — pedir revisão jurídica antes de divulgar em larga escala).
-const TERMOS_VERSAO = '2026-10-v1';
-const TEXTO_REGRAS = `
-  <h2>1. Seu ingresso é pessoal e de uso único</h2>
+// Termos de uso, regras de compra e privacidade (rascunho: vale revisão jurídica antes de divulgar em larga escala).
+const TERMOS_VERSAO = '2026-10-v2';
+const contatoHtml = (c) => (c ? `<b>${esc(c)}</b>` : 'o contato informado pela organização na página do evento');
+const TEXTO_REGRAS = (contato) => `
+  <h2>1. Sua conta</h2>
+  <p>Informe dados verdadeiros no cadastro. A senha e a resposta secreta são pessoais: não as compartilhe. Tudo o que for feito com a sua conta é de sua responsabilidade.</p>
+  <h2>2. Seu ingresso é pessoal e de uso único</h2>
   <p>Cada ingresso tem um QR Code exclusivo, válido para uma única entrada. Depois que ele é lido na portaria, não vale mais — mesmo que outra pessoa apresente a mesma imagem.</p>
-  <h2>2. Você é responsável pelo seu ingresso</h2>
+  <h2>3. Você é responsável pelo seu ingresso</h2>
   <p>Quem compra é o responsável pelo ingresso e pelo QR Code. <b>Se você compartilhar, publicar ou enviar print, foto ou arquivo do QR Code e outra pessoa usá-lo antes de você, a entrada será negada, sem direito a reembolso.</b> Qualquer vazamento do QR Code é de inteira responsabilidade de quem comprou.</p>
-  <h2>3. Presenteando ou passando o ingresso</h2>
+  <h2>4. Presenteando ou passando o ingresso</h2>
   <p>Para dar o ingresso a outra pessoa, use o botão <b>Transferir</b> em “Meus ingressos”. Isso gera um novo QR para quem recebe e invalida o seu. A transferência encerra 48 horas antes da festa.</p>
-  <h2>4. Pagamento</h2>
-  <p>O pagamento é por Pix, com a taxa de serviço informada na compra. O ingresso só é liberado depois que a organização confirmar o Pix. Pedidos não pagos dentro do prazo são cancelados.</p>
-  <h2>5. Desistência e cancelamento</h2>
-  <p>Você pode desistir em até 7 dias após a compra, desde que faltem mais de 48 horas para a festa; o reembolso é feito por Pix. Se a festa for cancelada pela organização, o reembolso é integral, incluindo a taxa de serviço.</p>
-  <h2>6. Entrada</h2>
+  <h2>5. Pagamento</h2>
+  <p>O pagamento é por Pix, com a taxa de serviço informada na compra. Ao gerar o Pix, o seu pedido fica reservado por 20 minutos; passado esse prazo sem pagamento, a reserva é cancelada. O ingresso só é liberado depois que a organização confirmar o pagamento. Se você pagar depois do prazo, fale com a organização: confirmamos o pedido se ainda houver ingresso; caso contrário, devolvemos o valor.</p>
+  <h2>6. Desistência, cancelamento e reembolso</h2>
+  <p>Você pode desistir em até 7 dias após a compra, desde que faltem mais de 48 horas para a festa. Se a festa for cancelada pela organização, o reembolso é integral, incluindo a taxa de serviço. Todo reembolso é feito por Pix, manualmente, para quem pagou, <b>em até 2 dias úteis após a data da festa</b>.</p>
+  <h2>7. Entrada</h2>
   <p>Leve um documento com foto. A organização pode negar a entrada de quem descumprir as regras do local ou a lei.</p>
-  <p class="peq">Versão ${TERMOS_VERSAO}.</p>`;
-rota('/regras', async () => {
-  app.innerHTML = `<h1>Regras de compra</h1><div class="card regras">${TEXTO_REGRAS}</div><a class="bt sec" href="javascript:history.back()">Voltar</a>`;
-});
+  <h2>8. Dúvidas</h2>
+  <p>Fale com a organização: ${contatoHtml(contato)}.</p>
+  <p class="peq">Termos de uso e regras de compra · versão ${TERMOS_VERSAO}.</p>`;
+const TEXTO_PRIVACIDADE = (contato) => `
+  <h2>Quem somos</h2>
+  <p>O Fast Pass vende e controla os ingressos das festas organizadas pelo Os Brothers Adega (“organização”), que decide como os seus dados são usados (controladora, nos termos da Lei Geral de Proteção de Dados – LGPD).</p>
+  <h2>Quais dados coletamos</h2>
+  <p>Nome, sobrenome, CPF, e-mail e celular; os dados dos seus pedidos e ingressos (inclusive o nome de quem fez o Pix e a hora da entrada na festa); e registros técnicos de acesso e de ações no sistema, para segurança. Sua senha e sua resposta secreta nunca são guardadas como você digitou: são transformadas no seu aparelho e guardadas em forma irreversível. Não coletamos dados de cartão neste momento.</p>
+  <h2>Para que usamos</h2>
+  <p>Identificar o comprador, emitir o ingresso, conferir o pagamento, controlar a entrada na festa, prevenir fraude e uso indevido, atender você e cumprir obrigações legais. A base legal é a execução do contrato de compra do ingresso, o cumprimento de obrigações legais e o legítimo interesse na segurança do evento.</p>
+  <h2>Com quem compartilhamos</h2>
+  <p>Não vendemos nem cedemos seus dados para publicidade. Usamos uma empresa de infraestrutura em nuvem (Cloudflare) para hospedar o sistema, cujos servidores podem estar fora do Brasil. A equipe da porta vê apenas o nome e o ingresso, não o seu CPF nem o seu contato. Se houver ordem de autoridade competente, poderemos informar os dados exigidos.</p>
+  <h2>Por quanto tempo guardamos</h2>
+  <p>Pelo tempo necessário para realizar o evento, tratar reembolsos e reclamações e cumprir prazos legais. Depois disso, os dados são excluídos ou anonimizados.</p>
+  <h2>Seus direitos</h2>
+  <p>Você pode pedir confirmação do tratamento, acesso, correção, anonimização ou exclusão dos dados, portabilidade e informação sobre compartilhamento, e retirar o consentimento quando ele for a base do tratamento (art. 18 da LGPD). Para isso, fale com a organização: ${contatoHtml(contato)}.</p>
+  <h2>Cookies</h2>
+  <p>Usamos apenas um cookie essencial, que mantém você conectado. Não usamos cookies de publicidade nem de rastreamento.</p>
+  <h2>Segurança</h2>
+  <p>Adotamos medidas técnicas para proteger os dados, mas nenhum sistema é totalmente seguro. Se houver incidente que possa causar risco a você, avisaremos como a lei determina.</p>
+  <p class="peq">Política de privacidade · versão ${TERMOS_VERSAO}.</p>`;
+async function paginaLegal(titulo, texto) {
+  let contato = '';
+  try { contato = (await api('GET', '/contato')).contato || ''; } catch {}
+  app.innerHTML = `<h1>${titulo}</h1><div class="card regras">${texto(contato)}</div><a class="bt sec" href="javascript:history.back()">Voltar</a>`;
+}
+rota('/regras', () => paginaLegal('Termos de uso e regras de compra', TEXTO_REGRAS));
+rota('/privacidade', () => paginaLegal('Política de privacidade', TEXTO_PRIVACIDADE));
+
 
 rota('/trocar-senha', async () => {
   if (!estado.eu) {
@@ -793,6 +831,30 @@ function normalizarChavePix(tipo, bruto) {
   return t.toLowerCase();
 }
 
+// Baixa um CSV do admin (precisa do cookie de sessão, por isso não é um link simples).
+async function baixarCsv(caminho, nome) {
+  const r = await fetch('/api' + caminho, { credentials: 'same-origin' });
+  if (!r.ok) {
+    let msg = `Erro ${r.status}`;
+    try { msg = (await r.json()).erro || msg; } catch {}
+    throw new Error(msg);
+  }
+  const url = URL.createObjectURL(await r.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nome;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+const botoesCsv = `<div class="acoes" style="margin:.5rem 0"><button class="bt sec peq" data-csv="convidados">Baixar lista de convidados (CSV)</button><button class="bt sec peq" data-csv="vendas">Baixar vendas (CSV)</button></div>`;
+function ligarCsv() {
+  app.querySelectorAll('[data-csv]').forEach((b) =>
+    b.addEventListener('click', () => comEspera(b, () => baixarCsv(`/admin/export/${b.dataset.csv}.csv`, `${b.dataset.csv}.csv`))),
+  );
+}
+
 // ---------- admin ----------
 const ABAS = [
   ['financeiro', 'Financeiro'],
@@ -834,6 +896,7 @@ rota('/admin/financeiro', async () => {
   layoutAdmin(
     'financeiro',
     `<p class="mudo">${esc(f.evento.nome)} · ${dataBR(f.evento.data_evento)}</p>
+    ${botoesCsv}
     <h2>Dinheiro</h2>
     <div class="kpis">
       ${kpi('Recebido (pedidos confirmados)', brl(r.total_recebido_centavos), 'dest')}
@@ -857,6 +920,7 @@ rota('/admin/financeiro', async () => {
       )
       .join('')}</table></div>`,
   );
+  ligarCsv();
 });
 
 rota('/admin/pedidos', async () => {
@@ -886,8 +950,10 @@ rota('/admin/pedidos', async () => {
         .join('')}</select>
       <button class="bt sec peq" id="atualiza">Atualizar</button></div>
     <p class="peq">Confira no extrato do banco: valor exato, horário e nome do pagador. Só então toque em "Confirmar Pix".</p>
+    ${botoesCsv}
     <div class="rolar"><table><tr><th>Pedido</th><th>Comprador</th><th>Itens</th><th class="num">Total</th><th></th></tr>${linhas || '<tr><td colspan="5" class="mudo">Nenhum pedido.</td></tr>'}</table></div>`,
   );
+  ligarCsv();
   document.getElementById('fil').addEventListener('change', (e) => {
     sessionStorage.setItem('fped', e.target.value);
     navegar();
@@ -1060,6 +1126,7 @@ rota('/admin/config', async () => {
       <p class="peq" id="dica-pix"></p>
       <div class="grade"><div><label>Nome do favorecido (como no banco)</label><input name="pix_nome" value="${esc(c.pix_nome)}" maxlength="25"></div>
       <div><label>Cidade</label><input name="pix_cidade" value="${esc(c.pix_cidade)}" maxlength="15" placeholder="SAO PAULO"></div></div>
+      <label>Contato da organização (aparece nas páginas de termos e privacidade)</label><input name="contato" value="${esc(c.contato || '')}" maxlength="200" placeholder="WhatsApp (11) 99999-9999 · e-mail">
       <h2>Regras de venda</h2>
       <div class="grade"><div><label>Taxa de serviço (%)</label><input name="taxa_percentual" inputmode="numeric" value="${esc(c.taxa_percentual)}"></div>
       <div><label>Prazo da reserva (minutos)</label><input name="reserva_minutos" inputmode="numeric" value="${esc(c.reserva_minutos)}"></div>
@@ -1080,7 +1147,7 @@ rota('/admin/config', async () => {
       const corpo = {};
       for (const [k, v] of Object.entries(d)) {
         if (k === 'pix_tipo') continue;
-        if (String(v).trim() !== '') corpo[k] = ['pix_chave', 'pix_nome', 'pix_cidade'].includes(k) ? v.trim() : Number(v);
+        if (String(v).trim() !== '') corpo[k] = ['pix_chave', 'pix_nome', 'pix_cidade', 'contato'].includes(k) ? v.trim() : Number(v);
       }
       if (corpo.pix_chave !== undefined) corpo.pix_chave = normalizarChavePix(f.pix_tipo.value, corpo.pix_chave);
       await api('PUT', '/admin/config', corpo);

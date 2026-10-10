@@ -4,9 +4,10 @@ import { limiteTransferencia } from '../lib/prazo.js';
 import { exigir } from '../lib/auth.js';
 import { qrDoIngresso } from '../lib/crypto.js';
 import * as v from '../lib/validar.js';
-import { buscarPedido, cancelarNaoPago, criarPedido, visaoPedido } from '../lib/pedidos.js';
+import { buscarPedido, cancelarNaoPago, criarPedido, liberarExpirados, visaoPedido } from '../lib/pedidos.js';
+import { alertar } from '../lib/alertas.js';
+import { TERMOS_VERSAO } from '../lib/termos.js';
 
-const TERMOS_VERSAO = '2026-10-v1';
 const r = new Hono();
 
 // Cria o pedido: segura os ingressos (reserva) e devolve o Pix para pagar.
@@ -17,10 +18,22 @@ r.post('/pedidos', exigir(), async (c) => {
   const quantidade = v.inteiro(b.quantidade, 'Quantidade', 1, 100);
   const nomePagador = v.texto(b.nome_pagador, 'Nome do pagador', 3, 80);
   const usuario = c.get('usuario');
+  // Um pedido em aberto por pessoa: evita segurar estoque sem pagar. Pagar ou cancelar libera.
+  await liberarExpirados(c.env.DB);
+  const aberto = await c.env.DB.prepare(
+    `SELECT codigo FROM pedidos WHERE comprador_id = ?1 AND status = 'aguardando_pagamento' AND expira_em >= ?2 ORDER BY id DESC LIMIT 1`,
+  )
+    .bind(usuario.id, agora())
+    .first();
+  if (aberto) {
+    throw new HttpError(409, 'Você já tem um pedido aguardando pagamento. Pague ou cancele esse pedido para fazer outro.', { pedido_aberto: aberto.codigo });
+  }
   const codigo = await criarPedido(c.env, usuario, { loteId, quantidade, nomePagador });
   await c.env.DB.prepare('UPDATE pedidos SET aceite_termos_em = ?2, termos_versao = ?3 WHERE codigo = ?1').bind(codigo, agora(), TERMOS_VERSAO).run();
   const pedido = await buscarPedido(c.env.DB, { codigo });
   await auditar(c.env.DB, usuario.id, 'pedido_criado', codigo);
+  const cents = (n) => (n / 100).toFixed(2).replace('.', ',');
+  await alertar(c, 'novo_pedido', `Novo pedido ${codigo}: ${usuario.nome} ${usuario.sobrenome} — ${quantidade} ingresso(s), R$ ${cents(pedido.total_centavos)}. Aguardando Pix.`);
   return c.json(await visaoPedido(c.env.DB, pedido), 201);
 });
 

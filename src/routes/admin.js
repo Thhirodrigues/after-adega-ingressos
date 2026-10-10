@@ -43,6 +43,7 @@ r.put('/admin/config', async (c) => {
   if ('max_ingressos_por_pedido' in b) {
     novos.max_ingressos_por_pedido = String(v.inteiro(b.max_ingressos_por_pedido, 'Máximo por pedido', 1, 50));
   }
+  if ('contato' in b) novos.contato = String(b.contato ?? '').trim().slice(0, 200);
   const chaves = Object.keys(novos);
   if (!chaves.length) throw new HttpError(400, 'Nada para atualizar.');
   await db.batch(
@@ -181,6 +182,57 @@ r.put('/admin/lotes/:id', async (c) => {
 });
 
 // ---------- Pedidos: conferência manual do Pix ----------
+
+// ---------- Exportações (CSV para Excel: separador ";" e BOM) ----------
+function csv(linhas) {
+  const cel = (x) => {
+    let t = String(x ?? '');
+    if (/^[=+\-@\t\r]/.test(t)) t = `'${t}`; // evita fórmula em planilha
+    return `"${t.replace(/"/g, '""')}"`;
+  };
+  return '\uFEFF' + linhas.map((l) => l.map(cel).join(';')).join('\r\n') + '\r\n';
+}
+const fmtData = (t) => (t ? new Date(t * 1000).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '');
+const resp = (c, nome, texto) =>
+  new Response(texto, {
+    headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${nome}"`, 'Cache-Control': 'no-store' },
+  });
+
+// Lista para a porta: sem CPF nem telefone.
+r.get('/admin/export/convidados.csv', async (c) => {
+  const ev = await c.env.DB.prepare('SELECT id, nome, data_evento FROM eventos WHERE ativo = 1 LIMIT 1').first();
+  if (!ev) throw new HttpError(404, 'Nenhum evento ativo.');
+  const { results } = await c.env.DB.prepare(
+    `SELECT i.id, u.nome || ' ' || u.sobrenome AS nome, i.tipo, i.motivo, i.status, i.usado_em
+       FROM ingressos i JOIN usuarios u ON u.id = i.dono_id
+      WHERE i.evento_id = ?1 AND i.status <> 'cancelado' ORDER BY u.nome, u.sobrenome, i.id`,
+  )
+    .bind(ev.id)
+    .all();
+  await auditar(c.env.DB, c.get('usuario').id, 'export_convidados', String(results.length));
+  const linhas = [['Ingresso', 'Nome', 'Tipo', 'Motivo (cortesia)', 'Situação', 'Entrou às', 'Presente']];
+  for (const i of results) linhas.push([`#${i.id}`, i.nome, i.tipo, i.motivo, i.status, fmtData(i.usado_em), '']);
+  return resp(c, `convidados-${ev.data_evento}.csv`, csv(linhas));
+});
+
+// Vendas do evento ativo (conferência do Pix e fechamento).
+r.get('/admin/export/vendas.csv', async (c) => {
+  const ev = await c.env.DB.prepare('SELECT id, data_evento FROM eventos WHERE ativo = 1 LIMIT 1').first();
+  if (!ev) throw new HttpError(404, 'Nenhum evento ativo.');
+  const { results } = await c.env.DB.prepare(
+    `SELECT p.codigo, p.status, p.quantidade, p.subtotal_centavos, p.taxa_centavos, p.total_centavos, p.nome_pagador,
+            p.criado_em, p.pago_em, u.nome || ' ' || u.sobrenome AS comprador, u.email, u.telefone, l.nome AS lote
+       FROM pedidos p JOIN usuarios u ON u.id = p.comprador_id JOIN lotes l ON l.id = p.lote_id
+      WHERE p.evento_id = ?1 ORDER BY p.id`,
+  )
+    .bind(ev.id)
+    .all();
+  await auditar(c.env.DB, c.get('usuario').id, 'export_vendas', String(results.length));
+  const reais = (n) => (n / 100).toFixed(2).replace('.', ',');
+  const linhas = [['Pedido', 'Situação', 'Lote', 'Qtd', 'Ingressos (R$)', 'Taxa (R$)', 'Total (R$)', 'Comprador', 'Pagador (Pix)', 'E-mail', 'Celular', 'Criado em', 'Pago em']];
+  for (const p of results) linhas.push([p.codigo, p.status, p.lote, p.quantidade, reais(p.subtotal_centavos), reais(p.taxa_centavos), reais(p.total_centavos), p.comprador, p.nome_pagador, p.email, p.telefone, fmtData(p.criado_em), fmtData(p.pago_em)]);
+  return resp(c, `vendas-${ev.data_evento}.csv`, csv(linhas));
+});
 
 r.get('/admin/pedidos', async (c) => {
   const status = c.req.query('status') || null;

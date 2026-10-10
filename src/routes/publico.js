@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { agora, configuracoes } from '../lib/http.js';
 import { calcularValores } from '../lib/pedidos.js';
+import { TERMOS_VERSAO } from '../lib/termos.js';
 
 const r = new Hono();
 
@@ -50,8 +51,15 @@ r.get('/evento', async (c) => {
     evento,
     taxa_percentual: pct,
     max_ingressos_por_pedido: Number(cfg.max_ingressos_por_pedido),
+    reserva_minutos: Number(cfg.reserva_minutos),
     lotes,
   });
+});
+
+// Contato da organização e versão dos termos (páginas legais). Público.
+r.get('/contato', async (c) => {
+  const cfg = await configuracoes(c.env.DB);
+  return c.json({ contato: cfg.contato || '', termos_versao: TERMOS_VERSAO });
 });
 
 export default r;

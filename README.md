@@ -39,3 +39,10 @@ Valores em centavos; taxa de serviço 10% (configurável); reserva de 60 min; es
 - **Desfazer entrada** (Portaria → Lista): a recepcionista digita a *senha de desbloqueio* (definida em Admin → Avisos); cada uso e cada senha errada geram um aviso ao admin; o ingresso mostra “desfeito N×”. Só funciona online.
 - **Avisos**: Admin → Avisos lista os alertas e ativa notificações push (Web Push sem conteúdo; o Service Worker busca o texto em `/api/admin/alertas/pendentes`). Android/Chrome ok; iPhone só com o site instalado na tela inicial.
 - **Regras de compra**: `#/regras`; a compra exige marcar o aceite (`aceito_termos`, versão registrada no pedido). Texto é rascunho — vale revisão jurídica.
+
+## Fase 4: pedidos, CSV e textos legais
+- **Reserva de 20 minutos** (migração `0005` ajusta `reserva_minutos`); **um pedido em aberto por pessoa** (409 com `pedido_aberto`). Pagar ou cancelar libera.
+- **Aviso e push a cada novo pedido** (`novo_pedido`).
+- **CSV** (Admin → Financeiro/Pedidos): `/api/admin/export/convidados.csv` (sem CPF, para imprimir) e `/api/admin/export/vendas.csv`. Separador `;`, BOM para o Excel, células neutralizadas contra fórmula.
+- **Termos de uso / regras de compra (`#/regras`) e Política de Privacidade (`#/privacidade`)**; o cadastro exige aceite (`aceito_termos`, versão e hora gravadas em `usuarios`). Contato da organização editável em Admin → Pix e taxas. Textos são rascunho: revisar com advogado. Versão em `src/lib/termos.js` e `TERMOS_VERSAO` no `app.js` (mudar os dois juntos).
+- Reembolso por Pix manual em até 2 dias úteis após a festa (nas regras).

@@ -5,6 +5,7 @@ import { cpfValido, soDigitos } from '../lib/cpf.js';
 import { igual, sha256Hex } from '../lib/crypto.js';
 import { criarSessao, exigir, guardarSenha } from '../lib/auth.js';
 import { alertar } from '../lib/alertas.js';
+import { TERMOS_VERSAO } from '../lib/termos.js';
 import { hmacHex } from '../lib/crypto.js';
 import * as v from '../lib/validar.js';
 
@@ -107,8 +108,11 @@ r.post('/setup/admin', async (c) => {
 });
 
 r.post('/auth/cadastro', async (c) => {
-  const dados = lerDadosUsuario(await corpo(c), { exigirResposta: true });
+  const b = await corpo(c);
+  if (b.aceito_termos !== true) throw new HttpError(400, 'Para criar a conta, leia e aceite os termos de uso e a política de privacidade.');
+  const dados = lerDadosUsuario(b, { exigirResposta: true });
   const id = await inserirUsuario(c, dados, 'comprador', false);
+  await c.env.DB.prepare('UPDATE usuarios SET aceite_termos_em = ?2, termos_versao = ?3 WHERE id = ?1').bind(id, agora(), TERMOS_VERSAO).run();
   await criarSessao(c, id);
   return c.json({ ok: true, papel: 'comprador' }, 201);
 });

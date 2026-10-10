@@ -41,7 +41,7 @@ class Cliente {
 
 function dados(extra = {}) {
   const cpf = cpfAleatorio();
-  return { cpf, nome: 'Fulano', sobrenome: 'Teste', email: `f${cpf}@x.com`, telefone: '11988887777', senha: derivada('s' + cpf), resposta: derivada('r' + cpf), ...extra };
+  return { cpf, nome: 'Fulano', sobrenome: 'Teste', email: `f${cpf}@x.com`, telefone: '11988887777', senha: derivada('s' + cpf), resposta: derivada('r' + cpf), aceito_termos: true, ...extra };
 }
 async function novoComprador() {
   const d = dados();
@@ -419,4 +419,61 @@ test('avisos: marcar como lidos; push (chave, assinatura, teste)', async () => {
   assert.equal(t.json.enviados + t.json.falhas, 1); // tentou o aparelho cadastrado (que não existe)
   assert.equal((await admin.post('/api/admin/alertas/lidos')).status, 200);
   assert.equal((await admin.get('/api/me')).json.nao_lidos, 0);
+});
+
+test('cadastro exige aceite dos termos (e registra versão)', async () => {
+  const c = new Cliente();
+  const r = await c.post('/api/auth/cadastro', dados({ aceito_termos: false }));
+  assert.equal(r.status, 400);
+  const d = dados();
+  delete d.aceito_termos;
+  assert.equal((await new Cliente().post('/api/auth/cadastro', d)).status, 400);
+  const ok = await new Cliente().post('/api/auth/cadastro', dados());
+  assert.equal(ok.status, 201);
+  const info = (await new Cliente().get('/api/contato')).json;
+  assert.match(info.termos_versao, /^\d{4}-\d{2}-v\d+$/);
+});
+
+test('um pedido em aberto por pessoa; novo pedido gera aviso ao admin', async () => {
+  const { c } = await novoComprador();
+  const antes = (await admin.get('/api/admin/alertas')).json.alertas.length;
+  const p1 = await c.post('/api/pedidos', { aceito_termos: true, lote_id: loteId, quantidade: 1, nome_pagador: 'Fulano de Tal' });
+  assert.equal(p1.status, 201, JSON.stringify(p1.json));
+  const alertas = (await admin.get('/api/admin/alertas')).json.alertas;
+  assert.ok(alertas.length > antes);
+  assert.equal(alertas[0].tipo, 'novo_pedido');
+  assert.ok(alertas[0].detalhe.includes(p1.json.codigo));
+  const p2 = await c.post('/api/pedidos', { aceito_termos: true, lote_id: loteId, quantidade: 1, nome_pagador: 'Fulano de Tal' });
+  assert.equal(p2.status, 409);
+  assert.equal(p2.json.pedido_aberto, p1.json.codigo);
+  assert.equal((await c.post(`/api/pedidos/${p1.json.codigo}/cancelar`)).status, 200);
+  assert.equal((await c.post('/api/pedidos', { aceito_termos: true, lote_id: loteId, quantidade: 1, nome_pagador: 'Fulano de Tal' })).status, 201);
+});
+
+test('exportações CSV: só admin; sem CPF; protege contra fórmula', async () => {
+  const { c } = await novoComprador();
+  assert.equal((await c.get('/api/admin/export/convidados.csv')).status, 403);
+  const r = await fetch(BASE + '/api/admin/export/vendas.csv', { headers: { cookie: admin.cookie } });
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /text\/csv/);
+  const bytes = new Uint8Array(await r.clone().arrayBuffer());
+  assert.deepEqual([...bytes.slice(0, 3)], [0xef, 0xbb, 0xbf], 'BOM para o Excel abrir acentos');
+  const t = await r.text(); // o fetch descarta o BOM ao decodificar
+  assert.ok(t.startsWith('"Pedido";"Situação"'));
+  const g = await fetch(BASE + '/api/admin/export/convidados.csv', { headers: { cookie: admin.cookie } });
+  assert.equal(g.status, 200);
+  const tg = await g.text();
+  assert.ok(tg.startsWith('"Ingresso";"Nome"'));
+  assert.ok(!/\b\d{11}\b/.test(tg), 'lista da porta não pode ter CPF');
+  // nome começando com "=" vira texto (apóstrofo)
+  const { c: c2 } = await (async () => {
+    const d = dados({ nome: '=SOMA', sobrenome: 'Teste' });
+    const cli = new Cliente();
+    assert.equal((await cli.post('/api/auth/cadastro', d)).status, 201);
+    return { c: cli };
+  })();
+  const ped = await c2.post('/api/pedidos', { aceito_termos: true, lote_id: loteId, quantidade: 1, nome_pagador: 'Fulano de Tal' });
+  assert.equal(ped.status, 201);
+  const v2 = await (await fetch(BASE + '/api/admin/export/vendas.csv', { headers: { cookie: admin.cookie } })).text();
+  assert.ok(v2.includes('"\'=SOMA Teste"'));
 });
