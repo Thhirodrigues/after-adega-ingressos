@@ -11,7 +11,7 @@ const brl = (c) => (c / 100).toLocaleString('pt-BR', { style: 'currency', curren
 const dataBR = (iso) => (iso ? iso.split('-').reverse().join('/') : '');
 const hora = (t) => (t ? new Date(t * 1000).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '');
 const soDig = (s) => String(s || '').replace(/\D/g, '');
-const ROTULO = { aguardando_pagamento: 'Aguardando Pix', pago: 'Pago', expirado: 'Expirado', cancelado: 'Cancelado', valido: 'Válido', usado: 'Usado' };
+const ROTULO = { aguardando_pagamento: 'Aguardando pagamento', pago: 'Pago', expirado: 'Expirado', cancelado: 'Cancelado', valido: 'Válido', usado: 'Usado' };
 const tag = (s) => `<span class="tag ${esc(s)}">${esc(ROTULO[s] || s)}</span>`;
 
 function centavos(txt) {
@@ -314,16 +314,18 @@ rota('/comprar/(\\d+)', async (id) => {
     <form class="card" id="f">
       <label>Quantidade de ingressos</label>
       ${stepperHtml('name="quantidade"', max)}
-      <label>Nome de quem vai fazer o Pix (para conferirmos o pagamento)</label>
-      <input name="nome_pagador" required minlength="3" maxlength="80" value="${esc(`${estado.eu.nome} ${estado.eu.sobrenome}`)}">
+      ${d.pagamento_automatico
+        ? `<input type="hidden" name="nome_pagador" value="${esc(`${estado.eu.nome} ${estado.eu.sobrenome}`)}">`
+        : `<label>Nome de quem vai fazer o Pix (para conferirmos o pagamento)</label>
+      <input name="nome_pagador" required minlength="3" maxlength="80" value="${esc(`${estado.eu.nome} ${estado.eu.sobrenome}`)}">`}
       <div class="card" style="background:#0f0f16;margin-top:1rem">
         <div class="linha"><span>Ingressos</span><b id="t_sub"></b></div>
         <div class="linha"><span>Taxa de serviço</span><b id="t_taxa"></b></div>
         <div class="linha"><span><b>Total</b></span><b class="preco" id="t_tot"></b></div>
       </div>
       <label class="check"><input type="checkbox" name="aceito" required> <span>Li e aceito as <a href="#/regras" target="_blank" rel="noopener">regras de compra</a>. Sei que ingresso é pessoal e de uso único e que <b>qualquer envio de print ou foto do QR Code é de minha inteira responsabilidade</b>, podendo resultar em entrada negada.</span></label>
-      <p class="peq">Ao gerar o Pix, seguramos seus ingressos por ${d.reserva_minutos || 20} minutos para você pagar.</p>
-      <button class="bt bloco">Gerar Pix</button>
+      <p class="peq">${d.pagamento_automatico ? 'Na próxima tela você escolhe cartão ou Pix.' : 'Ao gerar o Pix,'} Seguramos seus ingressos por ${d.reserva_minutos || 20} minutos para você pagar.</p>
+      <button class="bt bloco">${d.pagamento_automatico ? 'Ir para o pagamento' : 'Gerar Pix'}</button>
     </form>`;
   const f = document.getElementById('f');
   ligarSteppers(f);
@@ -366,24 +368,24 @@ rota('/pedido/([A-Za-z0-9]+)', async (codigo) => {
     let corpo = '';
     if (p.status === 'aguardando_pagamento') {
       const falta = Math.max(0, p.expira_em - Math.floor(Date.now() / 1000));
-      const mp = p.mp_disponivel
-        ? `<div class="card atual"><b>Pague ${brl(p.total_centavos)} com cartão ou Pix</b>
-        <p class="peq">Pagamento seguro pelo Mercado Pago. A confirmação é automática: assim que aprovar, seus ingressos aparecem aqui. Cartão só à vista.</p>
-        <button class="bt bloco" id="pagarmp">Pagar com cartão ou Pix</button></div>
-        <p class="peq">Prefere pagar direto na chave Pix? Use o código abaixo; nesse caso a confirmação é manual e pode demorar.</p>`
-        : '';
-      corpo = mp + `
-      <div class="card ${p.mp_disponivel ? '' : 'atual'}">
-        <b>Pague ${brl(p.pix.valor_centavos)} via Pix${p.mp_disponivel ? ' (chave, confirmação manual)' : ''}</b>
-        <p class="peq">Reserva válida por <b id="cont">${Math.floor(falta / 60)} min</b>. Pague pelo app do seu banco usando "Pix copia e cola".</p>
+      const manual = `
+        <p class="peq">Reserva válida por <b${p.mp_disponivel ? '' : ' id="cont"'}>${Math.floor(falta / 60)} min</b>. Pague pelo app do seu banco usando "Pix copia e cola". A organização confere o recebimento e libera seus ingressos, o que pode levar alguns minutos.</p>
         <div class="pix" id="pixcode">${esc(p.pix.copia_e_cola)}</div>
         <button class="bt bloco" id="copiar">Copiar código Pix</button>
-        <p class="peq" style="margin-top:.75rem">Favorecido: ${esc(p.pix.favorecido)}<br>Chave: ${esc(p.pix.chave)}<br>Referência: <b>${esc(p.codigo)}</b></p>
+        <p class="peq" style="margin-top:.75rem">Favorecido: ${esc(p.pix.favorecido)}<br>Chave: ${esc(p.pix.chave)}<br>Referência: <b>${esc(p.codigo)}</b></p>`;
+      corpo = p.mp_disponivel
+        ? `<div class="card atual">
+        <b>Como você quer pagar ${brl(p.total_centavos)}?</b>
+        <p class="peq">Reserva válida por <b id="cont">${Math.floor(falta / 60)} min</b>. A confirmação é automática: assim que o pagamento for aprovado, seus ingressos aparecem aqui.</p>
+        <button class="bt bloco" id="pagarcartao">Cartão de crédito (à vista)</button>
+        <button class="bt sec bloco" id="pagarpix" style="margin-top:.6rem">Pix</button>
+        <p class="peq" style="margin-top:.6rem">Pagamento seguro pelo Mercado Pago.</p>
       </div>
-      <p class="peq">Depois de pagar, a organização confere o recebimento e libera seus ingressos aqui. Pode levar alguns minutos. Esta tela atualiza sozinha.</p>
-      <div class="acoes">
-        <button class="bt perigo peq" id="cancelar">Cancelar pedido</button>
-      </div>`;
+      <details class="card"><summary>Prefiro pagar direto na chave Pix (confirmação manual)</summary>${manual}</details>
+      <div class="acoes"><button class="bt perigo peq" id="cancelar">Cancelar pedido</button></div>`
+        : `<div class="card atual"><b>Pague ${brl(p.pix.valor_centavos)} via Pix</b>${manual}</div>
+      <p class="peq">Esta tela atualiza sozinha depois que o pagamento for confirmado.</p>
+      <div class="acoes"><button class="bt perigo peq" id="cancelar">Cancelar pedido</button></div>`;
     } else if (p.status === 'pago') {
       corpo = `<div class="card atual"><b>Pagamento confirmado!</b><p class="mudo">Seus ingressos estão em "Meus ingressos".</p><a class="bt" href="#/meus">Ver meus ingressos</a></div>`;
     } else if (p.status === 'expirado') {
@@ -399,12 +401,14 @@ rota('/pedido/([A-Za-z0-9]+)', async (codigo) => {
         <div class="linha"><span><b>Total</b></span><b>${brl(p.total_centavos)}</b></div>
         <div class="peq">${esc(p.evento)} · ${dataBR(p.data_evento)}</div>
       </div>${corpo}`;
-    document.getElementById('pagarmp')?.addEventListener('click', (e) =>
-      comEspera(e.target, async () => {
-        const r = await api('POST', `/pedidos/${p.codigo}/pagar-mp`, {});
-        location.href = r.url;
-      }),
-    );
+    for (const [id, metodo] of [['pagarcartao', 'cartao'], ['pagarpix', 'pix']]) {
+      document.getElementById(id)?.addEventListener('click', (e) =>
+        comEspera(e.target, async () => {
+          const r = await api('POST', `/pedidos/${p.codigo}/pagar-mp`, { metodo });
+          location.href = r.url;
+        }),
+      );
+    }
     document.getElementById('copiar')?.addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(p.pix.copia_e_cola);

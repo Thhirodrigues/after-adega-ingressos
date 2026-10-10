@@ -1,5 +1,5 @@
 // Deixa o site abrir sem internet (ingressos e portaria). Rede primeiro; se falhar, usa o salvo.
-const VERSAO = 'fastpass-v13';
+const VERSAO = 'fastpass-v14';
 const BASE = ['/', '/index.html', '/style.css', '/app.js', '/vendor/qrcode.js', '/vendor/jsQR.js', '/manifest.webmanifest', '/icon-192.png'];
 
 self.addEventListener('install', (e) => {

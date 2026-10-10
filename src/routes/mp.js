@@ -13,11 +13,13 @@ r.post('/pedidos/:codigo/pagar-mp', exigir(), async (c) => {
   if (!mpAtivo(c.env)) throw new HttpError(503, 'Pagamento automático indisponível. Use o Pix com a chave.');
   const u = c.get('usuario');
   const db = c.env.DB;
+  const b = await c.req.json().catch(() => ({}));
+  const metodo = ['cartao', 'pix'].includes(b?.metodo) ? b.metodo : null;
   await liberarExpirados(db);
   const pedido = await buscarPedido(db, { codigo: c.req.param('codigo').toUpperCase() });
   if (!pedido || pedido.comprador_id !== u.id) throw new HttpError(404, 'Pedido não encontrado.');
   if (pedido.status !== 'aguardando_pagamento') throw new HttpError(409, 'Este pedido não está aguardando pagamento.');
-  const pref = await criarPreferencia(c.env, { origem: new URL(c.req.url).origin, pedido });
+  const pref = await criarPreferencia(c.env, { origem: new URL(c.req.url).origin, pedido, metodo });
   return c.json({ url: pref.url });
 });
 

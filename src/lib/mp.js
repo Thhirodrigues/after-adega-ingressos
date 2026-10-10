@@ -25,7 +25,11 @@ async function chamar(env, metodo, caminho, corpo, chaveIdem) {
 }
 
 // Cria o link de pagamento do pedido. Pix e cartão (à vista, sem parcelar); sem boleto.
-export async function criarPreferencia(env, { origem, pedido }) {
+// metodo: 'cartao' (só cartão de crédito), 'pix' (só Pix) ou nada (o comprador escolhe no Mercado Pago).
+export async function criarPreferencia(env, { origem, pedido, metodo = null }) {
+  const sem = ['ticket', 'atm', 'prepaid_card'];
+  if (metodo === 'cartao') sem.push('bank_transfer', 'account_money', 'debit_card');
+  if (metodo === 'pix') sem.push('credit_card', 'debit_card', 'account_money');
   const exp = new Date(pedido.expira_em * 1000).toISOString();
   const corpo = {
     items: [{
@@ -39,12 +43,12 @@ export async function criarPreferencia(env, { origem, pedido }) {
     notification_url: `${origem}/api/mp/webhook`,
     back_urls: { success: `${origem}/#/pedido/${pedido.codigo}`, pending: `${origem}/#/pedido/${pedido.codigo}`, failure: `${origem}/#/pedido/${pedido.codigo}` },
     auto_return: 'approved',
-    payment_methods: { excluded_payment_types: [{ id: 'ticket' }, { id: 'atm' }], installments: 1 },
+    payment_methods: { excluded_payment_types: sem.map((id) => ({ id })), installments: 1 },
     expires: true,
     expiration_date_to: exp,
     statement_descriptor: 'FAST PASS',
   };
-  const pref = await chamar(env, 'POST', '/checkout/preferences', corpo, `pref-${pedido.codigo}-${pedido.expira_em}`);
+  const pref = await chamar(env, 'POST', '/checkout/preferences', corpo, `pref-${pedido.codigo}-${pedido.expira_em}-${metodo || 'todos'}`);
   return { id: pref.id, url: pref.init_point };
 }
 

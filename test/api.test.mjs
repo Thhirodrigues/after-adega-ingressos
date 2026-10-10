@@ -580,6 +580,13 @@ test('mercado pago: link, webhook assinado, valor conferido, idempotência', { s
     assert.equal(prefs[0].items[0].unit_price, p.json.total_centavos / 100);
     assert.equal(prefs[0].external_reference, cod);
     assert.equal(prefs[0].payment_methods.installments, 1);
+    const lp = await c.post(`/api/pedidos/${cod}/pagar-mp`, { metodo: 'pix' });
+    assert.equal(lp.status, 200);
+    const exc = (n) => prefs[n].payment_methods.excluded_payment_types.map((x) => x.id);
+    assert.ok(exc(1).includes('credit_card') && !exc(1).includes('bank_transfer'));
+    await c.post(`/api/pedidos/${cod}/pagar-mp`, { metodo: 'cartao' });
+    assert.ok(exc(2).includes('bank_transfer') && !exc(2).includes('credit_card'));
+    assert.equal((await new Cliente().get('/api/evento')).json.pagamento_automatico, true);
     // assinatura inválida/ausente → 401
     assert.equal((await hook(111, {})).status, 401);
     assert.equal((await hook(111, { 'x-signature': 'ts=1,v1=00', 'x-request-id': 'x' })).status, 401);

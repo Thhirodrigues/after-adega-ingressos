@@ -52,6 +52,7 @@ r.get('/evento', async (c) => {
     taxa_percentual: pct,
     max_ingressos_por_pedido: Number(cfg.max_ingressos_por_pedido),
     reserva_minutos: Number(cfg.reserva_minutos),
+    pagamento_automatico: !!c.env.MP_ACCESS_TOKEN,
     lotes,
   });
 });
