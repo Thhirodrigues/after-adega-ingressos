@@ -192,20 +192,30 @@ rota('/', async () => {
   const ev = d.evento;
   const lotesHtml = d.lotes.length
     ? d.lotes
-        .map(
-          (l) => `
-    <div class="card ${l.atual ? 'atual' : ''}">
+        .map((l) => {
+          const max = Math.max(1, Math.min(d.max_ingressos_por_pedido, l.disponiveis));
+          return `
+    <div class="card ${l.atual ? 'atual' : ''}" data-card="${l.id}">
       <div class="linha">
         <div><b>${esc(l.nome)}</b>
           <div class="peq" style="margin-top:.2rem">${l.esgotado ? 'Esgotado' : l.atual ? '<span class="tag valido">Disponível</span>' : ''}</div></div>
         <div style="text-align:right">
           <div class="preco">${brl(l.valor_centavos)}</div>
-          <div class="peq">+ ${brl(l.taxa_centavos)} taxa de serviço<br><b>Total ${brl(l.total_centavos)}</b></div>
+          <div class="peq">cada ingresso</div>
         </div>
       </div>
-      ${l.esgotado ? '' : `<button class="bt bloco" data-lote="${l.id}">Comprar</button>`}
-    </div>`,
-        )
+      ${
+        l.esgotado
+          ? ''
+          : `<div class="linha" style="margin-top:.75rem">
+        <div><label style="margin:0 0 .2rem">Quantidade</label>
+          <select data-qtd="${l.id}" style="width:auto;min-width:5rem">${Array.from({ length: max }, (_, k) => `<option value="${k + 1}">${k + 1}</option>`).join('')}</select></div>
+        <div style="text-align:right"><div class="peq" data-taxa="${l.id}"></div><div><b data-total="${l.id}"></b></div></div>
+      </div>
+      <button class="bt bloco" data-lote="${l.id}">Comprar</button>`
+      }
+    </div>`;
+        })
         .join('')
     : '<p class="mudo">Ingressos ainda não disponíveis.</p>';
   app.innerHTML = `
@@ -214,8 +224,26 @@ rota('/', async () => {
     ${ev.descricao ? `<p class="mudo">${esc(ev.descricao)}</p>` : ''}
     <h2>Ingressos</h2>${lotesHtml}
     <p class="peq">O comprador é responsável pelos ingressos do seu pedido.</p>`;
+  const calcLote = (l, q) => {
+    const sub = l.valor_centavos * q;
+    const taxa = Math.floor((sub * d.taxa_percentual + 50) / 100);
+    return { sub, taxa, total: sub + taxa };
+  };
+  d.lotes.forEach((l) => {
+    const sel = app.querySelector(`[data-qtd="${l.id}"]`);
+    if (!sel) return;
+    const atualiza = () => {
+      const c = calcLote(l, Number(sel.value));
+      app.querySelector(`[data-taxa="${l.id}"]`).textContent = `+ ${brl(c.taxa)} taxa de serviço`;
+      app.querySelector(`[data-total="${l.id}"]`).textContent = `Total ${brl(c.total)}`;
+    };
+    sel.addEventListener('change', atualiza);
+    atualiza();
+  });
   app.querySelectorAll('[data-lote]').forEach((b) =>
     b.addEventListener('click', () => {
+      const q = app.querySelector(`[data-qtd="${b.dataset.lote}"]`)?.value || '1';
+      try { sessionStorage.setItem('qtd', JSON.stringify({ lote: b.dataset.lote, q })); } catch {}
       if (!estado.eu) {
         sessionStorage.setItem('voltar', `#/comprar/${b.dataset.lote}`);
         location.hash = '#/entrar';
@@ -256,6 +284,10 @@ rota('/comprar/(\\d+)', async (id) => {
       <button class="bt bloco">Gerar Pix</button>
     </form>`;
   const f = document.getElementById('f');
+  try {
+    const g = JSON.parse(sessionStorage.getItem('qtd') || 'null');
+    if (g && String(g.lote) === id && [...f.quantidade.options].some((o) => o.value === String(g.q))) f.quantidade.value = String(g.q);
+  } catch {}
   const calc = () => {
     const q = Number(f.quantidade.value);
     const sub = l.valor_centavos * q;
