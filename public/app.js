@@ -18,7 +18,7 @@ function centavos(txt) {
   const n = Number(String(txt).replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, ''));
   return Number.isFinite(n) ? Math.round(n * 100) : NaN;
 }
-const nomeForma = (f) => ({ dinheiro: 'Dinheiro', mercadopago: 'Mercado Pago', cupom: 'Cupom' }[f] || 'Pix');
+const nomeForma = (f) => ({ dinheiro: 'Dinheiro', cartao: 'Cartão', mercadopago: 'Mercado Pago', cupom: 'Cupom' }[f] || 'Pix');
 const reais = (c) => (c / 100).toFixed(2).replace('.', ',');
 // Seletor de quantidade com botões − e +. O valor fica num <input type="hidden"> (mesmo
 // nome/atributos de antes), então o resto do código lê .value e escuta "change".
@@ -1645,7 +1645,8 @@ rota('/portaria', async () => {
       <div id="vnomes"></div>
       <label>Forma de pagamento</label>
       <div class="grade"><label class="check" style="margin:0"><input type="radio" name="forma" value="dinheiro" checked> <span>Dinheiro</span></label>
-      <label class="check" style="margin:0"><input type="radio" name="forma" value="pix_chave"> <span>Pix</span></label></div>
+      <label class="check" style="margin:0"><input type="radio" name="forma" value="pix_chave"> <span>Pix</span></label>
+      <label class="check" style="margin:0"><input type="radio" name="forma" value="cartao"> <span>Cartão</span></label></div>
       <p class="peq">A entrada de todos é marcada na hora, sem QR.</p>
       <div class="card" style="background:var(--campo);margin-top:1rem"><div class="linha"><span><b>Total a receber</b></span><b class="preco" id="vtotal"></b></div><p class="peq" style="margin:.4rem 0 0">Sem taxa de serviço na venda presencial.</p></div>
       <button class="bt bloco">Registrar venda</button></form>`;
@@ -1669,7 +1670,7 @@ rota('/portaria', async () => {
       comEspera(f.querySelector('button'), async () => {
         try {
           const r = await api('POST', '/portaria/venda', { lote_id: Number(f.lote.value), quantidade: Number(f.quantidade.value), nomes: [...$('vnomes').querySelectorAll('input')].map((i) => i.value), forma: f.forma.value });
-          aviso(`Venda registrada: ${r.quantidade} ingresso(s), ${brl(r.total_centavos)} em ${r.forma === 'dinheiro' ? 'dinheiro' : 'Pix'} · entrada marcada.`);
+          aviso(`Venda registrada: ${r.quantidade} ingresso(s), ${brl(r.total_centavos)} em ${({ dinheiro: 'dinheiro', cartao: 'cartão' })[r.forma] || 'Pix'} · entrada marcada.`);
           try { await atualizarLista(); } catch {}
           desenharTopo();
           abrirVenda();

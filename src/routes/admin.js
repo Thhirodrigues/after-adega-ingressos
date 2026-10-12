@@ -269,7 +269,7 @@ r.get('/admin/export/vendas.csv', async (c) => {
   await auditar(c.env.DB, c.get('usuario').id, 'export_vendas', String(results.length));
   const reais = (n) => (n / 100).toFixed(2).replace('.', ',');
   const linhas = [['Pedido', 'Situação', 'Lote', 'Qtd', 'Ingressos (R$)', 'Desconto (R$)', 'Cupom', 'Taxa (R$)', 'Total (R$)', 'Comprador', 'Pagador (Pix)', 'Canal', 'Forma', 'E-mail', 'Celular', 'Criado em', 'Pago em']];
-  for (const p of results) linhas.push([p.codigo, p.status, p.lote, p.quantidade, reais(p.subtotal_centavos), reais(p.desconto_centavos || 0), p.cupom_codigo || '', reais(p.taxa_centavos), reais(p.total_centavos), p.comprador, p.nome_pagador, p.canal === 'porta' ? 'porta' : 'online', ({ dinheiro: 'dinheiro', cupom: 'cupom', mercadopago: 'mercado pago' })[p.forma_pagamento] || 'pix', p.email, p.telefone, fmtData(p.criado_em), fmtData(p.pago_em)]);
+  for (const p of results) linhas.push([p.codigo, p.status, p.lote, p.quantidade, reais(p.subtotal_centavos), reais(p.desconto_centavos || 0), p.cupom_codigo || '', reais(p.taxa_centavos), reais(p.total_centavos), p.comprador, p.nome_pagador, p.canal === 'porta' ? 'porta' : 'online', ({ dinheiro: 'dinheiro', cartao: 'cartão (maquininha)', cupom: 'cupom', mercadopago: 'mercado pago' })[p.forma_pagamento] || 'pix', p.email, p.telefone, fmtData(p.criado_em), fmtData(p.pago_em)]);
   return resp(c, `vendas-${ev.data_evento}.csv`, csv(linhas));
 });
 
@@ -550,7 +550,7 @@ r.get('/admin/financeiro', async (c) => {
       `SELECT
          COALESCE(SUM(CASE WHEN forma_pagamento = 'pix_chave' OR (forma_pagamento = 'mercadopago' AND mp_tipo = 'bank_transfer')
                            THEN total_centavos END), 0) AS pix,
-         COALESCE(SUM(CASE WHEN forma_pagamento = 'mercadopago' AND mp_tipo IN ('credit_card', 'debit_card', 'prepaid_card')
+         COALESCE(SUM(CASE WHEN forma_pagamento = 'cartao' OR (forma_pagamento = 'mercadopago' AND mp_tipo IN ('credit_card', 'debit_card', 'prepaid_card'))
                            THEN total_centavos END), 0) AS cartao,
          COALESCE(SUM(desconto_centavos), 0) AS descontos
          FROM pedidos WHERE evento_id = ?1 AND status = 'pago'`,

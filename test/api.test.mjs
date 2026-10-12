@@ -510,6 +510,12 @@ test('venda presencial: dinheiro/porta, sem taxa, estoque atômico, lote só-por
   const r1 = await admin.post('/api/admin/lotes', { evento_id: eventoId, nome: 'Último', valor_centavos: 1000, quantidade: 1, ativo: true, canal: 'porta' });
   const rs = await Promise.all(Array.from({ length: 5 }, (_, i) => hostess.post('/api/portaria/venda', { lote_id: r1.json.id, quantidade: 1, nome: `Corrida ${i}`, forma: 'dinheiro' })));
   assert.equal(rs.filter((x) => x.status === 201).length, 1);
+  // cartão na maquininha: aceito e somado no card "Por cartão" do financeiro
+  const rc = await admin.post('/api/admin/lotes', { evento_id: eventoId, nome: 'Cartão porta', valor_centavos: 2000, quantidade: 1, ativo: true, canal: 'porta' });
+  const vc = await hostess.post('/api/portaria/venda', { lote_id: rc.json.id, quantidade: 1, nome: 'Paga no Cartão', forma: 'cartao' });
+  assert.equal(vc.status, 201, JSON.stringify(vc.json));
+  assert.equal(vc.json.forma, 'cartao');
+  assert.ok((await admin.get('/api/admin/financeiro')).json.resumo.recebido_cartao_centavos >= 2000);
   // lista da portaria mostra os nomes avulsos
   const lista = (await hostess.get('/api/portaria/lista')).json.ingressos;
   assert.equal(lista.filter((i) => i.nome === 'Maria da Porta' || i.nome === 'Ana da Porta').length, 2);

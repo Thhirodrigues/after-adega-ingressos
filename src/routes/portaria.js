@@ -177,7 +177,7 @@ r.get('/portaria/lotes-venda', async (c) => {
   return c.json({ evento: ev, lotes: results });
 });
 
-// Venda presencial: dinheiro ou Pix na hora. Sem taxa de serviço. Precisa de internet
+// Venda presencial: dinheiro, Pix ou cartão na hora. Sem taxa de serviço. Precisa de internet
 // (o estoque é decidido no servidor, para nunca vender o mesmo ingresso duas vezes).
 r.post('/portaria/venda', async (c) => {
   const b = await corpo(c);
@@ -189,8 +189,8 @@ r.post('/portaria/venda', async (c) => {
   const brutos = Array.isArray(b.nomes) ? b.nomes : [b.nome];
   if (brutos.length !== quantidade) throw new HttpError(400, `Informe o nome de cada uma das ${quantidade} pessoas.`);
   const nomes = brutos.map((n, i) => v.texto(n, `Nome da pessoa ${i + 1}`, 2, 80));
-  const forma = ['dinheiro', 'pix_chave'].includes(b.forma) ? b.forma : null;
-  if (!forma) throw new HttpError(400, 'Escolha a forma de pagamento: dinheiro ou Pix.');
+  const forma = ['dinheiro', 'pix_chave', 'cartao'].includes(b.forma) ? b.forma : null;
+  if (!forma) throw new HttpError(400, 'Escolha a forma de pagamento: dinheiro, Pix ou cartão.');
   const lote = await db.prepare('SELECT evento_id FROM lotes WHERE id = ?1').bind(loteId).first();
   if (!lote || lote.evento_id !== ev.id) throw new HttpError(404, 'Lote indisponível para venda presencial.');
   const { codigo, id } = await venderPresencial(db, u, { loteId, quantidade, nomes, forma });
