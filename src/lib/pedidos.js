@@ -1,17 +1,14 @@
 import { HttpError, agora, configuracoes } from './http.js';
 import { codigoCurto } from './crypto.js';
 import { pixCopiaECola } from './pix.js';
+import { buscarCupomParaCompra, calcularValores } from './cupons.js';
+
+export { calcularValores };
 
 // Todas as mudanças de estoque abaixo rodam em db.batch(): o D1 executa o lote em UMA
 // transação, em sequência, e desfaz tudo se algo falhar. Cada UPDATE carrega a própria
 // condição (ex.: "só se ainda há ingressos"), então duas compras simultâneas nunca
 // vendem o mesmo ingresso duas vezes.
-
-export function calcularValores(valorUnitCentavos, quantidade, taxaPercentual) {
-  const subtotal = valorUnitCentavos * quantidade;
-  const taxa = Math.floor((subtotal * taxaPercentual + 50) / 100);
-  return { subtotal, taxa, total: subtotal + taxa };
-}
 
 // Devolve ao estoque as reservas vencidas (pedidos que ninguém pagou a tempo).
 export async function liberarExpirados(db) {
@@ -41,7 +38,7 @@ export async function liberarExpirados(db) {
   ]);
 }
 
-export async function criarPedido(env, usuario, { loteId, quantidade, nomePagador }) {
+export async function criarPedido(env, usuario, { loteId, quantidade, nomePagador, cupomDigitado = '' }) {
   const db = env.DB;
   const cfg = await configuracoes(db);
   if (!cfg.pix_chave) {
@@ -58,12 +55,19 @@ export async function criarPedido(env, usuario, { loteId, quantidade, nomePagado
 
   const lote = await db
     .prepare(
-      `SELECT l.id, l.ativo, l.canal, e.ativo AS evento_ativo
+      `SELECT l.id, l.evento_id, l.valor_centavos, l.ativo, l.canal, e.ativo AS evento_ativo
          FROM lotes l JOIN eventos e ON e.id = l.evento_id WHERE l.id = ?1`,
     )
     .bind(loteId)
     .first();
   if (!lote || !lote.ativo || !lote.evento_ativo || lote.canal === 'porta') throw new HttpError(404, 'Lote indisponível.');
+
+  const cupom = await buscarCupomParaCompra(db, usuario.id, lote.evento_id, cupomDigitado);
+  const v = calcularValores(lote.valor_centavos, quantidade, pct, cupom);
+  // Cupom com limite: o próprio INSERT confere o saldo (atômico), junto com o estoque do lote.
+  const usadosSql = `(SELECT COALESCE(SUM(p2.quantidade), 0) FROM pedidos p2
+                       WHERE p2.cupom_id = ?10
+                         AND (p2.status = 'pago' OR (p2.status = 'aguardando_pagamento' AND p2.reserva_ativa = 1)))`;
 
   const t = agora();
   const expira = t + reservaMin * 60;
@@ -77,26 +81,40 @@ export async function criarPedido(env, usuario, { loteId, quantidade, nomePagado
             `INSERT INTO pedidos
                (codigo, comprador_id, evento_id, lote_id, quantidade, valor_unit_centavos,
                 subtotal_centavos, taxa_centavos, total_centavos, nome_pagador, status,
-                reserva_ativa, contabilizado, criado_em, expira_em)
+                reserva_ativa, contabilizado, criado_em, expira_em,
+                cupom_id, cupom_codigo, desconto_centavos)
              SELECT ?1, ?2, l.evento_id, l.id, ?3, l.valor_centavos,
-                    CAST(?3 * l.valor_centavos AS INTEGER),
-                    CAST((?3 * l.valor_centavos * ?4 + 50) / 100 AS INTEGER),
-                    CAST(?3 * l.valor_centavos AS INTEGER)
-                      + CAST((?3 * l.valor_centavos * ?4 + 50) / 100 AS INTEGER),
-                    ?5, 'aguardando_pagamento', 1, 0, ?6, ?7
+                    ?4, ?5, ?6, ?7, 'aguardando_pagamento', 1, 0, ?8, ?9, ?10, ?11, ?12
                FROM lotes l
-              WHERE l.id = ?8 AND l.ativo = 1 AND l.canal <> 'porta'
-                AND (l.quantidade - l.vendidos - l.reservados) >= ?3`,
+              WHERE l.id = ?13 AND l.valor_centavos = ?14 AND l.ativo = 1 AND l.canal <> 'porta'
+                AND (l.quantidade - l.vendidos - l.reservados) >= ?3
+                AND (?10 IS NULL OR ?15 IS NULL OR ${usadosSql} + ?3 <= ?15)`,
           )
-          .bind(codigo, usuario.id, quantidade, pct, nomePagador, t, expira, loteId),
+          .bind(
+            codigo, usuario.id, quantidade, v.subtotal, v.taxa, v.total, nomePagador, t, expira,
+            cupom?.id ?? null, cupom?.codigo ?? null, v.desconto, loteId, lote.valor_centavos, cupom?.limite ?? null,
+          ),
         db
           .prepare(
             `UPDATE lotes SET reservados = reservados + ?1
-              WHERE id = ?2 AND ativo = 1 AND (quantidade - vendidos - reservados) >= ?1`,
+              WHERE id = ?2 AND ativo = 1 AND (quantidade - vendidos - reservados) >= ?1
+                AND EXISTS (SELECT 1 FROM pedidos WHERE codigo = ?3 AND status = 'aguardando_pagamento')`,
           )
-          .bind(quantidade, loteId),
+          .bind(quantidade, loteId, codigo),
       ]);
       if (ins.meta.changes !== 1) {
+        // Descobre por que não entrou: preço mudou no meio da compra, cupom esgotou ou lote sem estoque.
+        const agoraLote = await db.prepare('SELECT valor_centavos FROM lotes WHERE id = ?1').bind(loteId).first();
+        if (agoraLote && agoraLote.valor_centavos !== lote.valor_centavos) {
+          throw new HttpError(409, 'O valor do ingresso mudou. Atualize a página e tente de novo.');
+        }
+        if (cupom?.limite != null) {
+          const u = await db
+            .prepare(`SELECT COALESCE(SUM(quantidade), 0) AS n FROM pedidos WHERE cupom_id = ?1 AND (status = 'pago' OR (status = 'aguardando_pagamento' AND reserva_ativa = 1))`)
+            .bind(cupom.id)
+            .first();
+          if (u.n + quantidade > cupom.limite) throw new HttpError(400, 'Cupom inválido ou indisponível.');
+        }
         throw new HttpError(409, 'Não há ingressos suficientes neste lote.');
       }
       return codigo;
@@ -230,6 +248,8 @@ export async function visaoPedido(db, p) {
     quantidade: p.quantidade,
     valor_unit_centavos: p.valor_unit_centavos,
     subtotal_centavos: p.subtotal_centavos,
+    desconto_centavos: p.desconto_centavos || 0,
+    cupom: p.cupom_codigo || null,
     taxa_centavos: p.taxa_centavos,
     total_centavos: p.total_centavos,
     nome_pagador: p.nome_pagador,
@@ -319,4 +339,23 @@ export async function venderPresencial(db, vendedor, { loteId, quantidade, nomes
     ),
   );
   return { id: p.id, codigo };
+}
+
+// Pedido que ficou em R$ 0,00 por causa do cupom (VIP ou 100%): não há o que pagar, então
+// já nasce confirmado e os ingressos saem como cortesia identificada pelo cupom.
+export async function concluirPedidoGratis(db, pedidoId, cupomCodigo) {
+  await confirmarPedido(db, pedidoId, null, 'cupom');
+  const depois = await db.prepare('SELECT status FROM pedidos WHERE id = ?1').bind(pedidoId).first();
+  if (depois?.status !== 'pago') {
+    await cancelarNaoPago(db, pedidoId);
+    throw new HttpError(500, 'Não foi possível concluir o pedido com o cupom. Tente novamente.');
+  }
+  await db
+    .prepare(
+      `UPDATE ingressos SET tipo = 'cortesia', motivo = ?2
+        WHERE pedido_id = ?1 AND tipo = 'pago'
+          AND EXISTS (SELECT 1 FROM pedidos WHERE id = ?1 AND status = 'pago' AND total_centavos = 0)`,
+    )
+    .bind(pedidoId, `Cupom ${cupomCodigo}`.slice(0, 60))
+    .run();
 }

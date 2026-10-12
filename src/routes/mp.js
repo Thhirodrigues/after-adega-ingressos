@@ -77,7 +77,7 @@ r.post('/mp/webhook', async (c) => {
 
   // Registra o id do pagamento (índice único: o mesmo pagamento não confirma dois pedidos).
   try {
-    await db.prepare('UPDATE pedidos SET mp_payment_id = ?2 WHERE id = ?1 AND mp_payment_id IS NULL').bind(pedido.id, String(pg.id)).run();
+    await db.prepare('UPDATE pedidos SET mp_payment_id = ?2, mp_tipo = ?3 WHERE id = ?1 AND mp_payment_id IS NULL').bind(pedido.id, String(pg.id), String(pg.payment_type_id || '').slice(0, 30) || null).run();
   } catch {
     return c.json({ ok: true });
   }

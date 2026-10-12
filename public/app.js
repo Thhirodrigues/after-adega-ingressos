@@ -18,7 +18,7 @@ function centavos(txt) {
   const n = Number(String(txt).replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, ''));
   return Number.isFinite(n) ? Math.round(n * 100) : NaN;
 }
-const nomeForma = (f) => ({ dinheiro: 'Dinheiro', mercadopago: 'Mercado Pago' }[f] || 'Pix');
+const nomeForma = (f) => ({ dinheiro: 'Dinheiro', mercadopago: 'Mercado Pago', cupom: 'Cupom' }[f] || 'Pix');
 const reais = (c) => (c / 100).toFixed(2).replace('.', ',');
 // Seletor de quantidade com botões − e +. O valor fica num <input type="hidden"> (mesmo
 // nome/atributos de antes), então o resto do código lê .value e escuta "change".
@@ -318,6 +318,8 @@ rota('/comprar/(\\d+)', async (id) => {
         ? `<input type="hidden" name="nome_pagador" value="${esc(`${estado.eu.nome} ${estado.eu.sobrenome}`)}">`
         : `<label>Nome de quem vai fazer o Pix (para conferirmos o pagamento)</label>
       <input name="nome_pagador" required minlength="3" maxlength="80" value="${esc(`${estado.eu.nome} ${estado.eu.sobrenome}`)}">`}
+      <label>Cupom</label>
+      <input name="cupom" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="30">
       <div class="card" style="background:var(--campo);margin-top:1rem">
         <div class="linha"><span>Ingressos</span><b id="t_sub"></b></div>
         <div class="linha"><span>Taxa de serviço</span><b id="t_taxa"></b></div>
@@ -351,7 +353,7 @@ rota('/comprar/(\\d+)', async (id) => {
     e.preventDefault();
     comEspera(btPagar, async () => {
       try {
-        const r = await api('POST', '/pedidos', { lote_id: l.id, quantidade: Number(f.quantidade.value), nome_pagador: f.nome_pagador.value, aceito_termos: f.aceito.checked === true });
+        const r = await api('POST', '/pedidos', { lote_id: l.id, quantidade: Number(f.quantidade.value), nome_pagador: f.nome_pagador.value, cupom: f.cupom.value.trim(), aceito_termos: f.aceito.checked === true });
         location.hash = `#/pedido/${r.codigo}`;
       } catch (e) {
         if (e.status === 409 && e.dados?.pedido_aberto) {
@@ -401,6 +403,7 @@ rota('/pedido/([A-Za-z0-9]+)', async (codigo) => {
       <h1>Pedido ${esc(p.codigo)}</h1> ${tag(p.status)}
       <div class="card">
         <div class="linha"><span>${p.quantidade}× ${esc(p.lote)}</span><b>${brl(p.subtotal_centavos)}</b></div>
+        ${p.cupom ? `<div class="linha"><span>Cupom ${esc(p.cupom)}</span><b>${p.desconto_centavos ? `− ${brl(p.desconto_centavos)}` : 'sem taxa'}</b></div>` : ''}
         <div class="linha"><span>Taxa de serviço</span><b>${brl(p.taxa_centavos)}</b></div>
         <div class="linha"><span><b>Total</b></span><b>${brl(p.total_centavos)}</b></div>
         <div class="peq">${esc(p.evento)} · ${dataBR(p.data_evento)}</div>
@@ -942,14 +945,15 @@ rota('/admin/financeiro', async () => {
     'financeiro',
     `<p class="mudo">${esc(f.evento.nome)} · ${dataBR(f.evento.data_evento)}</p>
     ${botoesCsv}
-    <h2>Dinheiro</h2>
+    <h2>Pagamentos</h2>
     <div class="kpis">
       ${kpi('Recebido (pedidos confirmados)', brl(r.total_recebido_centavos), 'dest')}
-      ${kpi('Em ingressos', brl(r.receita_ingressos_centavos))}
-      ${kpi('Em taxa de serviço', brl(r.taxa_servico_centavos))}
-      ${kpi('A receber (Pix aguardando)', brl(r.a_receber_centavos))}
+      ${kpi('Aguardando pagamento', brl(r.a_receber_centavos))}
+      ${kpi('Por Pix', brl(r.recebido_pix_centavos))}
+      ${kpi('Por cartão', brl(r.recebido_cartao_centavos))}
     </div>
-    <p class="peq">Pix direto na chave: sem taxa de gateway. Pedidos pagos: ${r.pedidos_pagos}. Vencidos sem pagamento: ${r.pedidos_vencidos} (${brl(r.valor_vencido_centavos)}). Cancelados: ${r.pedidos_cancelados}.</p>
+    <p class="peq">Pedidos pagos: ${r.pedidos_pagos}. Vencidos sem pagamento: ${r.pedidos_vencidos} (${brl(r.valor_vencido_centavos)}). Cancelados: ${r.pedidos_cancelados}.</p>
+    <p class="peq mudo">Do recebido: ${brl(r.receita_ingressos_centavos)} em ingressos e ${brl(r.taxa_servico_centavos)} em taxa de serviço${r.descontos_cupom_centavos ? ` · ${brl(r.descontos_cupom_centavos)} concedidos em cupons` : ''}. Pix direto na chave não tem taxa de gateway.</p>
     <h2>Ingressos</h2>
     <div class="kpis">
       ${kpi('Vendidos (pagos)', r.ingressos_vendidos)}
@@ -984,7 +988,7 @@ rota('/admin/pedidos', async () => {
       return `<tr>
         <td><b>${esc(p.codigo)}</b><br>${tag(st)}</td>
         <td>${esc(p.comprador)}<br><span class="peq">${esc(p.telefone)} · CPF ${esc(fmtCpf(p.cpf))}</span></td>
-        <td>${p.quantidade}× ${esc(p.lote)}<br><span class="peq">${p.canal === 'porta' ? 'Venda na porta' : 'Pagador'}: ${esc(p.nome_pagador)}${p.status === 'pago' ? ` · ${nomeForma(p.forma_pagamento).toLowerCase()}` : ''}</span></td>
+        <td>${p.quantidade}× ${esc(p.lote)}<br><span class="peq">${p.canal === 'porta' ? 'Venda na porta' : 'Pagador'}: ${esc(p.nome_pagador)}${p.status === 'pago' ? ` · ${nomeForma(p.forma_pagamento).toLowerCase()}` : ''}${p.cupom_codigo ? ` · cupom ${esc(p.cupom_codigo)}` : ''}</span></td>
         <td class="num"><b>${brl(p.total_centavos)}</b><br><span class="peq">${hora(p.criado_em)}</span></td>
         <td><div class="acoes">
           ${confirmavel ? `<button class="bt ok peq" data-conf="${p.id}">Confirmar Pix</button>` : ''}
@@ -1085,6 +1089,25 @@ rota('/admin/lotes', async () => {
   const ev = await api('GET', '/admin/eventos');
   const evAtivo = ev.eventos.find((e) => e.ativo) || ev.eventos[0];
   const lo = await api('GET', `/admin/lotes${evAtivo ? `?evento_id=${evAtivo.id}` : ''}`);
+  const cu = evAtivo ? await api('GET', `/admin/cupons?evento_id=${evAtivo.id}`) : { cupons: [] };
+  const camposCupom = (c = {}) => `<div class="grade">
+        <div><label>Palavra-chave</label><input name="codigo" value="${esc(c.codigo || '')}" maxlength="30" autocomplete="off" autocapitalize="characters" required></div>
+        <div><label>Benefício</label><select name="tipo">
+          <option value="sem_taxa" ${c.tipo === 'sem_taxa' ? 'selected' : ''}>Sem taxa de serviço</option>
+          <option value="percentual" ${c.tipo === 'percentual' ? 'selected' : ''}>Desconto (%) no valor dos ingressos</option>
+          <option value="vip" ${c.tipo === 'vip' ? 'selected' : ''}>VIP (não paga o ingresso)</option></select></div>
+        <div class="pct"><label>Desconto (%)</label><input name="percentual" inputmode="numeric" value="${c.percentual || 10}"></div>
+        <div><label>Limite de ingressos (vazio = sem limite)</label><input name="limite" inputmode="numeric" value="${c.limite ?? ''}"></div>
+      </div>`;
+  const cuponsCards = cu.cupons
+    .map(
+      (c) => `<form class="card" data-cupom="${c.id}">
+      <div class="linha"><b>${esc(c.codigo)}</b><span class="peq">usados ${c.usados}${c.limite != null ? ` de ${c.limite}` : ''}</span></div>
+      ${camposCupom(c)}
+      <label><input type="checkbox" name="ativo" ${c.ativo ? 'checked' : ''} style="width:auto"> Cupom ativo</label>
+      <button class="bt peq" style="margin-top:.75rem">Salvar cupom</button></form>`,
+    )
+    .join('');
   const cards = lo.lotes
     .map(
       (l) => `<form class="card" data-lote="${l.id}">
@@ -1122,8 +1145,43 @@ rota('/admin/lotes', async () => {
         <div><label>Quem pode comprar</label><select name="canal"><option value="todos">Online e na porta</option><option value="online">Só online</option><option value="porta">Só na porta</option></select></div>
       </div>
       <p class="peq">Ordem de venda: o lote de menor número é vendido primeiro; quando esgota, o site destaca o próximo automaticamente. A taxa de serviço (%) é aplicada por cima do valor e aparece para o comprador.</p>
-      <button class="bt peq">Criar lote</button></form>`,
+      <button class="bt peq">Criar lote</button></form>
+    <h2>Cupons</h2>
+    <p class="peq">O comprador digita a palavra-chave no campo "Cupom" antes de efetuar a compra. Alterações valem só para pedidos novos. VIP gera os ingressos na hora, como cortesia: use o limite para não liberar mais do que quer.</p>
+    ${cuponsCards || '<p class="mudo">Nenhum cupom ainda.</p>'}
+    <h2>Novo cupom</h2>
+    <form class="card" id="fcupnovo">${camposCupom()}<button class="bt peq">Criar cupom</button></form>`,
   );
+  const lerCupom = (f) => ({
+    codigo: f.codigo.value,
+    tipo: f.tipo.value,
+    percentual: f.tipo.value === 'percentual' ? Number(soDig(f.percentual.value)) : 0,
+    limite: f.limite.value.trim() === '' ? null : Number(soDig(f.limite.value)),
+  });
+  app.querySelectorAll('form[data-cupom], #fcupnovo').forEach((f) => {
+    const mostra = () => (f.querySelector('.pct').hidden = f.tipo.value !== 'percentual');
+    f.tipo.addEventListener('change', mostra);
+    mostra();
+  });
+  app.querySelectorAll('form[data-cupom]').forEach((f) =>
+    f.addEventListener('submit', (e) => {
+      e.preventDefault();
+      comEspera(f.querySelector('button'), async () => {
+        await api('PUT', `/admin/cupons/${f.dataset.cupom}`, { ...lerCupom(f), ativo: f.ativo.checked });
+        aviso('Cupom salvo.');
+        navegar();
+      });
+    }),
+  );
+  document.getElementById('fcupnovo').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    comEspera(f.querySelector('button'), async () => {
+      await api('POST', '/admin/cupons', { ...lerCupom(f), evento_id: evAtivo.id, ativo: true });
+      aviso('Cupom criado.');
+      navegar();
+    });
+  });
   const lerLote = (f) => {
     const valor = centavos(f.valor.value);
     const quantidade = Number(soDig(f.quantidade.value));

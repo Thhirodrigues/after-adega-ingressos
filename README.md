@@ -64,3 +64,10 @@ Valores em centavos; taxa de serviço 10% (configurável); reserva de 60 min; es
 - O Pix pela chave continua como alternativa (confirmação manual).
 - Segredos no Worker (Settings → Variables and secrets, tipo Secret): `MP_ACCESS_TOKEN` e `MP_WEBHOOK_SECRET`. Webhook no painel do MP: `https://<site>/api/mp/webhook`, evento Pagamentos.
 - Testes: `MP_TEST=1` com `wrangler dev --var MP_ACCESS_TOKEN:teste --var MP_API_BASE:http://localhost:9911 --var MP_WEBHOOK_SECRET:segredo-mp` (o teste sobe um Mercado Pago falso). Migração `0007`.
+
+## Fase 7 — cupons e painel de Pagamentos
+
+- **Cupom**: campo "Cupom" na tela de compra, antes de efetuar a compra (só o rótulo, sem mensagem). Admin → Lotes → **Cupons**: palavra-chave (sem acento/espaço, maiúsculas), benefício (**sem taxa de serviço**, **desconto %** no valor dos ingressos ou **VIP**), limite de ingressos (vazio = sem limite) e ativo/inativo. Vale só para pedidos novos.
+- Desconto % sai do valor dos ingressos e a taxa de serviço incide sobre o que sobra. **VIP** (ou qualquer cupom que zere o total): o pedido já nasce pago e os ingressos saem como **cortesia** com o motivo "Cupom <palavra>". O limite do cupom conta ingressos de pedidos pagos + reservas em aberto e é conferido de forma atômica na criação do pedido.
+- Cupom errado/desativado/esgotado devolve sempre a mesma mensagem; 5 erros em 10 min bloqueiam novas tentativas (contra adivinhar palavra VIP).
+- Financeiro: seção **Pagamentos** com os cards Recebido, Aguardando pagamento, Por Pix e Por cartão (cartão/Pix do Mercado Pago vêm do `payment_type_id` do webhook). Taxa de serviço e descontos de cupom ficam numa linha discreta abaixo. CSV de vendas ganhou Desconto e Cupom. Migração `0008`.

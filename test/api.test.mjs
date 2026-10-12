@@ -600,11 +600,12 @@ test('mercado pago: link, webhook assinado, valor conferido, idempotência', { s
     await hook(112, assinar(112));
     assert.equal((await c.get(`/api/pedidos/${cod}`)).json.status, 'aguardando_pagamento');
     // aprovado e correto confirma, gera ingressos, é idempotente
-    pagamentos[113] = { id: 113, status: 'approved', currency_id: 'BRL', transaction_amount: p.json.total_centavos / 100, external_reference: cod };
+    pagamentos[113] = { id: 113, status: 'approved', payment_type_id: 'credit_card', currency_id: 'BRL', transaction_amount: p.json.total_centavos / 100, external_reference: cod };
     assert.equal((await hook(113, assinar(113))).status, 200);
     assert.equal((await hook(113, assinar(113))).status, 200);
     assert.equal((await c.get(`/api/pedidos/${cod}`)).json.status, 'pago');
     assert.equal((await c.get('/api/meus-ingressos')).json.ingressos.length, 2);
+    assert.equal((await admin.get('/api/admin/financeiro')).json.resumo.recebido_cartao_centavos, p.json.total_centavos);
     // o mesmo pagamento não confirma outro pedido
     const { c: c2 } = await novoComprador();
     const p2 = await c2.post('/api/pedidos', { aceito_termos: true, lote_id: lm, quantidade: 2, nome_pagador: 'Beltrano Silva' });
@@ -626,6 +627,79 @@ test('mercado pago: link, webhook assinado, valor conferido, idempotência', { s
   } finally {
     srv.close();
   }
+});
+
+test('cupons: sem taxa, % de desconto, VIP com limite, inválido e limite de tentativas', async () => {
+  const lc = (await admin.post('/api/admin/lotes', { evento_id: eventoId, nome: 'Lote Cupom', valor_centavos: 3500, quantidade: 40, ativo: true, canal: 'online' })).json.id;
+  const cria = (b) => admin.post('/api/admin/cupons', { evento_id: eventoId, ...b });
+  const semTaxa = await cria({ codigo: 'Sem Taxa', tipo: 'sem_taxa' });
+  assert.equal(semTaxa.status, 201, JSON.stringify(semTaxa.json));
+  const dez = await cria({ codigo: 'DEZ', tipo: 'percentual', percentual: 10, limite: null });
+  assert.equal(dez.status, 201, JSON.stringify(dez.json));
+  const vip = await cria({ codigo: 'vip26', tipo: 'vip', limite: 3 });
+  assert.equal(vip.status, 201, JSON.stringify(vip.json));
+  assert.equal((await cria({ codigo: 'SEMTAXA', tipo: 'vip' })).status, 409, 'palavra-chave repetida (normalizada)');
+  assert.equal((await cria({ codigo: 'AB', tipo: 'vip' })).status, 400);
+  assert.equal((await cria({ codigo: 'ZERO', tipo: 'percentual', percentual: 0 })).status, 400);
+  const lista = (await admin.get(`/api/admin/cupons?evento_id=${eventoId}`)).json.cupons;
+  assert.equal(lista.find((c) => c.codigo === 'VIP26').limite, 3);
+
+  const compra = async (b, extra = {}) => {
+    const { c } = await novoComprador();
+    const r = await c.post('/api/pedidos', { aceito_termos: true, lote_id: lc, quantidade: 2, nome_pagador: 'Cupom Teste', ...b });
+    return { c, r, ...extra };
+  };
+  // sem cupom e cupom vazio: igual a antes
+  const base = await compra({ cupom: '   ' });
+  assert.equal(base.r.status, 201);
+  assert.deepEqual([base.r.json.subtotal_centavos, base.r.json.taxa_centavos, base.r.json.total_centavos, base.r.json.desconto_centavos], [7000, 700, 7700, 0]);
+  // sem taxa (aceita minúsculas e espaço)
+  const st = await compra({ cupom: ' sem taxa ' });
+  assert.equal(st.r.status, 201, JSON.stringify(st.r.json));
+  assert.deepEqual([st.r.json.subtotal_centavos, st.r.json.taxa_centavos, st.r.json.total_centavos], [7000, 0, 7000]);
+  assert.equal(st.r.json.cupom, 'SEMTAXA');
+  assert.equal(st.r.json.status, 'aguardando_pagamento');
+  // 10%: desconto sobre os ingressos, taxa sobre o que sobra
+  const pc = await compra({ cupom: 'dez' });
+  assert.deepEqual([pc.r.json.desconto_centavos, pc.r.json.taxa_centavos, pc.r.json.total_centavos], [700, 630, 6930]);
+  assert.equal(pc.r.json.pix.valor_centavos, 6930);
+  // VIP: nasce pago, R$ 0, ingressos como cortesia com o motivo do cupom
+  const v1 = await compra({ cupom: 'VIP26' });
+  assert.equal(v1.r.status, 201, JSON.stringify(v1.r.json));
+  assert.equal(v1.r.json.status, 'pago');
+  assert.equal(v1.r.json.total_centavos, 0);
+  assert.equal(v1.r.json.pix, undefined);
+  const ings = (await v1.c.get('/api/meus-ingressos')).json.ingressos;
+  assert.equal(ings.length, 2);
+  assert.ok(ings.every((i) => i.tipo === 'cortesia' && i.motivo === 'Cupom VIP26'));
+  // limite de 3 ingressos: 2 já usados; mais 2 estoura, 1 passa, depois esgotou
+  const v2 = await compra({ cupom: 'VIP26' });
+  assert.equal(v2.r.status, 400);
+  assert.match(v2.r.json.erro, /Cupom inválido/);
+  const v3 = await compra({ cupom: 'VIP26', quantidade: 1 });
+  assert.equal(v3.r.status, 201, JSON.stringify(v3.r.json));
+  assert.equal((await compra({ cupom: 'VIP26', quantidade: 1 })).r.status, 400);
+  // cupom desativado = inválido; reativar volta a valer
+  const idDez = dez.json.id;
+  assert.equal((await admin.put(`/api/admin/cupons/${idDez}`, { ativo: false })).status, 200);
+  assert.equal((await compra({ cupom: 'DEZ' })).r.status, 400);
+  assert.equal((await admin.put(`/api/admin/cupons/${idDez}`, { ativo: true })).status, 200);
+  assert.equal((await compra({ cupom: 'DEZ' })).r.status, 201);
+  // cupom de outro jeito/inexistente: erro genérico, e 5 erros bloqueiam por 10 min
+  const { c: chute } = await novoComprador();
+  for (let i = 0; i < 5; i++) {
+    const r = await chute.post('/api/pedidos', { aceito_termos: true, lote_id: lc, quantidade: 1, nome_pagador: 'Chute Teste', cupom: `NAOEXISTE${i}` });
+    assert.equal(r.status, 400);
+  }
+  assert.equal((await chute.post('/api/pedidos', { aceito_termos: true, lote_id: lc, quantidade: 1, nome_pagador: 'Chute Teste', cupom: 'DEZ' })).status, 429);
+  // comprador não administra cupons
+  assert.equal((await chute.get('/api/admin/cupons')).status, 403);
+  // financeiro: descontos aparecem e o recebido soma pedidos pagos (VIP entra com R$ 0)
+  const f = (await admin.get('/api/admin/financeiro')).json.resumo;
+  assert.equal(typeof f.recebido_pix_centavos, 'number');
+  assert.equal(typeof f.recebido_cartao_centavos, 'number');
+  assert.ok(f.descontos_cupom_centavos >= 7000 + 3500);
+  assert.equal(f.total_recebido_centavos, f.receita_ingressos_centavos + f.taxa_servico_centavos);
 });
 
 test('zerar dados de teste: exige frase, apaga tudo menos admin/config/eventos/lotes', async () => {

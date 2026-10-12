@@ -12,6 +12,7 @@ import { inserirUsuario, lerDadosUsuario } from './auth.js';
 import { alertar } from '../lib/alertas.js';
 import { chavesVapid, enviarPush } from '../lib/push.js';
 import { hmacHex } from '../lib/crypto.js';
+import { SQL_USADOS, TIPOS_CUPOM, normalizarCupom } from '../lib/cupons.js';
 
 const r = new Hono();
 r.use('/admin/*', exigir('admin'));
@@ -258,7 +259,7 @@ r.get('/admin/export/vendas.csv', async (c) => {
   const ev = await c.env.DB.prepare('SELECT id, data_evento FROM eventos WHERE ativo = 1 LIMIT 1').first();
   if (!ev) throw new HttpError(404, 'Nenhum evento ativo.');
   const { results } = await c.env.DB.prepare(
-    `SELECT p.codigo, p.status, p.quantidade, p.subtotal_centavos, p.taxa_centavos, p.total_centavos, p.nome_pagador, p.canal, p.forma_pagamento,
+    `SELECT p.codigo, p.status, p.quantidade, p.subtotal_centavos, p.taxa_centavos, p.total_centavos, p.nome_pagador, p.canal, p.forma_pagamento, p.cupom_codigo, p.desconto_centavos,
             p.criado_em, p.pago_em, u.nome || ' ' || u.sobrenome AS comprador, u.email, u.telefone, l.nome AS lote
        FROM pedidos p JOIN usuarios u ON u.id = p.comprador_id JOIN lotes l ON l.id = p.lote_id
       WHERE p.evento_id = ?1 ORDER BY p.id`,
@@ -267,8 +268,8 @@ r.get('/admin/export/vendas.csv', async (c) => {
     .all();
   await auditar(c.env.DB, c.get('usuario').id, 'export_vendas', String(results.length));
   const reais = (n) => (n / 100).toFixed(2).replace('.', ',');
-  const linhas = [['Pedido', 'Situação', 'Lote', 'Qtd', 'Ingressos (R$)', 'Taxa (R$)', 'Total (R$)', 'Comprador', 'Pagador (Pix)', 'Canal', 'Forma', 'E-mail', 'Celular', 'Criado em', 'Pago em']];
-  for (const p of results) linhas.push([p.codigo, p.status, p.lote, p.quantidade, reais(p.subtotal_centavos), reais(p.taxa_centavos), reais(p.total_centavos), p.comprador, p.nome_pagador, p.canal === 'porta' ? 'porta' : 'online', p.forma_pagamento === 'dinheiro' ? 'dinheiro' : 'pix', p.email, p.telefone, fmtData(p.criado_em), fmtData(p.pago_em)]);
+  const linhas = [['Pedido', 'Situação', 'Lote', 'Qtd', 'Ingressos (R$)', 'Desconto (R$)', 'Cupom', 'Taxa (R$)', 'Total (R$)', 'Comprador', 'Pagador (Pix)', 'Canal', 'Forma', 'E-mail', 'Celular', 'Criado em', 'Pago em']];
+  for (const p of results) linhas.push([p.codigo, p.status, p.lote, p.quantidade, reais(p.subtotal_centavos), reais(p.desconto_centavos || 0), p.cupom_codigo || '', reais(p.taxa_centavos), reais(p.total_centavos), p.comprador, p.nome_pagador, p.canal === 'porta' ? 'porta' : 'online', ({ dinheiro: 'dinheiro', cupom: 'cupom', mercadopago: 'mercado pago' })[p.forma_pagamento] || 'pix', p.email, p.telefone, fmtData(p.criado_em), fmtData(p.pago_em)]);
   return resp(c, `vendas-${ev.data_evento}.csv`, csv(linhas));
 });
 
@@ -277,7 +278,7 @@ r.get('/admin/pedidos', async (c) => {
   const eventoId = c.req.query('evento_id') ? Number(c.req.query('evento_id')) : null;
   const { results } = await c.env.DB.prepare(
     `SELECT p.id, p.codigo, p.status, p.quantidade, p.subtotal_centavos, p.taxa_centavos,
-            p.total_centavos, p.nome_pagador, p.criado_em, p.expira_em, p.pago_em, p.reserva_ativa, p.canal, p.forma_pagamento,
+            p.total_centavos, p.nome_pagador, p.criado_em, p.expira_em, p.pago_em, p.reserva_ativa, p.canal, p.forma_pagamento, p.cupom_codigo, p.desconto_centavos,
             u.nome || ' ' || u.sobrenome AS comprador, u.telefone, u.cpf, l.nome AS lote
        FROM pedidos p
        JOIN usuarios u ON u.id = p.comprador_id
@@ -422,6 +423,76 @@ r.post('/admin/usuarios/:id/definir-senha', async (c) => {
   return c.json({ ok: true });
 });
 
+// ---------- Cupons ----------
+// Palavra-chave que o comprador digita antes de efetuar a compra. O admin define o benefício:
+// sem taxa de serviço, desconto em % no valor dos ingressos, ou VIP (entrada sem pagar).
+
+const lerCupom = (b, atual = {}) => {
+  const codigo = 'codigo' in b ? normalizarCupom(b.codigo) : atual.codigo;
+  if (!/^[A-Z0-9_-]{3,30}$/.test(codigo || '')) {
+    throw new HttpError(400, 'Palavra-chave: 3 a 30 letras ou números, sem espaço.');
+  }
+  const tipo = 'tipo' in b ? b.tipo : atual.tipo;
+  if (!TIPOS_CUPOM.includes(tipo)) throw new HttpError(400, 'Tipo de cupom inválido.');
+  const percentual = tipo === 'percentual' ? v.inteiro('percentual' in b ? b.percentual : atual.percentual, 'Desconto (%)', 1, 100) : 0;
+  const lim = 'limite' in b ? b.limite : atual.limite;
+  const limite = lim === null || lim === undefined || String(lim).trim() === '' ? null : v.inteiro(lim, 'Limite de ingressos', 0, 100_000);
+  const ativo = 'ativo' in b ? bool(b.ativo) : (atual.ativo ?? 1);
+  return { codigo, tipo, percentual, limite, ativo };
+};
+
+r.get('/admin/cupons', async (c) => {
+  const eventoId = c.req.query('evento_id');
+  const { results } = await c.env.DB.prepare(
+    `SELECT cupons.*, ${SQL_USADOS} AS usados FROM cupons WHERE (?1 IS NULL OR evento_id = ?1) ORDER BY id`,
+  )
+    .bind(eventoId ? Number(eventoId) : null)
+    .all();
+  return c.json({ cupons: results });
+});
+
+r.post('/admin/cupons', async (c) => {
+  const b = await corpo(c);
+  const db = c.env.DB;
+  const eventoId = v.inteiro(b.evento_id, 'Evento', 1, 1_000_000_000);
+  if (!(await db.prepare('SELECT 1 FROM eventos WHERE id = ?1').bind(eventoId).first())) {
+    throw new HttpError(404, 'Evento não encontrado.');
+  }
+  const d = lerCupom(b);
+  try {
+    const res = await db
+      .prepare('INSERT INTO cupons (evento_id, codigo, tipo, percentual, limite, ativo, criado_em) VALUES (?1,?2,?3,?4,?5,?6,?7)')
+      .bind(eventoId, d.codigo, d.tipo, d.percentual, d.limite, d.ativo, agora())
+      .run();
+    await auditar(db, c.get('usuario').id, 'cupom_criado', `${d.codigo} ${d.tipo}`);
+    return c.json({ ok: true, id: res.meta.last_row_id }, 201);
+  } catch (e) {
+    if (/UNIQUE/i.test(String(e.message))) throw new HttpError(409, 'Já existe um cupom com essa palavra-chave neste evento.');
+    throw e;
+  }
+});
+
+// Mudar o cupom vale só para pedidos NOVOS (cada pedido guarda o desconto da hora da compra).
+r.put('/admin/cupons/:id', async (c) => {
+  const b = await corpo(c);
+  const db = c.env.DB;
+  const id = v.inteiro(c.req.param('id'), 'Cupom', 1, 1_000_000_000);
+  const atual = await db.prepare('SELECT * FROM cupons WHERE id = ?1').bind(id).first();
+  if (!atual) throw new HttpError(404, 'Cupom não encontrado.');
+  const d = lerCupom(b, atual);
+  try {
+    await db
+      .prepare('UPDATE cupons SET codigo=?2, tipo=?3, percentual=?4, limite=?5, ativo=?6 WHERE id=?1')
+      .bind(id, d.codigo, d.tipo, d.percentual, d.limite, d.ativo)
+      .run();
+  } catch (e) {
+    if (/UNIQUE/i.test(String(e.message))) throw new HttpError(409, 'Já existe um cupom com essa palavra-chave neste evento.');
+    throw e;
+  }
+  await auditar(db, c.get('usuario').id, 'cupom_editado', `${d.codigo} ${d.tipo}`);
+  return c.json({ ok: true });
+});
+
 // ---------- Financeiro ----------
 
 r.get('/admin/financeiro', async (c) => {
@@ -438,7 +509,7 @@ r.get('/admin/financeiro', async (c) => {
     .prepare(
       `SELECT l.id, l.nome, l.valor_centavos, l.quantidade, l.vendidos, l.reservados, l.ativo, l.canal,
               (SELECT COUNT(*) FROM pedidos p WHERE p.lote_id = l.id AND p.status = 'pago') AS pedidos_pagos,
-              COALESCE((SELECT SUM(p.subtotal_centavos) FROM pedidos p WHERE p.lote_id = l.id AND p.status = 'pago'), 0) AS receita_ingressos_centavos,
+              COALESCE((SELECT SUM(p.subtotal_centavos - p.desconto_centavos) FROM pedidos p WHERE p.lote_id = l.id AND p.status = 'pago'), 0) AS receita_ingressos_centavos,
               COALESCE((SELECT SUM(p.taxa_centavos) FROM pedidos p WHERE p.lote_id = l.id AND p.status = 'pago'), 0) AS taxa_servico_centavos
          FROM lotes l WHERE l.evento_id = ?1 ORDER BY l.ordem, l.id`,
     )
@@ -474,6 +545,18 @@ r.get('/admin/financeiro', async (c) => {
     .bind(eventoId)
     .first();
 
+  const formas = await db
+    .prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN forma_pagamento = 'pix_chave' OR (forma_pagamento = 'mercadopago' AND mp_tipo = 'bank_transfer')
+                           THEN total_centavos END), 0) AS pix,
+         COALESCE(SUM(CASE WHEN forma_pagamento = 'mercadopago' AND mp_tipo IN ('credit_card', 'debit_card', 'prepaid_card')
+                           THEN total_centavos END), 0) AS cartao,
+         COALESCE(SUM(desconto_centavos), 0) AS descontos
+         FROM pedidos WHERE evento_id = ?1 AND status = 'pago'`,
+    )
+    .bind(eventoId)
+    .first();
   const { results: porForma } = await db
     .prepare(
       `SELECT canal, forma_pagamento AS forma, COUNT(*) AS pedidos, SUM(quantidade) AS ingressos,
@@ -507,6 +590,9 @@ r.get('/admin/financeiro', async (c) => {
       receita_ingressos_centavos: receitaIngressos,
       taxa_servico_centavos: taxaServico,
       total_recebido_centavos: receitaIngressos + taxaServico,
+      recebido_pix_centavos: formas.pix,
+      recebido_cartao_centavos: formas.cartao,
+      descontos_cupom_centavos: formas.descontos,
       a_receber_centavos: pend.total,
       pedidos_aguardando: pend.pedidos,
       ingressos_aguardando: pend.ingressos,

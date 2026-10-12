@@ -4,7 +4,7 @@ import { limiteTransferencia } from '../lib/prazo.js';
 import { exigir } from '../lib/auth.js';
 import { qrDoIngresso } from '../lib/crypto.js';
 import * as v from '../lib/validar.js';
-import { buscarPedido, cancelarNaoPago, criarPedido, liberarExpirados, visaoPedido } from '../lib/pedidos.js';
+import { buscarPedido, cancelarNaoPago, concluirPedidoGratis, criarPedido, liberarExpirados, visaoPedido } from '../lib/pedidos.js';
 import { alertar } from '../lib/alertas.js';
 import { TERMOS_VERSAO } from '../lib/termos.js';
 
@@ -28,12 +28,19 @@ r.post('/pedidos', exigir(), async (c) => {
   if (aberto) {
     throw new HttpError(409, 'Você já tem um pedido aguardando pagamento. Pague ou cancele esse pedido para fazer outro.', { pedido_aberto: aberto.codigo });
   }
-  const codigo = await criarPedido(c.env, usuario, { loteId, quantidade, nomePagador });
+  const cupomDigitado = typeof b.cupom === 'string' ? b.cupom.slice(0, 60) : '';
+  const codigo = await criarPedido(c.env, usuario, { loteId, quantidade, nomePagador, cupomDigitado });
   await c.env.DB.prepare('UPDATE pedidos SET aceite_termos_em = ?2, termos_versao = ?3 WHERE codigo = ?1').bind(codigo, agora(), TERMOS_VERSAO).run();
-  const pedido = await buscarPedido(c.env.DB, { codigo });
-  await auditar(c.env.DB, usuario.id, 'pedido_criado', codigo);
+  let pedido = await buscarPedido(c.env.DB, { codigo });
+  await auditar(c.env.DB, usuario.id, 'pedido_criado', pedido.cupom_codigo ? `${codigo} cupom ${pedido.cupom_codigo}` : codigo);
   const cents = (n) => (n / 100).toFixed(2).replace('.', ',');
-  await alertar(c, 'novo_pedido', `Novo pedido ${codigo}: ${usuario.nome} ${usuario.sobrenome} — ${quantidade} ingresso(s), R$ ${cents(pedido.total_centavos)}. Aguardando pagamento.`);
+  if (pedido.total_centavos === 0 && pedido.cupom_id) {
+    await concluirPedidoGratis(c.env.DB, pedido.id, pedido.cupom_codigo);
+    pedido = await buscarPedido(c.env.DB, { codigo });
+    await alertar(c, 'novo_pedido', `Pedido ${codigo} com cupom ${pedido.cupom_codigo}: ${usuario.nome} ${usuario.sobrenome} — ${quantidade} ingresso(s) sem custo, já confirmado.`);
+  } else {
+    await alertar(c, 'novo_pedido', `Novo pedido ${codigo}: ${usuario.nome} ${usuario.sobrenome} — ${quantidade} ingresso(s), R$ ${cents(pedido.total_centavos)}${pedido.cupom_codigo ? ` (cupom ${pedido.cupom_codigo})` : ''}. Aguardando pagamento.`);
+  }
   return c.json({ ...(await visaoPedido(c.env.DB, pedido)), mp_disponivel: !!c.env.MP_ACCESS_TOKEN }, 201);
 });
 
