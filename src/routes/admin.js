@@ -552,6 +552,7 @@ r.get('/admin/financeiro', async (c) => {
                            THEN total_centavos END), 0) AS pix,
          COALESCE(SUM(CASE WHEN forma_pagamento = 'cartao' OR (forma_pagamento = 'mercadopago' AND COALESCE(mp_tipo, '') <> 'bank_transfer')
                            THEN total_centavos END), 0) AS cartao,
+         COALESCE(SUM(CASE WHEN forma_pagamento = 'dinheiro' THEN total_centavos END), 0) AS dinheiro,
          COALESCE(SUM(desconto_centavos), 0) AS descontos
          FROM pedidos WHERE evento_id = ?1 AND status = 'pago'`,
     )
@@ -592,6 +593,7 @@ r.get('/admin/financeiro', async (c) => {
       total_recebido_centavos: receitaIngressos + taxaServico,
       recebido_pix_centavos: formas.pix,
       recebido_cartao_centavos: formas.cartao,
+      recebido_dinheiro_centavos: formas.dinheiro,
       descontos_cupom_centavos: formas.descontos,
       a_receber_centavos: pend.total,
       pedidos_aguardando: pend.pedidos,

@@ -948,9 +948,9 @@ rota('/admin/financeiro', async () => {
     <h2>Pagamentos</h2>
     <div class="kpis">
       ${kpi('Recebido (pedidos confirmados)', brl(r.total_recebido_centavos), 'dest')}
-      ${kpi('Aguardando pagamento', brl(r.a_receber_centavos))}
       ${kpi('Por Pix', brl(r.recebido_pix_centavos))}
       ${kpi('Por cartão', brl(r.recebido_cartao_centavos))}
+      ${kpi('Em dinheiro', brl(r.recebido_dinheiro_centavos))}
     </div>
     <p class="peq">Pedidos pagos: ${r.pedidos_pagos}. Vencidos sem pagamento: ${r.pedidos_vencidos} (${brl(r.valor_vencido_centavos)}). Cancelados: ${r.pedidos_cancelados}.</p>
     <p class="peq mudo">Do recebido: ${brl(r.receita_ingressos_centavos)} em ingressos e ${brl(r.taxa_servico_centavos)} em taxa de serviço${r.descontos_cupom_centavos ? ` · ${brl(r.descontos_cupom_centavos)} concedidos em cupons` : ''}. Pix direto na chave não tem taxa de gateway.</p>
@@ -967,10 +967,10 @@ rota('/admin/financeiro', async () => {
     ${(f.por_vendedor || []).length ? `<h2>Vendas na porta por vendedor</h2><p class="peq">Dinheiro que cada pessoa deve prestar contas.</p>
     <div class="rolar"><table><tr><th>Vendedor</th><th>Forma</th><th class="num">Ingressos</th><th class="num">Total</th></tr>${f.por_vendedor.map((x) => `<tr><td>${esc(x.vendedor)}</td><td>${nomeForma(x.forma)}</td><td class="num">${x.ingressos}</td><td class="num">${brl(x.total_centavos)}</td></tr>`).join('')}</table></div>` : ''}
     <h2>Por lote</h2>
-    <div class="rolar"><table><tr><th>Lote</th><th class="num">Preço</th><th class="num">Vendidos</th><th class="num">Reservados</th><th class="num">Qtd.</th><th class="num">Receita</th></tr>
+    <div class="rolar"><table><tr><th>Lote</th><th class="num">Preço</th><th class="num">Vendidos</th><th class="num">Reservados</th><th class="num">Restam</th><th class="num">Receita</th></tr>
     ${f.lotes
       .map(
-        (l) => `<tr><td>${esc(l.nome)}${l.ativo ? '' : ' <span class="peq">(inativo)</span>'}</td><td class="num">${brl(l.valor_centavos)}</td><td class="num">${l.vendidos}</td><td class="num">${l.reservados}</td><td class="num">${l.quantidade}</td><td class="num">${brl(l.receita_ingressos_centavos + l.taxa_servico_centavos)}</td></tr>`,
+        (l) => `<tr><td>${esc(l.nome)}${l.ativo ? '' : ' <span class="peq">(inativo)</span>'}</td><td class="num">${brl(l.valor_centavos)}</td><td class="num">${l.vendidos}</td><td class="num">${l.reservados}</td><td class="num"><b>${Math.max(0, l.quantidade - l.vendidos - l.reservados)}</b> <span class="peq">de ${l.quantidade}</span></td><td class="num">${brl(l.receita_ingressos_centavos + l.taxa_servico_centavos)}</td></tr>`,
       )
       .join('')}</table></div>`,
   );
@@ -979,7 +979,7 @@ rota('/admin/financeiro', async () => {
 
 rota('/admin/pedidos', async () => {
   if (!exigirAdmin()) return;
-  const filtro = sessionStorage.getItem('fped') || 'aguardando_pagamento';
+  const filtro = sessionStorage.getItem('fped') || 'todos';
   const d = await api('GET', `/admin/pedidos${filtro === 'todos' ? '' : `?status=${filtro}`}`);
   const linhas = d.pedidos
     .map((p) => {
@@ -1101,17 +1101,17 @@ rota('/admin/lotes', async () => {
       </div>`;
   const cuponsCards = cu.cupons
     .map(
-      (c) => `<form class="card" data-cupom="${c.id}">
-      <div class="linha"><b>${esc(c.codigo)}</b><span class="peq">usados ${c.usados}${c.limite != null ? ` de ${c.limite}` : ''}</span></div>
+      (c) => `<details class="item"><summary><b>${esc(c.codigo)}</b><span class="peq">${({ sem_taxa: 'sem taxa', percentual: `${c.percentual}% off`, vip: 'VIP' })[c.tipo] || c.tipo} · usados ${c.usados}${c.limite != null ? ` de ${c.limite}` : ''} · ${c.ativo ? 'ativo' : 'inativo'}</span></summary>
+      <form class="card" data-cupom="${c.id}">
       ${camposCupom(c)}
       <label><input type="checkbox" name="ativo" ${c.ativo ? 'checked' : ''} style="width:auto"> Cupom ativo</label>
-      <button class="bt peq" style="margin-top:.75rem">Salvar cupom</button></form>`,
+      <button class="bt peq" style="margin-top:.75rem">Salvar cupom</button></form></details>`,
     )
     .join('');
   const cards = lo.lotes
     .map(
-      (l) => `<form class="card" data-lote="${l.id}">
-      <div class="linha"><b>Lote #${l.id}</b><span class="peq">vendidos ${l.vendidos} · reservados ${l.reservados}</span></div>
+      (l) => `<details class="item"><summary><b>${esc(l.nome)}</b><span class="peq">${brl(l.valor_centavos)} · restam ${Math.max(0, l.quantidade - l.vendidos - l.reservados)} de ${l.quantidade} · ${l.ativo ? 'ativo' : 'inativo'}</span></summary>
+      <form class="card" data-lote="${l.id}">
       <div class="grade">
         <div><label>Nome</label><input name="nome" value="${esc(l.nome)}" required></div>
         <div><label>Valor do ingresso (R$)</label><input name="valor" inputmode="decimal" value="${reais(l.valor_centavos)}" required></div>
@@ -1120,7 +1120,7 @@ rota('/admin/lotes', async () => {
         <div><label>Quem pode comprar</label><select name="canal"><option value="todos" ${l.canal === 'todos' ? 'selected' : ''}>Online e na porta</option><option value="online" ${l.canal === 'online' ? 'selected' : ''}>Só online</option><option value="porta" ${l.canal === 'porta' ? 'selected' : ''}>Só na porta</option></select></div>
       </div>
       <label><input type="checkbox" name="ativo" ${l.ativo ? 'checked' : ''} style="width:auto"> Lote ativo (visível para venda)</label>
-      <button class="bt peq" style="margin-top:.75rem">Salvar lote</button></form>`,
+      <button class="bt peq" style="margin-top:.75rem">Salvar lote</button></form></details>`,
     )
     .join('');
   layoutAdmin(
@@ -1175,7 +1175,7 @@ rota('/admin/lotes', async () => {
       comEspera(f.querySelector('button'), async () => {
         await api('PUT', `/admin/cupons/${f.dataset.cupom}`, { ...lerCupom(f), ativo: f.ativo.checked });
         aviso('Cupom salvo.');
-        await voltarPara(`form[data-cupom="${f.dataset.cupom}"]`);
+        await voltarPara('#lista-cupons');
       });
     }),
   );
@@ -1212,7 +1212,7 @@ rota('/admin/lotes', async () => {
       comEspera(f.querySelector('button'), async () => {
         await api('PUT', `/admin/lotes/${f.dataset.lote}`, { ...lerLote(f), ativo: f.ativo.checked });
         aviso('Lote salvo.');
-        await voltarPara(`form[data-lote="${f.dataset.lote}"]`);
+        await voltarPara('#lista-lotes');
       });
     }),
   );

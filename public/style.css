@@ -112,3 +112,12 @@ th{color:var(--mudo);font-weight:600;font-size:.78rem;text-transform:uppercase;l
 .splash-on body{overflow:hidden}
 .splash-video{width:100%;height:100%;object-fit:contain;display:block}
 .splash-skip{position:absolute;left:50%;transform:translateX(-50%);bottom:max(18px,env(safe-area-inset-bottom));background:none;border:0;color:var(--mudo);font:inherit;font-size:.8rem;min-height:44px;padding:10px 16px;cursor:pointer}
+
+/* Listas de lotes e cupons (admin): linha resumida, toque para editar */
+details.item{border:1px solid var(--borda,rgba(255,255,255,.14));border-radius:12px;margin:.5rem 0;background:rgba(255,255,255,.03)}
+details.item>summary{display:flex;justify-content:space-between;align-items:center;gap:.75rem;padding:.8rem 1rem;cursor:pointer;list-style:none}
+details.item>summary::-webkit-details-marker{display:none}
+details.item>summary::after{content:'▾';opacity:.6}
+details.item[open]>summary::after{content:'▴'}
+details.item>summary .peq{margin-left:auto;text-align:right}
+details.item>form.card{margin:0;border:0;border-top:1px solid var(--borda,rgba(255,255,255,.14));border-radius:0 0 12px 12px}
