@@ -1134,9 +1134,9 @@ rota('/admin/lotes', async () => {
       <label>Horário de início</label><input name="hora_inicio" type="time" value="${esc(evAtivo?.hora_inicio || '22:00')}" required>
       <label>Descrição</label><textarea name="descricao" rows="3">${esc(evAtivo?.descricao)}</textarea>
       <button class="bt peq" style="margin-top:.75rem">Salvar evento</button></form>
-    <h2 id="lista-lotes">Lotes</h2>${cards || '<p class="mudo">Nenhum lote ainda.</p>'}
-    <h2>Novo lote</h2>
-    <form class="card" id="fnovo">
+    <h2 id="lista-lotes" class="h-mais">Lotes <button type="button" class="mais" data-abre="fnovo" aria-label="Novo lote" title="Novo lote">+</button></h2>${cards || '<p class="mudo">Nenhum lote ainda.</p>'}
+    <form class="card" id="fnovo" hidden>
+      <b>Novo lote</b>
       <div class="grade">
         <div><label>Nome</label><input name="nome" placeholder="1º lote" required></div>
         <div><label>Valor do ingresso (R$)</label><input name="valor" inputmode="decimal" placeholder="35,00" required></div>
@@ -1145,13 +1145,18 @@ rota('/admin/lotes', async () => {
         <div><label>Quem pode comprar</label><select name="canal"><option value="todos">Online e na porta</option><option value="online">Só online</option><option value="porta">Só na porta</option></select></div>
       </div>
       <p class="peq">Ordem de venda: o lote de menor número é vendido primeiro; quando esgota, o site destaca o próximo automaticamente. A taxa de serviço (%) é aplicada por cima do valor e aparece para o comprador.</p>
-      <button class="bt peq">Criar lote</button></form>
-    <h2 id="lista-cupons">Cupons</h2>
+      <div class="linha"><button class="bt peq">Criar lote</button><button type="button" class="bt sec peq" data-fecha="fnovo">Cancelar</button></div></form>
+    <h2 id="lista-cupons" class="h-mais">Cupons <button type="button" class="mais" data-abre="fcupnovo" aria-label="Novo cupom" title="Novo cupom">+</button></h2>
     <p class="peq">O comprador digita a palavra-chave no campo "Cupom" antes de efetuar a compra. Alterações valem só para pedidos novos. VIP gera os ingressos na hora, como cortesia: use o limite para não liberar mais do que quer.</p>
     ${cuponsCards || '<p class="mudo">Nenhum cupom ainda.</p>'}
-    <h2>Novo cupom</h2>
-    <form class="card" id="fcupnovo">${camposCupom()}<button class="bt peq">Criar cupom</button></form>`,
+    <form class="card" id="fcupnovo" hidden><b>Novo cupom</b>${camposCupom()}<div class="linha"><button class="bt peq">Criar cupom</button><button type="button" class="bt sec peq" data-fecha="fcupnovo">Cancelar</button></div></form>`,
   );
+  app.querySelectorAll('[data-abre]').forEach((b) => b.addEventListener('click', () => {
+    const f = document.getElementById(b.dataset.abre);
+    f.hidden = !f.hidden;
+    if (!f.hidden) { f.scrollIntoView({ block: 'center' }); f.querySelector('input')?.focus(); }
+  }));
+  app.querySelectorAll('[data-fecha]').forEach((b) => b.addEventListener('click', () => { document.getElementById(b.dataset.fecha).hidden = true; }));
   // Depois de salvar, recarrega e leva a tela até a lista (não volta pro topo).
   const voltarPara = async (seletor) => {
     await navegar();

@@ -121,3 +121,7 @@ details.item>summary::after{content:'▾';opacity:.6}
 details.item[open]>summary::after{content:'▴'}
 details.item>summary .peq{margin-left:auto;text-align:right}
 details.item>form.card{margin:0;border:0;border-top:1px solid var(--borda,rgba(255,255,255,.14));border-radius:0 0 12px 12px}
+
+.h-mais{display:flex;align-items:center;gap:.6rem}
+.mais{width:2rem;height:2rem;border-radius:50%;border:0;font-size:1.4rem;line-height:1;font-weight:700;cursor:pointer;color:#06121f;background:linear-gradient(135deg,#ff2d75,#00f0ff)}
+form.card[hidden]{display:none}
