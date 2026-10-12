@@ -1134,7 +1134,7 @@ rota('/admin/lotes', async () => {
       <label>Horário de início</label><input name="hora_inicio" type="time" value="${esc(evAtivo?.hora_inicio || '22:00')}" required>
       <label>Descrição</label><textarea name="descricao" rows="3">${esc(evAtivo?.descricao)}</textarea>
       <button class="bt peq" style="margin-top:.75rem">Salvar evento</button></form>
-    <h2>Lotes</h2>${cards || '<p class="mudo">Nenhum lote ainda.</p>'}
+    <h2 id="lista-lotes">Lotes</h2>${cards || '<p class="mudo">Nenhum lote ainda.</p>'}
     <h2>Novo lote</h2>
     <form class="card" id="fnovo">
       <div class="grade">
@@ -1146,12 +1146,18 @@ rota('/admin/lotes', async () => {
       </div>
       <p class="peq">Ordem de venda: o lote de menor número é vendido primeiro; quando esgota, o site destaca o próximo automaticamente. A taxa de serviço (%) é aplicada por cima do valor e aparece para o comprador.</p>
       <button class="bt peq">Criar lote</button></form>
-    <h2>Cupons</h2>
+    <h2 id="lista-cupons">Cupons</h2>
     <p class="peq">O comprador digita a palavra-chave no campo "Cupom" antes de efetuar a compra. Alterações valem só para pedidos novos. VIP gera os ingressos na hora, como cortesia: use o limite para não liberar mais do que quer.</p>
     ${cuponsCards || '<p class="mudo">Nenhum cupom ainda.</p>'}
     <h2>Novo cupom</h2>
     <form class="card" id="fcupnovo">${camposCupom()}<button class="bt peq">Criar cupom</button></form>`,
   );
+  // Depois de salvar, recarrega e leva a tela até a lista (não volta pro topo).
+  const voltarPara = async (seletor) => {
+    await navegar();
+    const el = document.querySelector(seletor);
+    if (el) el.scrollIntoView({ block: 'start' });
+  };
   const lerCupom = (f) => ({
     codigo: f.codigo.value,
     tipo: f.tipo.value,
@@ -1169,7 +1175,7 @@ rota('/admin/lotes', async () => {
       comEspera(f.querySelector('button'), async () => {
         await api('PUT', `/admin/cupons/${f.dataset.cupom}`, { ...lerCupom(f), ativo: f.ativo.checked });
         aviso('Cupom salvo.');
-        navegar();
+        await voltarPara(`form[data-cupom="${f.dataset.cupom}"]`);
       });
     }),
   );
@@ -1179,7 +1185,7 @@ rota('/admin/lotes', async () => {
     comEspera(f.querySelector('button'), async () => {
       await api('POST', '/admin/cupons', { ...lerCupom(f), evento_id: evAtivo.id, ativo: true });
       aviso('Cupom criado.');
-      navegar();
+      await voltarPara('#lista-cupons');
     });
   });
   const lerLote = (f) => {
@@ -1206,7 +1212,7 @@ rota('/admin/lotes', async () => {
       comEspera(f.querySelector('button'), async () => {
         await api('PUT', `/admin/lotes/${f.dataset.lote}`, { ...lerLote(f), ativo: f.ativo.checked });
         aviso('Lote salvo.');
-        navegar();
+        await voltarPara(`form[data-lote="${f.dataset.lote}"]`);
       });
     }),
   );
@@ -1216,7 +1222,7 @@ rota('/admin/lotes', async () => {
     comEspera(f.querySelector('button'), async () => {
       await api('POST', '/admin/lotes', { ...lerLote(f), evento_id: evAtivo.id, ativo: true });
       aviso('Lote criado.');
-      navegar();
+      await voltarPara('#lista-lotes');
     });
   });
 });
