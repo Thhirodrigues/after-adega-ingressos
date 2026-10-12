@@ -550,7 +550,7 @@ r.get('/admin/financeiro', async (c) => {
       `SELECT
          COALESCE(SUM(CASE WHEN forma_pagamento = 'pix_chave' OR (forma_pagamento = 'mercadopago' AND mp_tipo = 'bank_transfer')
                            THEN total_centavos END), 0) AS pix,
-         COALESCE(SUM(CASE WHEN forma_pagamento = 'cartao' OR (forma_pagamento = 'mercadopago' AND mp_tipo IN ('credit_card', 'debit_card', 'prepaid_card'))
+         COALESCE(SUM(CASE WHEN forma_pagamento = 'cartao' OR (forma_pagamento = 'mercadopago' AND COALESCE(mp_tipo, '') <> 'bank_transfer')
                            THEN total_centavos END), 0) AS cartao,
          COALESCE(SUM(desconto_centavos), 0) AS descontos
          FROM pedidos WHERE evento_id = ?1 AND status = 'pago'`,
