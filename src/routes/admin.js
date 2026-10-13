@@ -643,6 +643,14 @@ r.post('/admin/alertas/lidos', async (c) => {
 
 r.get('/admin/push/chave', async (c) => c.json({ publica: (await chavesVapid(c.env.DB)).publica }));
 
+r.get('/admin/push/estado', async (c) => {
+  const endpoint = String(c.req.query('endpoint') ?? '');
+  const linha = await c.env.DB.prepare('SELECT 1 AS ok FROM push_assinaturas WHERE endpoint = ?1 AND usuario_id = ?2')
+    .bind(endpoint, c.get('usuario').id)
+    .first();
+  return c.json({ registrado: !!linha });
+});
+
 r.post('/admin/push/assinar', async (c) => {
   const b = await corpo(c);
   const endpoint = String(b.endpoint ?? '');

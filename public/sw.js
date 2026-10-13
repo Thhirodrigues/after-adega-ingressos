@@ -1,5 +1,5 @@
 // Deixa o site abrir sem internet (ingressos e portaria). Rede primeiro; se falhar, usa o salvo.
-const VERSAO = 'fastpass-v33';
+const VERSAO = 'fastpass-v34';
 const BASE = ['/', '/index.html', '/style.css', '/app.js', '/vendor/qrcode.js', '/vendor/jsQR.js', '/manifest.webmanifest', '/icon-192.png', '/logo-marca.png', '/splash.js'];
 
 self.addEventListener('install', (e) => {
@@ -68,6 +68,21 @@ self.addEventListener('notificationclick', (e) => {
         }
       }
       await self.clients.openWindow('/#/admin/avisos');
+    })(),
+  );
+});
+
+// O navegador às vezes troca/expira a assinatura sozinho: renova e avisa o servidor, sem precisar abrir o app.
+self.addEventListener('pushsubscriptionchange', (e) => {
+  e.waitUntil(
+    (async () => {
+      try {
+        const k = await (await fetch('/api/admin/push/chave', { credentials: 'include' })).json();
+        const t = (k.publica + '='.repeat((4 - (k.publica.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+        const chave = Uint8Array.from(atob(t), (c) => c.charCodeAt(0));
+        const sub = await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: chave });
+        await fetch('/api/admin/push/assinar', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }) });
+      } catch {}
     })(),
   );
 });

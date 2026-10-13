@@ -153,6 +153,7 @@ async function carregarEu() {
   }
   desenharNav();
   atualizarBadgeAvisos();
+  verificarPush();
 }
 
 // Mantém a bolinha vermelha de avisos não lidos (aba Avisos) sempre em dia.
@@ -1244,32 +1245,39 @@ rota('/admin/lotes', async () => {
 rota('/admin/config', async () => {
   if (!exigirAdmin()) return;
   const c = await api('GET', '/admin/config');
+  const resumoPix = c.pix_chave ? `${esc(c.pix_nome || '')} · ${esc(c.pix_chave)}` : '<b style="color:var(--erro)">não configurada</b>';
   layoutAdmin(
     'config',
-    `<form class="card" id="f">
-      <h2 style="margin-top:0">Recebimento por Pix (chave)</h2>
-      <label>Tipo da chave Pix</label>
-      <select name="pix_tipo">
-        <option value="celular">Celular</option><option value="email">E-mail</option>
-        <option value="cpf">CPF</option><option value="cnpj">CNPJ</option><option value="aleatoria">Chave aleatória</option>
-      </select>
-      <label>Chave Pix</label><input name="pix_chave" value="${esc(c.pix_chave)}" autocomplete="off" autocapitalize="off">
-      <p class="peq" id="dica-pix"></p>
-      <div class="grade"><div><label>Nome do favorecido (como no banco)</label><input name="pix_nome" value="${esc(c.pix_nome)}" maxlength="25"></div>
-      <div><label>Cidade</label><input name="pix_cidade" value="${esc(c.pix_cidade)}" maxlength="15" placeholder="SAO PAULO"></div></div>
-      <label>Contato da organização (aparece nas páginas de termos e privacidade)</label><input name="contato" value="${esc(c.contato || '')}" maxlength="200" placeholder="WhatsApp (11) 99999-9999 · e-mail">
-      <h2>Regras de venda</h2>
-      <div class="grade"><div><label>Taxa de serviço (%)</label><input name="taxa_percentual" inputmode="numeric" value="${esc(c.taxa_percentual)}"></div>
-      <div><label>Prazo da reserva (minutos)</label><input name="reserva_minutos" inputmode="numeric" value="${esc(c.reserva_minutos)}"></div>
-      <div><label>Máximo de ingressos por pedido</label><input name="max_ingressos_por_pedido" inputmode="numeric" value="${esc(c.max_ingressos_por_pedido)}"></div>
-      <div><label>Transferências encerram (horas antes da festa)</label><input name="transferencia_limite_horas" inputmode="numeric" value="${esc(c.transferencia_limite_horas ?? 48)}"></div></div>
-      <p class="peq">Alterar a taxa vale só para pedidos novos; pedidos já feitos mantêm o valor combinado.</p>
-      <button class="bt bloco">Salvar</button></form>
-    <form class="card" id="fzerar" style="border-color:rgba(244,63,94,.45)">
-      <h2 style="margin-top:0">Zerar dados de teste</h2>
-      <p class="peq">Apaga todos os pedidos, ingressos, avisos, histórico e todos os usuários que não são administradores (inclusive hostess). Mantém administradores, configurações, eventos e lotes. <b>Não dá para desfazer.</b></p>
-      <label>Para confirmar, digite: ZERAR DADOS DE TESTE</label><input name="confirmacao" autocomplete="off" autocapitalize="characters">
-      <button class="bt perigo bloco">Zerar agora</button></form>`,
+    `<h2 id="secoes-config">Configurações</h2>
+    <details class="item"><summary><b>Recebimento por Pix</b><span class="peq">${resumoPix}</span></summary>
+      <form class="card" data-sec="pix">
+        <label>Tipo da chave Pix</label>
+        <select name="pix_tipo">
+          <option value="celular">Celular</option><option value="email">E-mail</option>
+          <option value="cpf">CPF</option><option value="cnpj">CNPJ</option><option value="aleatoria">Chave aleatória</option>
+        </select>
+        <label>Chave Pix</label><input name="pix_chave" value="${esc(c.pix_chave)}" autocomplete="off" autocapitalize="off">
+        <p class="peq" id="dica-pix"></p>
+        <div class="grade"><div><label>Nome do favorecido (como no banco)</label><input name="pix_nome" value="${esc(c.pix_nome)}" maxlength="25"></div>
+        <div><label>Cidade</label><input name="pix_cidade" value="${esc(c.pix_cidade)}" maxlength="15" placeholder="SAO PAULO"></div></div>
+        <button class="bt peq" style="margin-top:.75rem">Salvar Pix</button></form></details>
+    <details class="item"><summary><b>Regras de venda</b><span class="peq">taxa ${esc(c.taxa_percentual)}% · reserva ${esc(c.reserva_minutos)} min · máx. ${esc(c.max_ingressos_por_pedido)} por pedido</span></summary>
+      <form class="card" data-sec="regras">
+        <div class="grade"><div><label>Taxa de serviço (%)</label><input name="taxa_percentual" inputmode="numeric" value="${esc(c.taxa_percentual)}"></div>
+        <div><label>Prazo da reserva (minutos)</label><input name="reserva_minutos" inputmode="numeric" value="${esc(c.reserva_minutos)}"></div>
+        <div><label>Máximo de ingressos por pedido</label><input name="max_ingressos_por_pedido" inputmode="numeric" value="${esc(c.max_ingressos_por_pedido)}"></div>
+        <div><label>Transferências encerram (horas antes da festa)</label><input name="transferencia_limite_horas" inputmode="numeric" value="${esc(c.transferencia_limite_horas ?? 48)}"></div></div>
+        <p class="peq">Alterar a taxa vale só para pedidos novos; pedidos já feitos mantêm o valor combinado.</p>
+        <button class="bt peq" style="margin-top:.5rem">Salvar regras</button></form></details>
+    <details class="item"><summary><b>Contato da organização</b><span class="peq">${esc(c.contato || 'não informado')}</span></summary>
+      <form class="card" data-sec="contato">
+        <label>Aparece nas páginas de termos e privacidade</label><input name="contato" value="${esc(c.contato || '')}" maxlength="200" placeholder="WhatsApp (11) 99999-9999 · e-mail">
+        <button class="bt peq" style="margin-top:.75rem">Salvar contato</button></form></details>
+    <details class="item" style="border-color:rgba(244,63,94,.45)"><summary><b>Zerar dados de teste</b><span class="peq">apaga pedidos, ingressos e usuários</span></summary>
+      <form class="card" id="fzerar">
+        <p class="peq" style="margin-top:0">Apaga todos os pedidos, ingressos, avisos, histórico e todos os usuários que não são administradores (inclusive hostess). Mantém administradores, configurações, eventos e lotes. <b>Não dá para desfazer.</b></p>
+        <label>Para confirmar, digite: ZERAR DADOS DE TESTE</label><input name="confirmacao" autocomplete="off" autocapitalize="characters">
+        <button class="bt perigo peq" style="margin-top:.75rem">Zerar agora</button></form></details>`,
   );
   document.getElementById('fzerar').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -1280,25 +1288,28 @@ rota('/admin/config', async () => {
       aviso(`Pronto: ${r.apagados.pedidos} pedidos, ${r.apagados.ingressos} ingressos e ${r.apagados.usuarios} usuários apagados.`);
     });
   });
-  const f = document.getElementById('f');
-  f.pix_tipo.value = detectarTipoPix(f.pix_chave.value);
-  const dicaPix = () => (document.getElementById('dica-pix').textContent = DICAS_PIX[f.pix_tipo.value]);
-  f.pix_tipo.addEventListener('change', dicaPix);
+  const fp = app.querySelector('form[data-sec=pix]');
+  fp.pix_tipo.value = detectarTipoPix(fp.pix_chave.value);
+  const dicaPix = () => (document.getElementById('dica-pix').textContent = DICAS_PIX[fp.pix_tipo.value]);
+  fp.pix_tipo.addEventListener('change', dicaPix);
   dicaPix();
-  f.addEventListener('submit', (e) => {
-    e.preventDefault();
-    comEspera(f.querySelector('button'), async () => {
-      const d = dadosForm(f);
-      const corpo = {};
-      for (const [k, v] of Object.entries(d)) {
-        if (k === 'pix_tipo') continue;
-        if (String(v).trim() !== '') corpo[k] = ['pix_chave', 'pix_nome', 'pix_cidade', 'contato'].includes(k) ? v.trim() : Number(v);
-      }
-      if (corpo.pix_chave !== undefined) corpo.pix_chave = normalizarChavePix(f.pix_tipo.value, corpo.pix_chave);
-      await api('PUT', '/admin/config', corpo);
-      aviso('Configurações salvas.');
-    });
-  });
+  app.querySelectorAll('form[data-sec]').forEach((f) =>
+    f.addEventListener('submit', (e) => {
+      e.preventDefault();
+      comEspera(f.querySelector('button'), async () => {
+        const d = dadosForm(f);
+        const corpo = {};
+        for (const [k, v] of Object.entries(d)) {
+          if (k === 'pix_tipo') continue;
+          if (String(v).trim() !== '') corpo[k] = ['pix_chave', 'pix_nome', 'pix_cidade', 'contato'].includes(k) ? v.trim() : Number(v);
+        }
+        if (corpo.pix_chave !== undefined) corpo.pix_chave = normalizarChavePix(fp.pix_tipo.value, corpo.pix_chave);
+        await api('PUT', '/admin/config', corpo);
+        aviso('Configurações salvas.');
+        await irParaLista('#secoes-config');
+      });
+    }),
+  );
 });
 
 rota('/admin/usuarios', async () => {
@@ -1779,17 +1790,82 @@ const b64uParaBytes = (b) => {
   const t = (b + '='.repeat((4 - (b.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/');
   return Uint8Array.from(atob(t), (c) => c.charCodeAt(0));
 };
-async function pushAtivo() {
-  try {
-    const reg = await navigator.serviceWorker.getRegistration();
-    return !!(reg && (await reg.pushManager.getSubscription()));
-  } catch { return false; }
+// ---------- Notificações (push): estado verificado sempre, religa sozinho e avisa quando está desligado ----------
+const estadoPush = { situacao: null, t: 0 };
+const pushManual = () => { try { return localStorage.getItem('push_desligado_manual') === '1'; } catch { return false; } };
+const pushManualSet = (v) => { try { v ? localStorage.setItem('push_desligado_manual', '1') : localStorage.removeItem('push_desligado_manual'); } catch {} };
+const pushSuportado = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+async function assinarPush(reg) {
+  const { publica } = await api('GET', '/admin/push/chave');
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uParaBytes(publica) });
+  await api('POST', '/admin/push/assinar', { endpoint: sub.endpoint });
+  return sub;
 }
+async function verificarPush(forcar = false) {
+  if (estado.eu?.papel !== 'admin') { pintarBannerPush(null); return null; }
+  if (!forcar && Date.now() - estadoPush.t < 30000) return estadoPush.situacao;
+  estadoPush.t = Date.now();
+  let sit;
+  try {
+    if (!pushSuportado()) sit = /iPhone|iPad|iPod/.test(navigator.userAgent) && !navigator.standalone ? 'instalar' : 'sem_suporte';
+    else if (Notification.permission === 'denied') sit = 'bloqueado';
+    else {
+      const reg = await Promise.race([navigator.serviceWorker.ready, new Promise((_, rej) => setTimeout(() => rej(new Error('sw')), 6000))]);
+      let sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        // o servidor é quem manda: se ele não conhece (ou apagou) esta assinatura, ela é refeita
+        const { registrado } = await api('GET', `/admin/push/estado?endpoint=${encodeURIComponent(sub.endpoint)}`);
+        if (!registrado) { await sub.unsubscribe().catch(() => {}); sub = null; }
+      }
+      if (!sub && Notification.permission === 'granted' && !pushManual()) sub = await assinarPush(reg).catch(() => null);
+      sit = sub ? 'ok' : 'desativado';
+    }
+  } catch {
+    sit = estadoPush.situacao; // sem internet / erro passageiro: mantém o último estado conhecido
+  }
+  estadoPush.situacao = sit;
+  pintarBannerPush(sit);
+  return sit;
+}
+function pintarBannerPush(sit) {
+  const topo = document.querySelector('.topo');
+  if (!topo) return;
+  let b = document.getElementById('bannerpush');
+  const msgs = {
+    desativado: ['Notificações desativadas neste aparelho: você NÃO será avisado de pedidos, pagamentos e portaria.', 'Ativar'],
+    bloqueado: ['Notificações bloqueadas pelo navegador: você NÃO será avisado de novos pedidos. Libere em Configurações do site → Notificações e abra o app de novo.', null],
+    instalar: ['No iPhone, instale o site na tela inicial para receber notificações.', null],
+    sem_suporte: ['Este navegador não recebe notificações. Use o Chrome (Android) ou instale o site na tela inicial.', null],
+  };
+  if (!sit || sit === 'ok' || !msgs[sit]) { b?.remove(); return; }
+  if (!b) { b = document.createElement('div'); b.id = 'bannerpush'; b.className = 'banner-push'; topo.appendChild(b); }
+  const [txt, botao] = msgs[sit];
+  b.innerHTML = `<span>${txt}</span>${botao ? `<button type="button" class="bt peq" id="bannerpush-ativar">${botao}</button>` : ''}`;
+  document.getElementById('bannerpush-ativar')?.addEventListener('click', (e) => ativarPush(e.target));
+}
+async function ativarPush(botao) {
+  const fazer = async () => {
+    if ((await Notification.requestPermission()) !== 'granted') throw new Error('Permissão negada. Libere as notificações nas configurações do navegador.');
+    pushManualSet(false);
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (sub) await sub.unsubscribe().catch(() => {}); // recomeça limpo, evita assinatura velha
+    await assinarPush(reg);
+    await verificarPush(true);
+    aviso('Notificações ativadas.');
+  };
+  if (botao) await comEspera(botao, fazer);
+  else await fazer();
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') verificarPush(); });
+setInterval(() => verificarPush(true), 5 * 60 * 1000);
+
 rota('/admin/avisos', async () => {
   if (!exigirAdmin()) return;
   const [d, cfg] = await Promise.all([api('GET', '/admin/alertas'), api('GET', '/admin/config')]);
-  const suporta = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
-  const ativo = suporta && (await pushAtivo());
+  const suporta = pushSuportado();
+  const ativo = suporta && (await verificarPush(true)) === 'ok';
   layoutAdmin(
     'avisos',
     `<div class="card"><h2 style="margin-top:0">Notificações no celular</h2>
@@ -1820,22 +1896,15 @@ rota('/admin/avisos', async () => {
       aviso('Senha de desbloqueio salva.');
     });
   });
-  document.getElementById('pushon')?.addEventListener('click', (e) =>
-    comEspera(e.target, async () => {
-      if ((await Notification.requestPermission()) !== 'granted') throw new Error('Permissão negada. Libere as notificações nas configurações do navegador.');
-      const reg = await navigator.serviceWorker.ready;
-      const { publica } = await api('GET', '/admin/push/chave');
-      let sub = await reg.pushManager.getSubscription();
-      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uParaBytes(publica) });
-      await api('POST', '/admin/push/assinar', { endpoint: sub.endpoint });
-      aviso('Notificações ativadas.');
-      navegar();
-    }),
-  );
+  document.getElementById('pushon')?.addEventListener('click', async (e) => {
+    await ativarPush(e.target);
+    navegar();
+  });
   document.getElementById('pushtest')?.addEventListener('click', (e) =>
     comEspera(e.target, async () => {
       const r = await api('POST', '/admin/push/teste', {});
-      aviso(`Teste enviado (${r.enviados ?? 0} aparelho${r.enviados === 1 ? '' : 's'}).`);
+      aviso(r.enviados ? `Teste enviado (${r.enviados} aparelho${r.enviados === 1 ? '' : 's'}).` : 'Nenhum aparelho recebeu o teste. Toque em "Reativar" e tente de novo.', r.enviados ? 'ok' : 'erro');
+      await verificarPush(true);
     }),
   );
   document.getElementById('pushoff')?.addEventListener('click', (e) =>
@@ -1846,6 +1915,8 @@ rota('/admin/avisos', async () => {
         await api('POST', '/admin/push/cancelar', { endpoint: sub.endpoint });
         await sub.unsubscribe();
       }
+      pushManualSet(true);
+      await verificarPush(true);
       aviso('Notificações desativadas.');
       navegar();
     }),

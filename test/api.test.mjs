@@ -724,3 +724,14 @@ test('zerar dados de teste: exige frase, apaga tudo menos admin/config/eventos/l
   assert.ok((await admin.get('/api/admin/lotes')).json.lotes.every((l) => l.vendidos === 0 && l.reservados === 0));
   assert.equal((await admin.get('/api/admin/pedidos')).json.pedidos.length, 0);
 });
+
+test('push: estado da assinatura (registrada / não registrada / cancelada)', async () => {
+  const ep = 'https://push.example.com/send/abc123-teste-endpoint';
+  assert.equal((await admin.get(`/api/admin/push/estado?endpoint=${encodeURIComponent(ep)}`)).json.registrado, false);
+  assert.equal((await admin.post('/api/admin/push/assinar', { endpoint: ep })).status, 200);
+  assert.equal((await admin.get(`/api/admin/push/estado?endpoint=${encodeURIComponent(ep)}`)).json.registrado, true);
+  await admin.post('/api/admin/push/cancelar', { endpoint: ep });
+  assert.equal((await admin.get(`/api/admin/push/estado?endpoint=${encodeURIComponent(ep)}`)).json.registrado, false);
+  const { c: comprador } = await novoComprador();
+  assert.equal((await comprador.get(`/api/admin/push/estado?endpoint=${encodeURIComponent(ep)}`)).status, 403);
+});
