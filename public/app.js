@@ -1037,55 +1037,58 @@ rota('/admin/pedidos', async () => {
   );
 });
 
+// Padrão das telas de cadastro do admin: título com "+", o formulário abre ao tocar, e os itens ficam em lista (toque para editar).
+function ligarMais() {
+  app.querySelectorAll('[data-abre]').forEach((b) => b.addEventListener('click', () => {
+    const f = document.getElementById(b.dataset.abre);
+    f.hidden = !f.hidden;
+    if (!f.hidden) { f.scrollIntoView({ block: 'center' }); f.querySelector('input,textarea')?.focus(); }
+  }));
+  app.querySelectorAll('[data-fecha]').forEach((b) => b.addEventListener('click', () => { document.getElementById(b.dataset.fecha).hidden = true; }));
+}
+async function irParaLista(seletor) {
+  await navegar();
+  document.querySelector(seletor)?.scrollIntoView({ block: 'start' });
+}
+
 rota('/admin/eventos', async () => {
   if (!exigirAdmin()) return;
   const ev = await api('GET', '/admin/eventos');
-  const ativo = ev.eventos.find((e) => e.ativo);
-  const formAtivo = ativo
-    ? `<h2>Evento ativo <span class="tag valido">À venda</span></h2>
-    <form class="card" id="fev" data-id="${ativo.id}">
-      <label>Nome</label><input name="nome" value="${esc(ativo.nome)}" required>
-      <div class="grade"><div><label>Data</label><input name="data_evento" type="date" value="${esc(ativo.data_evento)}" required></div>
-      <div><label>Horário de início</label><input name="hora_inicio" type="time" value="${esc(ativo.hora_inicio || '22:00')}" required></div></div>
-      <label>Local</label><input name="local" value="${esc(ativo.local)}">
-      <label>Descrição (line-up, avisos…)</label><textarea name="descricao" rows="8">${esc(ativo.descricao)}</textarea>
-      <p class="peq">A descrição aparece na página de venda exatamente como você digitar, com as mesmas quebras de linha.</p>
-      <button class="bt bloco">Salvar evento</button></form>`
-    : '';
-  const outros = ev.eventos.filter((e) => !e.ativo);
-  const lista = outros
+  const camposEvento = (e = {}) => `<label>Nome</label><input name="nome" value="${esc(e.nome || '')}" placeholder="Festa dos amigos" required>
+      <div class="grade"><div><label>Data</label><input name="data_evento" type="date" value="${esc(e.data_evento || '')}" required></div>
+      <div><label>Horário de início</label><input name="hora_inicio" type="time" value="${esc(e.hora_inicio || '22:00')}" required></div></div>
+      <label>Local</label><input name="local" value="${esc(e.local || '')}">
+      <label>Descrição (line-up, avisos…)</label><textarea name="descricao" rows="8">${esc(e.descricao || '')}</textarea>
+      <p class="peq">A descrição aparece na página de venda exatamente como você digitar, com as mesmas quebras de linha.</p>`;
+  const ordenados = [...ev.eventos].sort((x, y) => Number(y.ativo) - Number(x.ativo));
+  const itens = ordenados
     .map(
-      (e) => `<div class="card"><div class="linha"><div><b>${esc(e.nome)}</b><div class="peq">${dataBR(e.data_evento)} · ${esc(e.hora_inicio || '22:00')}${e.local ? ` · ${esc(e.local)}` : ''}</div></div>
-      <div class="acoes"><button class="bt peq" data-ativar="${e.id}">Tornar ativo</button></div></div></div>`,
+      (e) => `<details class="item"><summary><b>${esc(e.nome)}</b><span class="peq">${e.ativo ? '<span class="tag valido">À venda</span> ' : ''}${dataBR(e.data_evento)} · ${esc(e.hora_inicio || '22:00')}${e.local ? ` · ${esc(e.local)}` : ''}</span></summary>
+      <form class="card" data-evento="${e.id}">${camposEvento(e)}
+      <div class="linha"><button class="bt peq">Salvar evento</button>${e.ativo ? '' : `<button type="button" class="bt sec peq" data-ativar="${e.id}">Tornar ativo</button>`}</div></form></details>`,
     )
     .join('');
   layoutAdmin(
     'eventos',
     `<p class="peq">Só <b>um evento fica ativo</b> por vez: é o que aparece para venda e o que a portaria usa. Troque o ativo só depois que a portaria da festa anterior encerrar. Os ingressos de festas anteriores continuam salvos.</p>
-    ${formAtivo}
-    ${outros.length ? `<h2>Outros eventos</h2>${lista}` : ''}
-    ${ev.eventos.length ? '' : '<p class="mudo">Nenhum evento ainda.</p>'}
-    <h2>Novo evento</h2>
-    <form class="card" id="fnovo">
-      <label>Nome</label><input name="nome" placeholder="Festa dos amigos" required>
-      <div class="grade"><div><label>Data</label><input name="data_evento" type="date" required></div>
-      <div><label>Horário de início</label><input name="hora_inicio" type="time" value="22:00" required></div></div>
-      <label>Local</label><input name="local">
-      <label>Descrição</label><textarea name="descricao" rows="6"></textarea>
+    <h2 id="lista-eventos" class="h-mais">Eventos <button type="button" class="mais" data-abre="fnovo" aria-label="Novo evento" title="Novo evento">+</button></h2>${itens || '<p class="mudo">Nenhum evento ainda.</p>'}
+    <form class="card" id="fnovo" hidden><b>Novo evento</b>${camposEvento()}
       <label><input type="checkbox" name="ativo" style="width:auto"> Já deixar este evento ativo (à venda agora)</label>
       <p class="peq">Depois de criar, vá em <b>Lotes</b> para cadastrar valor e quantidade (com o evento ativo).</p>
-      <button class="bt bloco">Criar evento</button></form>`,
+      <div class="linha"><button class="bt peq">Criar evento</button><button type="button" class="bt sec peq" data-fecha="fnovo">Cancelar</button></div></form>`,
   );
-  document.getElementById('fev')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const f = e.target;
-    comEspera(f.querySelector('button'), async () => {
-      await api('PUT', `/admin/eventos/${f.dataset.id}`, { nome: f.nome.value, data_evento: f.data_evento.value, hora_inicio: f.hora_inicio.value, local: f.local.value, descricao: f.descricao.value, ativo: true });
-      estado.evento = null;
-      aviso('Evento salvo.');
-      navegar();
-    });
-  });
+  ligarMais();
+  app.querySelectorAll('form[data-evento]').forEach((f) =>
+    f.addEventListener('submit', (e) => {
+      e.preventDefault();
+      comEspera(f.querySelector('button'), async () => {
+        await api('PUT', `/admin/eventos/${f.dataset.evento}`, { nome: f.nome.value, data_evento: f.data_evento.value, hora_inicio: f.hora_inicio.value, local: f.local.value, descricao: f.descricao.value });
+        estado.evento = null;
+        aviso('Evento salvo.');
+        await irParaLista('#lista-eventos');
+      });
+    }),
+  );
   app.querySelectorAll('[data-ativar]').forEach((b) =>
     b.addEventListener('click', () => {
       if (!confirm('Tornar este o evento ativo? A venda e a portaria passam a usar ele.')) return;
@@ -1093,7 +1096,7 @@ rota('/admin/eventos', async () => {
         await api('PUT', `/admin/eventos/${b.dataset.ativar}`, { ativo: true });
         estado.evento = null;
         aviso('Evento ativado.');
-        navegar();
+        await irParaLista('#lista-eventos');
       });
     }),
   );
@@ -1104,7 +1107,7 @@ rota('/admin/eventos', async () => {
       await api('POST', '/admin/eventos', { nome: f.nome.value, data_evento: f.data_evento.value, hora_inicio: f.hora_inicio.value, local: f.local.value, descricao: f.descricao.value, ativo: f.ativo.checked });
       estado.evento = null;
       aviso('Evento criado.');
-      navegar();
+      await irParaLista('#lista-eventos');
     });
   });
 });
@@ -1312,21 +1315,23 @@ rota('/admin/usuarios', async () => {
   layoutAdmin(
     'usuarios',
     `${resets}
-    <h2>Cadastrar recepcionista (hostess) ou admin</h2>
-    <form class="card" id="f">
-      ${campoUsuario('<label>Perfil</label><select name="papel"><option value="hostess">Hostess (leitura de QR e lista)</option><option value="admin">Administrador</option></select>' + campoSenha('senha', 'Senha provisória (ela troca no 1º acesso)'))}
-      <button class="bt bloco">Cadastrar</button></form>
-    <h2>Usuários (${u.usuarios.length})</h2>
-    <div class="rolar"><table><tr><th>Nome</th><th>Perfil</th><th>Contato</th><th></th></tr>
+    <h2 id="lista-usuarios" class="h-mais">Usuários (${u.usuarios.length}) <button type="button" class="mais" data-abre="f" aria-label="Novo usuário" title="Cadastrar hostess ou admin">+</button></h2>
     ${u.usuarios
       .map(
-        (x) => `<tr><td>${esc(x.nome)} ${esc(x.sobrenome)}</td><td>${x.id === estado.eu.id ? esc(x.papel) : `<select data-papel="${x.id}" style="width:auto;padding:.3rem .5rem"><option value="comprador"${x.papel === 'comprador' ? ' selected' : ''}>comprador</option><option value="hostess"${x.papel === 'hostess' ? ' selected' : ''}>hostess</option><option value="admin"${x.papel === 'admin' ? ' selected' : ''}>admin</option></select>`}${x.ativo ? '' : ' <span class="tag cancelado">inativo</span>'}</td>
-        <td class="peq">${esc(x.telefone)}<br>${esc(x.email)}</td>
-        <td><div class="acoes"><button class="bt sec peq" data-senha="${x.id}" data-cpf="${esc(x.cpf)}">Nova senha</button>
-        ${x.id !== estado.eu.id ? `<button class="bt sec peq" data-ativo="${x.id}" data-v="${x.ativo ? 0 : 1}">${x.ativo ? 'Desativar' : 'Reativar'}</button>` : ''}</div></td></tr>`,
+        (x) => `<details class="item"><summary><b>${esc(x.nome)} ${esc(x.sobrenome)}</b><span class="peq">${esc(x.papel)}${x.ativo ? '' : ' · <span class="tag cancelado">inativo</span>'}</span></summary>
+        <div class="card">
+          <p class="peq" style="margin:0 0 .6rem">${esc(x.telefone)}<br>${esc(x.email)}</p>
+          ${x.id === estado.eu.id ? '' : `<label>Perfil</label><select data-papel="${x.id}"><option value="comprador"${x.papel === 'comprador' ? ' selected' : ''}>comprador</option><option value="hostess"${x.papel === 'hostess' ? ' selected' : ''}>hostess</option><option value="admin"${x.papel === 'admin' ? ' selected' : ''}>admin</option></select>`}
+          <div class="acoes" style="margin-top:.75rem"><button class="bt sec peq" data-senha="${x.id}" data-cpf="${esc(x.cpf)}">Nova senha</button>
+          ${x.id !== estado.eu.id ? `<button class="bt sec peq" data-ativo="${x.id}" data-v="${x.ativo ? 0 : 1}">${x.ativo ? 'Desativar' : 'Reativar'}</button>` : ''}</div>
+        </div></details>`,
       )
-      .join('')}</table></div>`,
+      .join('')}
+    <form class="card" id="f" hidden><b>Cadastrar recepcionista (hostess) ou admin</b>
+      ${campoUsuario('<label>Perfil</label><select name="papel"><option value="hostess">Hostess (leitura de QR e lista)</option><option value="admin">Administrador</option></select>' + campoSenha('senha', 'Senha provisória (ela troca no 1º acesso)'))}
+      <div class="linha"><button class="bt peq">Cadastrar</button><button type="button" class="bt sec peq" data-fecha="f">Cancelar</button></div></form>`,
   );
+  ligarMais();
   app.querySelectorAll('select[data-papel]').forEach((sel) =>
     sel.addEventListener('change', async () => {
       if (!confirm(`Mudar o perfil desta pessoa para "${sel.value}"?`)) return navegar();
@@ -1347,7 +1352,7 @@ rota('/admin/usuarios', async () => {
       const d = await dadosCadastro(f);
       await api('POST', '/admin/usuarios', { ...d, papel: f.papel.value });
       aviso('Usuário cadastrado.');
-      navegar();
+      await irParaLista('#lista-usuarios');
     });
   });
   app.querySelectorAll('[data-senha]').forEach((b) =>
@@ -1852,19 +1857,22 @@ rota('/admin/cortesias', async () => {
   const lista = await api('GET', '/admin/cortesias');
   layoutAdmin(
     'cortesias',
-    `<form class="card" id="f">
+    `<h2 id="lista-cortesias" class="h-mais">Cortesias (${lista.cortesias.length}) <button type="button" class="mais" data-abre="f" aria-label="Emitir cortesias" title="Emitir cortesias">+</button></h2>
+    ${lista.cortesias.length ? lista.cortesias
+      .map((x) => `<details class="item"><summary><b>${esc(x.dono)}</b><span class="peq">#${x.id} · ${tag(x.status)}</span></summary>
+        <div class="card"><p class="peq" style="margin:0">${esc(x.email)}<br>Motivo: ${esc(x.motivo)}</p>
+        ${x.status === 'valido' ? `<div class="acoes" style="margin-top:.75rem"><button class="bt perigo peq" data-canc="${x.id}">Cancelar cortesia</button></div>` : ''}</div></details>`)
+      .join('') : '<p class="mudo">Nenhuma cortesia emitida.</p>'}
+    <form class="card" id="f" hidden><b>Emitir cortesias</b>
       <label>Motivo (aparece na portaria)</label><input name="motivo" value="DJ + acompanhante" maxlength="60">
       <label>E-mails (um por linha). Cada pessoa precisa ter conta no site com esse e-mail.</label>
       <textarea name="emails" rows="4" placeholder="dj@email.com&#10;acompanhante@email.com"></textarea>
       <label>Ingressos para cada e-mail</label><select name="qtd"><option>1</option><option>2</option><option>3</option><option>4</option></select>
       <p class="peq">DJ + acompanhante: coloque os dois e-mails com 1 ingresso cada, ou só o do DJ com 2 (ele repassa o segundo por link, na tela "Meus ingressos").</p>
-      <button class="bt bloco">Emitir cortesias</button></form>
-    <div id="erro-cort"></div>
-    <h2>Emitidas (${lista.cortesias.length})</h2>
-    ${lista.cortesias.length ? `<div class="rolar"><table><tr><th>Ingresso</th><th>Titular</th><th>Motivo</th><th></th></tr>${lista.cortesias
-      .map((x) => `<tr><td>#${x.id}<br>${tag(x.status)}</td><td>${esc(x.dono)}<br><span class="peq">${esc(x.email)}</span></td><td>${esc(x.motivo)}</td><td>${x.status === 'valido' ? `<button class="bt perigo peq" data-canc="${x.id}">Cancelar</button>` : ''}</td></tr>`)
-      .join('')}</table></div>` : '<p class="mudo">Nenhuma cortesia emitida.</p>'}`,
+      <div class="linha"><button class="bt peq">Emitir cortesias</button><button type="button" class="bt sec peq" data-fecha="f">Cancelar</button></div>
+      <div id="erro-cort"></div></form>`,
   );
+  ligarMais();
   const f = document.getElementById('f');
   f.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -1883,7 +1891,7 @@ rota('/admin/cortesias', async () => {
         throw err;
       }
       aviso('Cortesias emitidas.');
-      navegar();
+      await irParaLista('#lista-cortesias');
     });
   });
   app.querySelectorAll('[data-canc]').forEach((b) =>
@@ -1891,7 +1899,7 @@ rota('/admin/cortesias', async () => {
       if (!confirm('Cancelar esta cortesia?')) return;
       comEspera(b, async () => {
         await api('POST', `/admin/cortesias/${b.dataset.canc}/cancelar`, {});
-        navegar();
+        await irParaLista('#lista-cortesias');
       });
     }),
   );
