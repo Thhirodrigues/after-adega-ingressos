@@ -351,6 +351,9 @@ test('cortesias: resgate no cadastro (telefone), portaria com 4 últimos número
   const ing = (await dj.get('/api/meus-ingressos')).json.ingressos;
   assert.equal(ing.length, 2);
   assert.ok(ing.every((i) => i.tipo === 'cortesia' && i.motivo === 'DJ' && i.qr));
+  const fin = (await admin.get('/api/admin/financeiro')).json.resumo;
+  assert.ok(fin.cortesias_tipos.dj >= 1 && fin.cortesias_tipos.acompanhante_dj >= 1); // DJ com 2 = 1 DJ + 1 acompanhante
+  assert.ok(fin.cortesias >= fin.cortesias_tipos.dj + fin.cortesias_tipos.acompanhante_dj);
   assert.equal((await dj.post(`/api/convites/${cv.json.token}/resgatar`)).json.ja, true); // idempotente
   assert.equal((await intruso.post(`/api/convites/${cv.json.token}/resgatar`)).status, 409); // já resgatado
   assert.equal((await new Cliente().get(`/api/convites/${cv.json.token}`)).json.estado, 'resgatado');

@@ -548,6 +548,29 @@ r.get('/admin/financeiro', async (c) => {
     .bind(eventoId)
     .first();
 
+  // Cortesias por tipo (só ingressos não cancelados). DJ com 2 ingressos = 1 DJ + 1 acompanhante.
+  const { results: gruposCort } = await db
+    .prepare(
+      `SELECT categoria, convite_id, motivo, COUNT(*) AS n FROM ingressos
+        WHERE evento_id = ?1 AND tipo = 'cortesia' AND status <> 'cancelado' GROUP BY categoria, convite_id, motivo`,
+    )
+    .bind(eventoId)
+    .all();
+  const cortTipos = { amigo_parceiro: 0, aniversariante: 0, dj: 0, acompanhante_dj: 0, cupom: 0, outras: 0 };
+  for (const g of gruposCort) {
+    if (g.categoria === 'dj') {
+      cortTipos.dj += Math.min(g.n, 1);
+      cortTipos.acompanhante_dj += Math.max(0, g.n - 1);
+    } else if (g.categoria === 'aniversariante') cortTipos.aniversariante += g.n;
+    else if (g.categoria === 'convidado') cortTipos.amigo_parceiro += g.n;
+    else if (String(g.motivo).startsWith('Cupom')) cortTipos.cupom += g.n;
+    else cortTipos.outras += g.n;
+  }
+  const aguardando = await db
+    .prepare(`SELECT COALESCE(SUM(quantidade), 0) AS n FROM convites WHERE evento_id = ?1 AND status = 'pendente'`)
+    .bind(eventoId)
+    .first();
+
   const formas = await db
     .prepare(
       `SELECT
@@ -590,6 +613,8 @@ r.get('/admin/financeiro', async (c) => {
       pedidos_pagos: soma('pedidos_pagos'),
       ingressos_vendidos: ing.pagos ?? 0,
       cortesias: ing.cortesias ?? 0,
+      cortesias_tipos: cortTipos,
+      cortesias_aguardando: aguardando.n ?? 0,
       entraram: ing.entraram ?? 0,
       receita_ingressos_centavos: receitaIngressos,
       taxa_servico_centavos: taxaServico,

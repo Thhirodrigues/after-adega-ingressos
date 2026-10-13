@@ -963,7 +963,11 @@ rota('/admin/financeiro', async () => {
     <div class="kpis">
       ${kpi('Vendidos (pagos)', r.ingressos_vendidos)}
       ${kpi('Aguardando pagamento', r.ingressos_aguardando)}
-      ${kpi('Cortesias', r.cortesias)}
+      <details class="kpi kpi-det"><summary><span class="peq">Cortesias ▾</span><b>${r.cortesias}</b></summary>
+        <table>${[['Amigo / parceiro', 'amigo_parceiro'], ['Aniversariante', 'aniversariante'], ['DJ', 'dj'], ['Acompanhante de DJ', 'acompanhante_dj'], ['Cupom VIP', 'cupom'], ['Outras', 'outras']]
+          .filter(([, k]) => k !== 'outras' || r.cortesias_tipos[k])
+          .map(([n, k]) => `<tr><td>${n}</td><td class="num"><b>${r.cortesias_tipos[k]}</b></td></tr>`).join('')}</table>
+        ${r.cortesias_aguardando ? `<p class="peq mudo" style="margin:.5rem 0 0">Mais ${r.cortesias_aguardando} aguardando cadastro (ainda sem ingresso).</p>` : ''}</details>
       ${kpi('Já entraram', r.entraram)}
     </div>
     <h2>Por forma de pagamento</h2>
