@@ -261,7 +261,7 @@ rota('/', async () => {
   app.innerHTML = `
     <h1>${esc(ev.nome)}</h1>
     <p><b>${dataBR(ev.data_evento)}</b>${ev.local ? ` · ${esc(ev.local)}` : ''}</p>
-    ${ev.descricao ? `<p class="mudo">${esc(ev.descricao)}</p>` : ''}
+    ${ev.descricao ? `<p class="mudo descricao">${esc(ev.descricao)}</p>` : ''}
     <h2>Ingressos</h2>${lotesHtml}
     <p class="peq">O comprador é responsável pelos ingressos do seu pedido.</p>
     <p class="peq"><a href="#/regras">Termos e regras</a> · <a href="#/privacidade">Privacidade</a></p>`;
@@ -1040,27 +1040,52 @@ rota('/admin/pedidos', async () => {
 rota('/admin/eventos', async () => {
   if (!exigirAdmin()) return;
   const ev = await api('GET', '/admin/eventos');
-  const lista = ev.eventos
+  const ativo = ev.eventos.find((e) => e.ativo);
+  const formAtivo = ativo
+    ? `<h2>Evento ativo <span class="tag valido">À venda</span></h2>
+    <form class="card" id="fev" data-id="${ativo.id}">
+      <label>Nome</label><input name="nome" value="${esc(ativo.nome)}" required>
+      <div class="grade"><div><label>Data</label><input name="data_evento" type="date" value="${esc(ativo.data_evento)}" required></div>
+      <div><label>Horário de início</label><input name="hora_inicio" type="time" value="${esc(ativo.hora_inicio || '22:00')}" required></div></div>
+      <label>Local</label><input name="local" value="${esc(ativo.local)}">
+      <label>Descrição (line-up, avisos…)</label><textarea name="descricao" rows="8">${esc(ativo.descricao)}</textarea>
+      <p class="peq">A descrição aparece na página de venda exatamente como você digitar, com as mesmas quebras de linha.</p>
+      <button class="bt bloco">Salvar evento</button></form>`
+    : '';
+  const outros = ev.eventos.filter((e) => !e.ativo);
+  const lista = outros
     .map(
       (e) => `<div class="card"><div class="linha"><div><b>${esc(e.nome)}</b><div class="peq">${dataBR(e.data_evento)} · ${esc(e.hora_inicio || '22:00')}${e.local ? ` · ${esc(e.local)}` : ''}</div></div>
-      <div class="acoes">${e.ativo ? '<span class="tag valido">À venda</span>' : `<button class="bt peq" data-ativar="${e.id}">Tornar ativo</button>`}</div></div></div>`,
+      <div class="acoes"><button class="bt peq" data-ativar="${e.id}">Tornar ativo</button></div></div></div>`,
     )
     .join('');
   layoutAdmin(
     'eventos',
     `<p class="peq">Só <b>um evento fica ativo</b> por vez: é o que aparece para venda e o que a portaria usa. Troque o ativo só depois que a portaria da festa anterior encerrar. Os ingressos de festas anteriores continuam salvos.</p>
-    ${lista || '<p class="mudo">Nenhum evento ainda.</p>'}
+    ${formAtivo}
+    ${outros.length ? `<h2>Outros eventos</h2>${lista}` : ''}
+    ${ev.eventos.length ? '' : '<p class="mudo">Nenhum evento ainda.</p>'}
     <h2>Novo evento</h2>
     <form class="card" id="fnovo">
       <label>Nome</label><input name="nome" placeholder="Festa dos amigos" required>
       <div class="grade"><div><label>Data</label><input name="data_evento" type="date" required></div>
       <div><label>Horário de início</label><input name="hora_inicio" type="time" value="22:00" required></div></div>
       <label>Local</label><input name="local">
-      <label>Descrição</label><textarea name="descricao" rows="3"></textarea>
+      <label>Descrição</label><textarea name="descricao" rows="6"></textarea>
       <label><input type="checkbox" name="ativo" style="width:auto"> Já deixar este evento ativo (à venda agora)</label>
       <p class="peq">Depois de criar, vá em <b>Lotes</b> para cadastrar valor e quantidade (com o evento ativo).</p>
       <button class="bt bloco">Criar evento</button></form>`,
   );
+  document.getElementById('fev')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    comEspera(f.querySelector('button'), async () => {
+      await api('PUT', `/admin/eventos/${f.dataset.id}`, { nome: f.nome.value, data_evento: f.data_evento.value, hora_inicio: f.hora_inicio.value, local: f.local.value, descricao: f.descricao.value, ativo: true });
+      estado.evento = null;
+      aviso('Evento salvo.');
+      navegar();
+    });
+  });
   app.querySelectorAll('[data-ativar]').forEach((b) =>
     b.addEventListener('click', () => {
       if (!confirm('Tornar este o evento ativo? A venda e a portaria passam a usar ele.')) return;
@@ -1125,15 +1150,7 @@ rota('/admin/lotes', async () => {
     .join('');
   layoutAdmin(
     'lotes',
-    `<h2>Evento ativo</h2>
-    <p class="peq">Para criar outra festa ou trocar o evento à venda, use a aba <a href="#/admin/eventos">Eventos</a>.</p>
-    <form class="card" id="fev" data-id="${evAtivo?.id ?? ''}">
-      <label>Nome</label><input name="nome" value="${esc(evAtivo?.nome)}" required>
-      <div class="grade"><div><label>Data</label><input name="data_evento" type="date" value="${esc(evAtivo?.data_evento)}" required></div>
-      <div><label>Local</label><input name="local" value="${esc(evAtivo?.local)}"></div></div>
-      <label>Horário de início</label><input name="hora_inicio" type="time" value="${esc(evAtivo?.hora_inicio || '22:00')}" required>
-      <label>Descrição</label><textarea name="descricao" rows="3">${esc(evAtivo?.descricao)}</textarea>
-      <button class="bt peq" style="margin-top:.75rem">Salvar evento</button></form>
+`${evAtivo ? `<p class="peq">Evento à venda: <b>${esc(evAtivo.nome)}</b> · ${dataBR(evAtivo.data_evento)}. Para editar nome, data, local ou descrição, use a aba <a href="#/admin/eventos">Eventos</a>.</p>` : ''}
     <h2 id="lista-lotes" class="h-mais">Lotes <button type="button" class="mais" data-abre="fnovo" aria-label="Novo lote" title="Novo lote">+</button></h2>${cards || '<p class="mudo">Nenhum lote ainda.</p>'}
     <form class="card" id="fnovo" hidden>
       <b>Novo lote</b>
@@ -1200,17 +1217,6 @@ rota('/admin/lotes', async () => {
     if (f.quantidade.value.trim() === '' || !Number.isInteger(quantidade)) throw new Error('Quantidade inválida.');
     return { nome: f.nome.value.trim(), valor_centavos: valor, quantidade, ordem: Number(soDig(f.ordem.value) || 0), canal: f.canal.value };
   };
-  document.getElementById('fev').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const f = e.target;
-    comEspera(f.querySelector('button'), async () => {
-      const corpo = { nome: f.nome.value, data_evento: f.data_evento.value, local: f.local.value, descricao: f.descricao.value, hora_inicio: f.hora_inicio.value, ativo: true };
-      if (f.dataset.id) await api('PUT', `/admin/eventos/${f.dataset.id}`, corpo);
-      else await api('POST', '/admin/eventos', corpo);
-      aviso('Evento salvo.');
-      navegar();
-    });
-  });
   app.querySelectorAll('form[data-lote]').forEach((f) =>
     f.addEventListener('submit', (e) => {
       e.preventDefault();
