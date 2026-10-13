@@ -5,6 +5,7 @@ import { hmacHex, igual, qrDoIngresso, sha256Hex } from '../lib/crypto.js';
 import { alertar } from '../lib/alertas.js';
 import * as v from '../lib/validar.js';
 import { lerQr, registrarEntrada } from '../lib/portaria.js';
+import { telefoneTitular } from '../lib/convites.js';
 import { venderPresencial } from '../lib/pedidos.js';
 
 const r = new Hono();
@@ -36,9 +37,9 @@ r.get('/portaria/lista', async (c) => {
   const ev = await eventoAtivo(db);
   const { results } = await db
     .prepare(
-      `SELECT i.id, i.status, i.tipo, i.motivo, i.qr_versao, i.usado_em, i.desfeitos, COALESCE(i.nome_avulso, u.nome || ' ' || u.sobrenome) AS nome
+      `SELECT i.id, i.status, i.tipo, i.motivo, i.categoria, i.qr_versao, i.usado_em, i.desfeitos, COALESCE(i.nome_avulso, u.nome || ' ' || u.sobrenome) AS nome
          FROM ingressos i JOIN usuarios u ON u.id = i.dono_id
-        WHERE i.evento_id = ?1 ORDER BY 8, i.id`,
+        WHERE i.evento_id = ?1 ORDER BY 9, i.id`,
     )
     .bind(ev.id)
     .all();
@@ -55,7 +56,11 @@ r.get('/portaria/lista', async (c) => {
       desfeitos: i.desfeitos,
     });
   }
-  return c.json({ evento: ev, gerado_em: agora(), ...(await contagem(db, ev.id)), ingressos });
+  const { results: pend } = await db
+    .prepare(`SELECT id, nome, categoria, quantidade FROM convites WHERE evento_id = ?1 AND status = 'pendente' ORDER BY nome`)
+    .bind(ev.id)
+    .all();
+  return c.json({ evento: ev, gerado_em: agora(), ...(await contagem(db, ev.id)), ingressos, pendentes: pend });
 });
 
 r.get('/portaria/resumo', async (c) => {
@@ -73,14 +78,47 @@ r.post('/portaria/validar', async (c) => {
   return c.json({ ...res, ...(await contagem(db, ev.id)) });
 });
 
-// Entrada manual (QR ilegível): a hostess localiza o nome na lista e confirma.
+// Entrada pela lista (sem QR): a recepcionista localiza o nome e digita os 4 últimos números do
+// celular do titular (quem comprou ou recebeu a cortesia). Sem a confirmação, não entra: quem só viu
+// o nome na lista não consegue usar. Erros seguidos bloqueiam aquele ingresso por 15 minutos e avisam o admin.
 r.post('/portaria/entrada-manual', async (c) => {
   const b = await corpo(c);
   const db = c.env.DB;
+  const u = c.get('usuario');
   const ev = await eventoAtivo(db);
   const id = v.inteiro(b.ingresso_id, 'Ingresso', 1, 1_000_000_000);
-  const res = await registrarEntrada(db, { id, eventoId: ev.id, quando: agora(), porId: c.get('usuario').id });
-  if (res.resultado === 'ok') await auditar(db, c.get('usuario').id, 'entrada_manual', String(id));
+  const ultimos = String(b.ultimos4 ?? '').replace(/\D/g, '');
+  if (ultimos.length !== 4) throw new HttpError(400, 'Digite os 4 últimos números do celular do titular.');
+  const ing = await db
+    .prepare(`SELECT i.status, COALESCE(i.nome_avulso, u.nome || ' ' || u.sobrenome) AS nome FROM ingressos i JOIN usuarios u ON u.id = i.dono_id WHERE i.id = ?1 AND i.evento_id = ?2`)
+    .bind(id, ev.id)
+    .first();
+  if (!ing) throw new HttpError(404, 'Ingresso não encontrado.');
+  if (ing.status === 'valido') {
+    const chave = `d4:${id}`;
+    const t = agora();
+    const tent = await db.prepare('SELECT bloqueado_ate FROM tentativas_login WHERE cpf = ?1').bind(chave).first();
+    if (tent && tent.bloqueado_ate > t) throw new HttpError(429, 'Muitas tentativas erradas para este ingresso. Aguarde alguns minutos ou chame o administrador.');
+    const titular = await telefoneTitular(db, id);
+    if (!igual(titular.slice(-4), ultimos)) {
+      await db
+        .prepare(
+          `INSERT INTO tentativas_login (cpf, falhas, bloqueado_ate, atualizado_em) VALUES (?1, 1, 0, ?2)
+           ON CONFLICT(cpf) DO UPDATE SET
+             falhas = CASE WHEN falhas + 1 >= 3 THEN 0 ELSE falhas + 1 END,
+             bloqueado_ate = CASE WHEN falhas + 1 >= 3 THEN ?3 ELSE bloqueado_ate END,
+             atualizado_em = ?2`,
+        )
+        .bind(chave, t, t + 900)
+        .run();
+      await auditar(db, u.id, 'confirmacao_errada', String(id));
+      await alertar(c, 'confirmacao_errada', `Na portaria, ${u.nome} ${u.sobrenome} informou 4 últimos números que não conferem com ${ing.nome} (ingresso #${id}). Entrada não liberada.`);
+      throw new HttpError(403, 'Os 4 últimos números não conferem. Entrada não liberada: sem a confirmação, a pessoa precisa pagar o ingresso da porta.');
+    }
+    await db.prepare('DELETE FROM tentativas_login WHERE cpf = ?1').bind(chave).run();
+  }
+  const res = await registrarEntrada(db, { id, eventoId: ev.id, quando: agora(), porId: u.id });
+  if (res.resultado === 'ok') await auditar(db, u.id, 'entrada_manual', String(id));
   return c.json({ ...res, ...(await contagem(db, ev.id)) });
 });
 
@@ -100,10 +138,8 @@ r.post('/portaria/sincronizar', async (c) => {
         ? await registrarEntrada(db, { ...lido, eventoId: ev.id, quando, porId: c.get('usuario').id })
         : { resultado: 'invalido' };
     } else {
-      const id = Number(u.ingresso_id);
-      res = Number.isInteger(id) && id > 0
-        ? await registrarEntrada(db, { id, eventoId: ev.id, quando, porId: c.get('usuario').id })
-        : { resultado: 'invalido' };
+      // Entrada pela lista exige confirmação dos 4 últimos números, feita online. Itens antigos sem QR são recusados.
+      res = { resultado: 'invalido' };
     }
     resultados.push({ chave: u.qr ?? `m${u.ingresso_id}`, ...res });
   }

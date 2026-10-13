@@ -11,7 +11,7 @@ const brl = (c) => (c / 100).toLocaleString('pt-BR', { style: 'currency', curren
 const dataBR = (iso) => (iso ? iso.split('-').reverse().join('/') : '');
 const hora = (t) => (t ? new Date(t * 1000).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '');
 const soDig = (s) => String(s || '').replace(/\D/g, '');
-const ROTULO = { aguardando_pagamento: 'Aguardando pagamento', pago: 'Pago', expirado: 'Expirado', cancelado: 'Cancelado', valido: 'Válido', usado: 'Usado' };
+const ROTULO = { aguardando_pagamento: 'Aguardando pagamento', pago: 'Pago', expirado: 'Expirado', cancelado: 'Cancelado', valido: 'Válido', usado: 'Usado', pendente: 'Aguardando cadastro', resgatado: 'Resgatado' };
 const tag = (s) => `<span class="tag ${esc(s)}">${esc(ROTULO[s] || s)}</span>`;
 
 function centavos(txt) {
@@ -148,6 +148,10 @@ function dadosForm(form) {
 async function carregarEu() {
   try {
     estado.eu = await api('GET', '/me');
+    if (estado.eu.convites_resgatados) {
+      aviso(`Você recebeu ${estado.eu.convites_resgatados > 1 ? 'cortesias' : 'uma cortesia'}! Veja em “Meus ingressos”.`);
+      estado.eu.convites_resgatados = 0;
+    }
   } catch {
     estado.eu = null;
   }
@@ -909,7 +913,7 @@ const ABAS = [
   ['financeiro', 'Financeiro'],
   ['pedidos', 'Pedidos'],
   ['eventos', 'Eventos'],
-  ['lotes', 'Lotes'],
+  ['lotes', 'Lotes e cupons'],
   ['config', 'Pix e taxas'],
   ['cortesias', 'Cortesias'],
   ['usuarios', 'Usuários'],
@@ -1416,6 +1420,7 @@ async function atualizarLista() {
   P.lista = d.ingressos.map((i) => (i.status === 'valido' && (pend.has(i.h) || pendIds.has(i.id)) ? { ...i, status: 'usado', usado_em: i.usado_em || Math.floor(Date.now() / 1000) } : i));
   P.gerado_em = d.gerado_em;
   P.evento = d.evento;
+  P.pendentes = d.pendentes || [];
   salvarP();
 }
 
@@ -1458,24 +1463,16 @@ async function validarQr(qr) {
   return { resultado: 'ok', ...info, usado_em: it.usado_em, ...contagemLocal(), ...base };
 }
 
-async function entradaManual(it) {
-  try {
-    const r = await apiTimeout('POST', '/portaria/entrada-manual', { ingresso_id: it.id });
-    if (r.resultado === 'ok' || r.resultado === 'usado') {
-      it.status = 'usado';
-      it.usado_em = r.usado_em;
-      salvarP();
-    }
-    return r;
-  } catch (e) {
-    if (e.status) throw e;
+// Entrada pela lista: só com internet e com os 4 últimos números do celular do titular (o servidor confere).
+async function entradaManual(it, ultimos4) {
+  if (!navigator.onLine) throw new Error('Sem internet: a entrada pela lista precisa de conexão. Use o QR, que funciona offline.');
+  const r = await apiTimeout('POST', '/portaria/entrada-manual', { ingresso_id: it.id, ultimos4 });
+  if (r.resultado === 'ok' || r.resultado === 'usado') {
+    it.status = 'usado';
+    it.usado_em = r.usado_em;
+    salvarP();
   }
-  if (it.status !== 'valido') return { resultado: it.status === 'usado' ? 'usado' : 'cancelado', nome: it.nome, usado_em: it.usado_em, offline: true };
-  it.status = 'usado';
-  it.usado_em = Math.floor(Date.now() / 1000);
-  P.fila.push({ ingresso_id: it.id, em: it.usado_em });
-  salvarP();
-  return { resultado: 'ok', nome: it.nome, tipo: it.tipo, motivo: it.motivo, usado_em: it.usado_em, offline: true, ...contagemLocal() };
+  return r;
 }
 
 const TELAS = {
@@ -1624,12 +1621,18 @@ rota('/portaria', async () => {
           )
           .join('')
       : '<p class="mudo">Nenhum ingresso encontrado.</p>';
+    const pend = (P.pendentes || []).filter((x) => q && semAcento(x.nome).includes(q)).slice(0, 20);
+    if (pend.length) {
+      $('itens').insertAdjacentHTML('beforeend', pend.map((x) => `<div class="card"><div class="linha"><div><b>${esc(x.nome)}</b><div class="peq">cortesia (${esc(CATEGORIAS_CONV[x.categoria] || '')}) · ainda não se cadastrou</div></div><div class="acoes">${tag('pendente')}</div></div><p class="peq" style="margin:.5rem 0 0">Não entra até abrir o link da cortesia e fazer o cadastro no celular dela.</p></div>`).join(''));
+    }
     $('itens').querySelectorAll('[data-man]').forEach((b) =>
       b.addEventListener('click', async () => {
         const it = P.lista.find((x) => x.id === Number(b.dataset.man));
-        if (!it || !confirm(`Dar entrada manual para ${it.nome}? Use só se o QR não puder ser lido.`)) return;
+        if (!it) return;
+        const d4 = await pedirDigitos(`Entrada de ${it.nome}`);
+        if (d4 === null) return;
         try {
-          mostrarResultado(await entradaManual(it));
+          mostrarResultado(await entradaManual(it, d4));
           desenharLista();
         } catch (e) {
           aviso(e.message, 'erro');
@@ -1785,6 +1788,23 @@ function pedirPin(titulo) {
   });
 }
 
+function pedirDigitos(titulo) {
+  return new Promise((resolve) => {
+    const ov = document.createElement('div');
+    ov.className = 'overlay modal';
+    ov.innerHTML = `<form class="card ov-corpo"><h2 style="margin-top:0">${esc(titulo)}</h2>
+      <label>4 últimos números do celular do titular</label><input name="d4" required inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" placeholder="0000" style="font-size:1.6rem;letter-spacing:.4rem;text-align:center">
+      <p class="peq">Peça para a pessoa falar os números. Não mostre nem leia o telefone cadastrado.</p>
+      <div class="acoes" style="margin-top:1rem"><button class="bt">Liberar entrada</button><button type="button" class="bt sec" id="cancela">Cancelar</button></div></form>`;
+    document.body.appendChild(ov);
+    const f = ov.querySelector('form');
+    f.d4.focus();
+    const fim = (v) => { ov.remove(); resolve(v); };
+    f.addEventListener('submit', (e) => { e.preventDefault(); fim(f.d4.value.replace(/\D/g, '')); });
+    ov.querySelector('#cancela').addEventListener('click', () => fim(null));
+  });
+}
+
 // ---------- avisos (admin) ----------
 const b64uParaBytes = (b) => {
   const t = (b + '='.repeat((4 - (b.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/');
@@ -1923,57 +1943,128 @@ rota('/admin/avisos', async () => {
   );
 });
 
+const CATEGORIAS_CONV = { dj: 'DJ', aniversariante: 'Aniversariante', convidado: 'Amigo / parceiro' };
+const linkConvite = (token) => `${location.origin}/#/convite/${token}`;
+function zapConvite(cv, evento) {
+  const primeiro = cv.nome.split(' ')[0];
+  const qtd = cv.quantidade > 1 ? `${cv.quantidade} ingressos` : 'seu ingresso';
+  const msg = `Olá, ${primeiro}! Sua cortesia (${CATEGORIAS_CONV[cv.categoria]}) para ${evento?.nome || 'a festa'}${evento?.data_evento ? ` (${dataBR(evento.data_evento)})` : ''} está garantida 🎉\n\nAbra o link e crie sua conta com este mesmo celular (ou entre, se já tiver conta). ${qtd[0].toUpperCase() + qtd.slice(1)} aparece${cv.quantidade > 1 ? 'm' : ''} no app:\n${linkConvite(cv.token)}\n\nNa portaria, tenha o celular em mãos: vamos confirmar os 4 últimos números dele.`;
+  return `https://wa.me/${cv.telefone}?text=${encodeURIComponent(msg)}`;
+}
+
 rota('/admin/cortesias', async () => {
   if (!exigirAdmin()) return;
-  const lista = await api('GET', '/admin/cortesias');
+  const lista = await api('GET', '/admin/convites');
+  const evento = lista.evento;
+  const camposConv = (x = {}) => `<label>Categoria</label>
+      <select name="categoria">${Object.entries(CATEGORIAS_CONV).map(([k, n]) => `<option value="${k}"${x.categoria === k ? ' selected' : ''}>${n}</option>`).join('')}</select>
+      <label>Nome completo</label><input name="nome" value="${esc(x.nome || '')}" maxlength="80" required>
+      <label>Celular (com DDD) — a pessoa precisa usar este número no cadastro</label><input name="telefone" inputmode="tel" value="${esc(x.telefone ? x.telefone.replace(/^55/, '') : '')}" placeholder="11 99999-9999" required>
+      <label>E-mail (opcional — também libera o convite se bater)</label><input name="email" type="email" value="${esc(x.email || '')}">
+      <div data-nasc${x.categoria === 'aniversariante' ? '' : ' hidden'}><label>Data de nascimento</label><input name="nascimento" type="date" value="${esc(x.nascimento || '')}"></div>
+      <label>Quantidade de ingressos</label>
+      <select name="quantidade">${[1, 2, 3, 4].map((n) => `<option${Number(x.quantidade || 1) === n ? ' selected' : ''}>${n}</option>`).join('')}</select>
+      <p class="peq">DJ: você decide se leva 1 ou 2 ingressos; os dois ficam na conta dele, e ele repassa o segundo pelo link em “Meus ingressos”.</p>`;
+  const ligarCategoria = (f) => {
+    const sync = () => { const box = f.querySelector('[data-nasc]'); box.hidden = f.categoria.value !== 'aniversariante'; };
+    f.categoria.addEventListener('change', sync);
+    sync();
+  };
+  const itens = lista.convites
+    .map((x) => {
+      const resumo = `${esc(CATEGORIAS_CONV[x.categoria])}${x.quantidade > 1 ? ` · ${x.quantidade} ingressos` : ''}`;
+      const cab = `<summary><b>${esc(x.nome)}</b><span class="peq">${tag(x.status)} ${resumo}</span></summary>`;
+      if (x.status === 'pendente') {
+        return `<details class="item">${cab}<form class="card" data-convite="${x.id}">${camposConv(x)}
+          <div class="acoes" style="margin-top:.75rem">
+            <button class="bt peq">Salvar</button>
+            <a class="bt sec peq" target="_blank" rel="noopener" href="${esc(zapConvite(x, evento))}">Enviar pelo WhatsApp</a>
+            <button type="button" class="bt sec peq" data-copia="${esc(linkConvite(x.token))}">Copiar link</button>
+            <button type="button" class="bt perigo peq" data-cancela="${x.id}">Cancelar convite</button>
+          </div><div class="erro-conv"></div></form></details>`;
+      }
+      return `<details class="item">${cab}<div class="card"><p class="peq" style="margin:0">Celular: ${esc(x.telefone)}${x.email ? `<br>E-mail: ${esc(x.email)}` : ''}${x.nascimento ? `<br>Nascimento: ${dataBR(x.nascimento)}` : ''}
+        ${x.status === 'resgatado' ? `<br>Conta: ${esc(x.conta || '—')} · resgatado em ${hora(x.resgatado_em)}<br>Ingressos: ${x.validos} válido(s) · ${x.entraram} usado(s)` : ''}</p>
+        ${x.status !== 'cancelado' ? `<div class="acoes" style="margin-top:.75rem"><button class="bt perigo peq" data-cancela="${x.id}">Cancelar convite${x.status === 'resgatado' ? ' e ingressos não usados' : ''}</button></div>` : ''}</div></details>`;
+    })
+    .join('');
   layoutAdmin(
     'cortesias',
-    `<h2 id="lista-cortesias" class="h-mais">Cortesias (${lista.cortesias.length}) <button type="button" class="mais" data-abre="f" aria-label="Emitir cortesias" title="Emitir cortesias">+</button></h2>
-    ${lista.cortesias.length ? lista.cortesias
-      .map((x) => `<details class="item"><summary><b>${esc(x.dono)}</b><span class="peq">#${x.id} · ${tag(x.status)}</span></summary>
-        <div class="card"><p class="peq" style="margin:0">${esc(x.email)}<br>Motivo: ${esc(x.motivo)}</p>
-        ${x.status === 'valido' ? `<div class="acoes" style="margin-top:.75rem"><button class="bt perigo peq" data-canc="${x.id}">Cancelar cortesia</button></div>` : ''}</div></details>`)
-      .join('') : '<p class="mudo">Nenhuma cortesia emitida.</p>'}
-    <form class="card" id="f" hidden><b>Emitir cortesias</b>
-      <label>Motivo (aparece na portaria)</label><input name="motivo" value="DJ + acompanhante" maxlength="60">
-      <label>E-mails (um por linha). Cada pessoa precisa ter conta no site com esse e-mail.</label>
-      <textarea name="emails" rows="4" placeholder="dj@email.com&#10;acompanhante@email.com"></textarea>
-      <label>Ingressos para cada e-mail</label><select name="qtd"><option>1</option><option>2</option><option>3</option><option>4</option></select>
-      <p class="peq">DJ + acompanhante: coloque os dois e-mails com 1 ingresso cada, ou só o do DJ com 2 (ele repassa o segundo por link, na tela "Meus ingressos").</p>
-      <div class="linha"><button class="bt peq">Emitir cortesias</button><button type="button" class="bt sec peq" data-fecha="f">Cancelar</button></div>
+    `<h2 id="lista-cortesias" class="h-mais">Cortesias (${lista.convites.length}) <button type="button" class="mais" data-abre="f" aria-label="Nova cortesia" title="Nova cortesia">+</button></h2>
+    ${itens || '<p class="mudo">Nenhuma cortesia cadastrada.</p>'}
+    <form class="card" id="f" hidden><b>Nova cortesia</b>${camposConv()}
+      <div class="linha"><button class="bt peq">Cadastrar cortesia</button><button type="button" class="bt sec peq" data-fecha="f">Cancelar</button></div>
       <div id="erro-cort"></div></form>`,
   );
   ligarMais();
+  const lerForm = (f) => ({
+    categoria: f.categoria.value,
+    nome: f.nome.value,
+    telefone: f.telefone.value,
+    email: f.email.value,
+    nascimento: f.categoria.value === 'aniversariante' ? f.nascimento.value : '',
+    quantidade: Number(f.quantidade.value),
+  });
   const f = document.getElementById('f');
+  ligarCategoria(f);
   f.addEventListener('submit', (e) => {
     e.preventDefault();
     comEspera(f.querySelector('button'), async () => {
-      const emails = f.emails.value.split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
-      if (!emails.length) throw new Error('Informe ao menos um e-mail.');
-      document.getElementById('erro-cort').innerHTML = '';
-      try {
-        await api('POST', '/admin/cortesias', { motivo: f.motivo.value, itens: emails.map((email) => ({ email, quantidade: Number(f.qtd.value) })) });
-      } catch (err) {
-        const d = err.dados;
-        if (d?.ausentes?.length || d?.ambiguos?.length) {
-          document.getElementById('erro-cort').innerHTML = `<div class="card" style="border-color:var(--erro)"><b>Nada foi emitido.</b>${d.ausentes?.length ? `<p>Estes e-mails não têm conta: ${d.ausentes.map(esc).join(', ')}. Peça para criarem a conta no site e tente de novo.</p>` : ''}${d.ambiguos?.length ? `<p>E-mails repetidos em mais de uma conta: ${d.ambiguos.map(esc).join(', ')}.</p>` : ''}</div>`;
-          return;
-        }
-        throw err;
-      }
-      aviso('Cortesias emitidas.');
+      const r = await api('POST', '/admin/convites', lerForm(f));
+      aviso(r.resgatado ? 'Cortesia cadastrada e já liberada: a pessoa já tinha conta.' : 'Cortesia cadastrada. Abra-a na lista e toque em “Enviar pelo WhatsApp”.');
       await irParaLista('#lista-cortesias');
     });
   });
-  app.querySelectorAll('[data-canc]').forEach((b) =>
+  app.querySelectorAll('form[data-convite]').forEach((fc) => {
+    ligarCategoria(fc);
+    fc.addEventListener('submit', (e) => {
+      e.preventDefault();
+      comEspera(fc.querySelector('button'), async () => {
+        const r = await api('PUT', `/admin/convites/${fc.dataset.convite}`, lerForm(fc));
+        aviso(r.resgatado ? 'Salvo. A pessoa já tinha conta, então o ingresso foi liberado.' : 'Convite atualizado.');
+        await irParaLista('#lista-cortesias');
+      });
+    });
+  });
+  app.querySelectorAll('[data-copia]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(b.dataset.copia); aviso('Link copiado.'); } catch { prompt('Copie o link:', b.dataset.copia); }
+    }),
+  );
+  app.querySelectorAll('[data-cancela]').forEach((b) =>
     b.addEventListener('click', () => {
-      if (!confirm('Cancelar esta cortesia?')) return;
+      if (!confirm('Cancelar este convite? Ingressos ainda não usados também são cancelados.')) return;
       comEspera(b, async () => {
-        await api('POST', `/admin/cortesias/${b.dataset.canc}/cancelar`, {});
+        await api('POST', `/admin/convites/${b.dataset.cancela}/cancelar`, {});
         await irParaLista('#lista-cortesias');
       });
     }),
   );
+});
+
+// ---------- link de cortesia ----------
+rota('/convite/([0-9a-f]{32})', async (token) => {
+  const info = await api('GET', `/convites/${token}`);
+  const cab = `<h1>Sua cortesia</h1>`;
+  if (info.estado === 'cancelado') {
+    app.innerHTML = `${cab}<div class="card">Este convite foi cancelado. Fale com a organização.</div><a class="bt sec" href="#/">Início</a>`;
+    return;
+  }
+  if (!estado.eu) {
+    sessionStorage.setItem('voltar', `#/convite/${token}`);
+    app.innerHTML = `${cab}<div class="card atual">Você tem uma cortesia (<b>${esc(info.categoria)}</b>) para <b>${esc(info.evento)}</b> (${dataBR(info.data_evento)}).
+      <p class="peq">Crie sua conta (ou entre, se já tiver) usando o <b>mesmo celular</b> ou e-mail que você passou à organização. O ingresso aparece na sua conta logo em seguida.</p>
+      <a class="bt bloco" href="#/cadastro">Criar conta</a><a class="bt sec bloco" href="#/entrar">Já tenho conta</a></div>`;
+    return;
+  }
+  try {
+    const r = await api('POST', `/convites/${token}/resgatar`, {});
+    app.innerHTML = `${cab}<div class="card atual"><b>Cortesia liberada!</b> ${r.quantidade > 1 ? `${r.quantidade} ingressos estão` : 'Seu ingresso está'} na sua conta para <b>${esc(info.evento)}</b>.
+      <p class="peq">Na portaria, mostre o QR e tenha o celular em mãos: a recepção confere os 4 últimos números dele.</p>
+      <a class="bt bloco" href="#/meus">Ver meus ingressos</a></div>`;
+  } catch (e) {
+    app.innerHTML = `${cab}<div class="card" style="border-color:var(--erro)">${esc(e.message)}</div><a class="bt sec" href="#/meus">Meus ingressos</a>`;
+  }
 });
 
 // ---------- início ----------

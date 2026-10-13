@@ -255,9 +255,21 @@ test('portaria: sincronização offline e entrada manual', async () => {
   })).json;
   assert.deepEqual(s.resultados.map((x) => x.resultado), ['ok', 'usado', 'invalido']);
   assert.equal(s.resultados[0].usado_em, antes); // guarda a hora real da entrada offline
-  const m = (await hostess.post('/api/portaria/entrada-manual', { ingresso_id: ingressos[1].id })).json;
+  // itens sem QR (entrada pela lista) não valem mais na sincronização offline
+  const sl = (await hostess.post('/api/portaria/sincronizar', { usos: [{ ingresso_id: ingressos[1].id, em: antes }] })).json;
+  assert.equal(sl.resultados[0].resultado, 'invalido');
+  // entrada pela lista: exige os 4 últimos números do celular do titular (11988887777 → 7777)
+  assert.equal((await hostess.post('/api/portaria/entrada-manual', { ingresso_id: ingressos[1].id })).status, 400);
+  const errado = await hostess.post('/api/portaria/entrada-manual', { ingresso_id: ingressos[1].id, ultimos4: '0000' });
+  assert.equal(errado.status, 403);
+  const m = (await hostess.post('/api/portaria/entrada-manual', { ingresso_id: ingressos[1].id, ultimos4: '7777' })).json;
   assert.equal(m.resultado, 'ok');
-  assert.equal((await hostess.post('/api/portaria/entrada-manual', { ingresso_id: ingressos[1].id })).json.resultado, 'usado');
+  assert.equal((await hostess.post('/api/portaria/entrada-manual', { ingresso_id: ingressos[1].id, ultimos4: '7777' })).json.resultado, 'usado');
+  // 3 erros bloqueiam aquele ingresso (mesmo com o número certo) e geram aviso para o admin
+  for (let i = 0; i < 3; i++) await hostess.post('/api/portaria/entrada-manual', { ingresso_id: ingressos[2].id, ultimos4: '1111' });
+  assert.equal((await hostess.post('/api/portaria/entrada-manual', { ingresso_id: ingressos[2].id, ultimos4: '7777' })).status, 429);
+  const avisos = (await admin.get('/api/admin/alertas')).json;
+  assert.ok(JSON.stringify(avisos).includes('confirmacao_errada'));
 });
 
 test('ingresso cancelado não entra', async () => {
@@ -292,21 +304,114 @@ test('transferência: novo QR, antigo morre, link de uso único', async () => {
   assert.equal((await amigo.post(`/api/ingressos/${ing.id}/transferir`)).status, 409); // usado não transfere
 });
 
-test('cortesias: tudo ou nada, aparece para o dono e entra na portaria', async () => {
-  const { c, d } = await novoComprador();
-  const falha = await admin.post('/api/admin/cortesias', { motivo: 'DJ', itens: [{ email: d.email, quantidade: 2 }, { email: 'nao@existe.com' }] });
-  assert.equal(falha.status, 409);
-  assert.deepEqual(falha.json.ausentes, ['nao@existe.com']);
-  assert.equal((await c.get('/api/meus-ingressos')).json.ingressos.length, 0); // nada emitido
-  const ok = await admin.post('/api/admin/cortesias', { motivo: 'DJ + acompanhante', itens: [{ email: d.email, quantidade: 2 }] });
+const telUnico = () => '119' + String(Math.floor(10000000 + Math.random() * 89999999));
+
+test('cortesias por convite: cadastro, validações e permissões', async () => {
+  const tel = telUnico();
+  const base = { categoria: 'dj', nome: 'DJ Fulano', telefone: tel, quantidade: 2 };
+  assert.equal((await hostess.post('/api/admin/convites', base)).status, 403);
+  assert.equal((await admin.post('/api/admin/convites', { ...base, categoria: 'vip' })).status, 400);
+  assert.equal((await admin.post('/api/admin/convites', { ...base, telefone: '123' })).status, 400);
+  assert.equal((await admin.post('/api/admin/convites', { ...base, quantidade: 9 })).status, 400);
+  assert.equal((await admin.post('/api/admin/convites', { ...base, categoria: 'aniversariante' })).status, 400); // falta nascimento
+  assert.equal((await admin.post('/api/admin/convites', { ...base, categoria: 'aniversariante', nascimento: '2999-01-01' })).status, 400);
+  assert.equal((await admin.post('/api/admin/convites', { ...base, categoria: 'aniversariante', nascimento: '1990-02-31' })).status, 400);
+  const ok = await admin.post('/api/admin/convites', base);
   assert.equal(ok.status, 201, JSON.stringify(ok.json));
-  const ing = (await c.get('/api/meus-ingressos')).json.ingressos;
+  assert.match(ok.json.token, /^[0-9a-f]{32}$/);
+  assert.equal((await admin.post('/api/admin/convites', base)).status, 409); // duplicado
+  const pub = (await new Cliente().get(`/api/convites/${ok.json.token}`)).json;
+  assert.equal(pub.estado, 'pendente');
+  assert.ok(!JSON.stringify(pub).includes('DJ Fulano') && !JSON.stringify(pub).includes(tel)); // link não vaza dados
+  assert.equal((await new Cliente().get('/api/convites/' + '0'.repeat(32))).status, 404);
+  const pend = (await hostess.get('/api/portaria/lista')).json.pendentes;
+  assert.ok(pend.some((x) => x.nome === 'DJ Fulano')); // aparece como "ainda não se cadastrou"
+  const lista = (await admin.get('/api/admin/convites')).json.convites.find((x) => x.id === ok.json.id);
+  assert.equal(lista.status, 'pendente');
+  assert.equal(lista.validos, 0); // ainda não existe ingresso
+});
+
+test('cortesias: resgate no cadastro (telefone), portaria com 4 últimos números e transferência', async () => {
+  const tel = telUnico();
+  const cv = await admin.post('/api/admin/convites', { categoria: 'dj', nome: 'DJ Resgate', telefone: tel, quantidade: 2 });
+  assert.equal(cv.status, 201);
+  // outra pessoa (telefone diferente) abre o link: não confere
+  const { c: intruso } = await novoComprador();
+  const neg = await intruso.post(`/api/convites/${cv.json.token}/resgatar`);
+  assert.equal(neg.status, 403, JSON.stringify(neg.json));
+  assert.equal((await intruso.get('/api/meus-ingressos')).json.ingressos.length, 0);
+
+  // o beneficiário se cadastra com o telefone informado → ingressos aparecem sozinhos
+  const d = dados({ telefone: tel });
+  const dj = new Cliente();
+  assert.equal((await dj.post('/api/auth/cadastro', d)).status, 201);
+  const eu = (await dj.get('/api/me')).json;
+  assert.equal(eu.convites_resgatados, 1);
+  assert.equal((await dj.get('/api/me')).json.convites_resgatados, 0);
+  const ing = (await dj.get('/api/meus-ingressos')).json.ingressos;
   assert.equal(ing.length, 2);
-  assert.ok(ing.every((i) => i.tipo === 'cortesia' && i.motivo === 'DJ + acompanhante' && i.qr));
-  assert.equal((await hostess.post('/api/portaria/validar', { qr: ing[0].qr })).json.resultado, 'ok');
-  assert.equal((await admin.post(`/api/admin/cortesias/${ing[1].id}/cancelar`)).status, 200);
-  assert.equal((await hostess.post('/api/portaria/validar', { qr: ing[1].qr })).json.resultado, 'cancelado');
-  assert.equal((await c.post('/api/admin/cortesias', { itens: [] })).status, 403);
+  assert.ok(ing.every((i) => i.tipo === 'cortesia' && i.motivo === 'DJ' && i.qr));
+  assert.equal((await dj.post(`/api/convites/${cv.json.token}/resgatar`)).json.ja, true); // idempotente
+  assert.equal((await intruso.post(`/api/convites/${cv.json.token}/resgatar`)).status, 409); // já resgatado
+  assert.equal((await new Cliente().get(`/api/convites/${cv.json.token}`)).json.estado, 'resgatado');
+  assert.equal((await admin.put(`/api/admin/convites/${cv.json.id}`, { nome: 'Outro' })).status, 409); // resgatado não edita
+
+  // portaria: lista exige os 4 últimos números do telefone do convite
+  const alvo = tel.slice(-4);
+  assert.equal((await hostess.post('/api/portaria/entrada-manual', { ingresso_id: ing[0].id, ultimos4: '0000' })).status, 403);
+  assert.equal((await hostess.post('/api/portaria/entrada-manual', { ingresso_id: ing[0].id, ultimos4: alvo })).json.resultado, 'ok');
+
+  // o segundo ingresso é repassado: passa a valer o telefone do novo dono, não o do DJ
+  const t = await dj.post(`/api/ingressos/${ing[1].id}/transferir`);
+  assert.equal(t.status, 201);
+  const telAmigo = telUnico();
+  const amigo = new Cliente();
+  assert.equal((await amigo.post('/api/auth/cadastro', dados({ telefone: telAmigo }))).status, 201);
+  assert.equal((await amigo.post(`/api/transferencias/${t.json.token}/aceitar`)).status, 200);
+  assert.equal((await hostess.post('/api/portaria/entrada-manual', { ingresso_id: ing[1].id, ultimos4: alvo })).status, 403);
+  assert.equal((await hostess.post('/api/portaria/entrada-manual', { ingresso_id: ing[1].id, ultimos4: telAmigo.slice(-4) })).json.resultado, 'ok');
+
+  // cancelar convite resgatado cancela só o que não foi usado
+  assert.equal((await admin.post(`/api/admin/convites/${cv.json.id}/cancelar`)).status, 200);
+  assert.equal((await admin.post(`/api/admin/convites/${cv.json.id}/cancelar`)).status, 409);
+});
+
+test('cortesias: corrigir convite pendente, resgate por e-mail e por conta já existente', async () => {
+  // conta já existe: cadastrar o convite libera na hora
+  const tel = telUnico();
+  const d = dados({ telefone: tel });
+  const c = new Cliente();
+  assert.equal((await c.post('/api/auth/cadastro', d)).status, 201);
+  const imediato = await admin.post('/api/admin/convites', { categoria: 'convidado', nome: 'Amigo Já Cadastrado', telefone: tel });
+  assert.equal(imediato.json.resgatado, true);
+  assert.equal((await c.get('/api/meus-ingressos')).json.ingressos.length, 1);
+
+  // telefone digitado errado: o beneficiário reclama, o admin corrige e o ingresso aparece
+  const certo = telUnico();
+  const errado = telUnico();
+  const cv = await admin.post('/api/admin/convites', { categoria: 'aniversariante', nome: 'Aniversariante X', telefone: errado, nascimento: '1995-10-23' });
+  assert.equal(cv.status, 201);
+  const b = new Cliente();
+  assert.equal((await b.post('/api/auth/cadastro', dados({ telefone: certo }))).status, 201);
+  assert.equal((await b.get('/api/meus-ingressos')).json.ingressos.length, 0);
+  assert.equal((await admin.put(`/api/admin/convites/${cv.json.id}`, { telefone: certo })).json.resgatado, true); // conta já existia: libera na hora
+  const ings = (await b.get('/api/meus-ingressos')).json.ingressos;
+  assert.equal(ings.length, 1);
+  assert.equal(ings[0].motivo, 'Aniversariante');
+
+  // resgate por e-mail (telefone diferente, e-mail igual)
+  const e = dados({ telefone: telUnico() });
+  const cv2 = await admin.post('/api/admin/convites', { categoria: 'convidado', nome: 'Parceiro Email', telefone: telUnico(), email: e.email.toUpperCase() });
+  assert.equal(cv2.status, 201);
+  const ce = new Cliente();
+  assert.equal((await ce.post('/api/auth/cadastro', e)).status, 201);
+  assert.equal((await ce.get('/api/me')).json.convites_resgatados, 1);
+
+  // cancelar convite pendente: o link deixa de valer
+  const cv3 = await admin.post('/api/admin/convites', { categoria: 'convidado', nome: 'Cancelado', telefone: telUnico() });
+  assert.equal((await admin.post(`/api/admin/convites/${cv3.json.id}/cancelar`)).status, 200);
+  const { c: u } = await novoComprador();
+  assert.equal((await u.post(`/api/convites/${cv3.json.token}/resgatar`)).status, 409);
 });
 
 test('transferência: prazo de 48h antes da festa', async () => {

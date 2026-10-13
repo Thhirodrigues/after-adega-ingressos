@@ -30,7 +30,9 @@ Valores em centavos; taxa de serviço 10% (configurável); reserva de 60 min; es
 - Portaria (`#/portaria`, hostess ou admin): lê o QR pela câmera (jsQR, embutido no site). Online valida no servidor; sem internet confere numa lista de hashes baixada antes e sincroniza depois (conflitos aparecem na tela).
 - O site é instalável (PWA) e abre sem internet (`sw.js`).
 - Transferência: link de uso único, vale 7 dias, gerado em "Meus ingressos".
-- Cortesias: admin → aba Cortesias (o e-mail precisa ter conta).
+- Cortesias por convite nominal: admin → aba Cortesias → "+". Categorias fixas: DJ, aniversariante (nome + nascimento) e amigo/parceiro; o admin define 1 a 4 ingressos. O botão "Enviar pelo WhatsApp" só abre o WhatsApp do admin com a mensagem e o link prontos (envio manual, sem API). O ingresso só nasce quando a pessoa se cadastra/entra com o celular (ou e-mail) informado; convite pendente não vence. O link `#/convite/<token>` não mostra dados da pessoa.
+- Portaria pela lista (sem QR): "Dar entrada" pede os 4 últimos números do celular do titular (do convite, enquanto o ingresso está com quem resgatou; da conta do dono atual se foi comprado ou transferido). Exige internet; 3 erros bloqueiam o ingresso por 15 min e avisam o admin. Quem não confirma paga a porta. Convite pendente aparece na busca como "ainda não se cadastrou" e não entra.
+- Cortesia por cupom VIP: o limite de ingressos do cupom é definido no cadastro dele (Lotes e cupons).
 - Migrações novas rodam sozinhas no build (`scripts/aplicar-segredos.mjs`).
 - Testes: `npm test` (API) com o servidor local no ar e banco recém-migrado.
 

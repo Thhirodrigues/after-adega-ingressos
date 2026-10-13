@@ -11,13 +11,15 @@ import {
 import { inserirUsuario, lerDadosUsuario } from './auth.js';
 import { alertar } from '../lib/alertas.js';
 import { chavesVapid, enviarPush } from '../lib/push.js';
-import { hmacHex } from '../lib/crypto.js';
+import { aleatorioHex, hmacHex } from '../lib/crypto.js';
+import { resgatarPendentes } from '../lib/convites.js';
 import { SQL_USADOS, TIPOS_CUPOM, normalizarCupom } from '../lib/cupons.js';
 
 const r = new Hono();
 r.use('/admin/*', exigir('admin'));
 
 const bool = (x) => (x ? 1 : 0);
+const CATEGORIAS_CONVITE = ['dj', 'aniversariante', 'convidado'];
 
 
 // ---------- Zerar dados de teste (antes da primeira festa) ----------
@@ -39,6 +41,7 @@ r.post('/admin/zerar-teste', async (c) => {
   await db.batch([
     db.prepare('DELETE FROM transferencias'),
     db.prepare('DELETE FROM ingressos'),
+    db.prepare('DELETE FROM convites'),
     db.prepare('DELETE FROM pedidos'),
     db.prepare('DELETE FROM alertas'),
     db.prepare(`DELETE FROM push_assinaturas WHERE usuario_id IN ${NAO_ADMIN}`),
@@ -680,69 +683,117 @@ r.post('/admin/push/teste', async (c) => {
   return c.json(envio);
 });
 
-// ---------- Cortesias (ex.: DJ + acompanhante) ----------
-// O destinatário precisa ter conta (e-mail cadastrado). Tudo ou nada: se algum e-mail
-// não existir, nada é emitido e a lista de ausentes volta para você avisar a pessoa.
-r.post('/admin/cortesias', async (c) => {
+// ---------- Cortesias por convite nominal (DJ, aniversariante, amigo/parceiro) ----------
+// O admin cadastra a pessoa. O ingresso só nasce quando ela entra no app com o telefone
+// (ou e-mail) informado aqui. Convite pendente não vence.
+function lerConvite(b, { parcial = false } = {}) {
+  const d = {};
+  if (!parcial || b.categoria !== undefined) {
+    if (!CATEGORIAS_CONVITE.includes(b.categoria)) throw new HttpError(400, 'Escolha a categoria: DJ, aniversariante ou amigo/parceiro.');
+    d.categoria = b.categoria;
+  }
+  if (!parcial || b.nome !== undefined) d.nome = v.texto(b.nome, 'Nome', 2, 80);
+  if (!parcial || b.telefone !== undefined) d.telefone = v.telefone(b.telefone);
+  if (!parcial || b.email !== undefined) d.email = String(b.email ?? '').trim() ? v.email(b.email) : null;
+  if (!parcial || b.quantidade !== undefined) d.quantidade = v.inteiro(b.quantidade ?? 1, 'Quantidade de ingressos', 1, 4);
+  if (!parcial || b.nascimento !== undefined) {
+    const n = String(b.nascimento ?? '').trim();
+    if (n) {
+      const dt = new Date(`${n}T00:00:00Z`);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(n) || Number.isNaN(dt.getTime()) || dt.toISOString().slice(0, 10) !== n || n > new Date().toISOString().slice(0, 10) || n < '1900-01-01') {
+        throw new HttpError(400, 'Data de nascimento inválida.');
+      }
+      d.nascimento = n;
+    } else d.nascimento = null;
+  }
+  return d;
+}
+
+r.post('/admin/convites', async (c) => {
   const b = await corpo(c);
   const db = c.env.DB;
-  const admin = c.get('usuario');
-  const itens = Array.isArray(b.itens) ? b.itens : [];
-  if (!itens.length) throw new HttpError(400, 'Informe ao menos um e-mail.');
-  const motivo = String(b.motivo ?? '').trim().slice(0, 60) || 'Cortesia';
-  const ev = await db
-    .prepare('SELECT id FROM eventos WHERE ativo = 1 ORDER BY data_evento LIMIT 1')
-    .first();
+  const d = lerConvite(b);
+  if (d.categoria === 'aniversariante' && !d.nascimento) throw new HttpError(400, 'Informe a data de nascimento do aniversariante.');
+  if (d.categoria !== 'aniversariante') d.nascimento = null;
+  const ev = await db.prepare('SELECT id FROM eventos WHERE ativo = 1 ORDER BY data_evento LIMIT 1').first();
   if (!ev) throw new HttpError(409, 'Nenhum evento ativo.');
-
-  const alvos = [];
-  const ausentes = [];
-  const ambiguos = [];
-  let total = 0;
-  for (const it of itens) {
-    const email = v.email(it.email);
-    const qtd = v.inteiro(it.quantidade ?? 1, 'Quantidade', 1, 10);
-    total += qtd;
-    const { results } = await db
-      .prepare('SELECT id, nome, sobrenome FROM usuarios WHERE lower(email) = lower(?1) AND ativo = 1')
-      .bind(email)
-      .all();
-    if (results.length === 0) ausentes.push(email);
-    else if (results.length > 1) ambiguos.push(email);
-    else alvos.push({ email, qtd, usuario: results[0] });
-  }
-  if (total > 20) throw new HttpError(400, 'No máximo 20 cortesias por vez.');
-  if (ausentes.length || ambiguos.length) {
-    return c.json({ erro: 'Alguns e-mails não puderam ser usados. Nada foi emitido.', ausentes, ambiguos }, 409);
-  }
-  const stmts = [];
-  for (const a of alvos) {
-    for (let i = 0; i < a.qtd; i++) {
-      stmts.push(
-        db
-          .prepare(
-            `INSERT INTO ingressos (pedido_id, evento_id, lote_id, dono_id, tipo, status, criado_em, motivo)
-             VALUES (NULL, ?1, NULL, ?2, 'cortesia', 'valido', ?3, ?4)`,
-          )
-          .bind(ev.id, a.usuario.id, agora(), motivo),
-      );
-    }
-  }
-  await db.batch(stmts);
-  await auditar(db, admin.id, 'cortesias_emitidas', `${total} (${motivo})`);
-  return c.json({
-    ok: true,
-    emitidos: alvos.map((a) => ({ email: a.email, nome: `${a.usuario.nome} ${a.usuario.sobrenome}`, quantidade: a.qtd })),
-  }, 201);
+  const dup = await db
+    .prepare(`SELECT nome FROM convites WHERE evento_id = ?1 AND telefone = ?2 AND categoria = ?3 AND status <> 'cancelado'`)
+    .bind(ev.id, d.telefone, d.categoria)
+    .first();
+  if (dup) throw new HttpError(409, `Já existe um convite desta categoria para este telefone (${dup.nome}).`);
+  const token = aleatorioHex(16);
+  const res = await db
+    .prepare(
+      `INSERT INTO convites (evento_id, categoria, nome, telefone, email, nascimento, quantidade, token, criado_por, criado_em)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+    )
+    .bind(ev.id, d.categoria, d.nome, d.telefone, d.email, d.nascimento, d.quantidade, token, c.get('usuario').id, agora())
+    .run();
+  await auditar(db, c.get('usuario').id, 'convite_criado', `${d.categoria} ${d.nome} x${d.quantidade}`);
+  // Se a pessoa já tem conta com esse telefone/e-mail, o ingresso aparece na hora.
+  const conta = await db
+    .prepare(`SELECT id, telefone, email FROM usuarios WHERE ativo = 1 AND (telefone = ?1 OR (?2 IS NOT NULL AND lower(email) = ?2)) LIMIT 1`)
+    .bind(d.telefone, d.email)
+    .first();
+  let resgatado = false;
+  if (conta) resgatado = await resgatarPendentes(db, conta).then((n) => n > 0).catch(() => false);
+  return c.json({ ok: true, id: res.meta.last_row_id, token, resgatado }, 201);
 });
 
-r.get('/admin/cortesias', async (c) => {
+r.get('/admin/convites', async (c) => {
   const { results } = await c.env.DB.prepare(
-    `SELECT i.id, i.status, i.motivo, i.criado_em, u.nome || ' ' || u.sobrenome AS dono, u.email
-       FROM ingressos i JOIN usuarios u ON u.id = i.dono_id
-      WHERE i.tipo = 'cortesia' ORDER BY i.id DESC LIMIT 200`,
+    `SELECT c.id, c.categoria, c.nome, c.telefone, c.email, c.nascimento, c.quantidade, c.token, c.status, c.criado_em, c.resgatado_em,
+            u.nome || ' ' || u.sobrenome AS conta,
+            (SELECT COUNT(*) FROM ingressos i WHERE i.convite_id = c.id AND i.status = 'usado') AS entraram,
+            (SELECT COUNT(*) FROM ingressos i WHERE i.convite_id = c.id AND i.status = 'valido') AS validos
+       FROM convites c LEFT JOIN usuarios u ON u.id = c.usuario_id
+      WHERE c.evento_id = (SELECT id FROM eventos WHERE ativo = 1 ORDER BY data_evento LIMIT 1)
+      ORDER BY c.id DESC LIMIT 300`,
   ).all();
-  return c.json({ cortesias: results });
+  const evento = await c.env.DB.prepare('SELECT nome, data_evento FROM eventos WHERE ativo = 1 ORDER BY data_evento LIMIT 1').first();
+  return c.json({ convites: results, evento });
+});
+
+// Corrige um convite que ainda não foi resgatado (telefone/e-mail errado, nome, etc.).
+r.put('/admin/convites/:id', async (c) => {
+  const id = v.inteiro(c.req.param('id'), 'Convite', 1, 1_000_000_000);
+  const db = c.env.DB;
+  const atual = await db.prepare('SELECT * FROM convites WHERE id = ?1').bind(id).first();
+  if (!atual) throw new HttpError(404, 'Convite não encontrado.');
+  if (atual.status !== 'pendente') throw new HttpError(409, 'Só convites ainda não resgatados podem ser editados. Cancele e crie outro.');
+  const b = await corpo(c);
+  const d = lerConvite(b, { parcial: true });
+  const novo = { ...atual, ...d };
+  if (novo.categoria === 'aniversariante' && !novo.nascimento) throw new HttpError(400, 'Informe a data de nascimento do aniversariante.');
+  if (novo.categoria !== 'aniversariante') novo.nascimento = null;
+  await db
+    .prepare(`UPDATE convites SET categoria = ?2, nome = ?3, telefone = ?4, email = ?5, nascimento = ?6, quantidade = ?7 WHERE id = ?1 AND status = 'pendente'`)
+    .bind(id, novo.categoria, novo.nome, novo.telefone, novo.email, novo.nascimento, novo.quantidade)
+    .run();
+  await auditar(db, c.get('usuario').id, 'convite_editado', String(id));
+  const conta = await db
+    .prepare(`SELECT id, telefone, email FROM usuarios WHERE ativo = 1 AND (telefone = ?1 OR (?2 IS NOT NULL AND lower(email) = ?2)) LIMIT 1`)
+    .bind(novo.telefone, novo.email)
+    .first();
+  let resgatado = false;
+  if (conta) resgatado = await resgatarPendentes(db, conta).then((n) => n > 0).catch(() => false);
+  return c.json({ ok: true, resgatado });
+});
+
+// Cancela o convite; se já foi resgatado, cancela também os ingressos que ainda não foram usados.
+r.post('/admin/convites/:id/cancelar', async (c) => {
+  const id = v.inteiro(c.req.param('id'), 'Convite', 1, 1_000_000_000);
+  const db = c.env.DB;
+  const cv = await db.prepare('SELECT status FROM convites WHERE id = ?1').bind(id).first();
+  if (!cv) throw new HttpError(404, 'Convite não encontrado.');
+  if (cv.status === 'cancelado') throw new HttpError(409, 'Este convite já está cancelado.');
+  await db.batch([
+    db.prepare(`UPDATE convites SET status = 'cancelado' WHERE id = ?1`).bind(id),
+    db.prepare(`UPDATE ingressos SET status = 'cancelado' WHERE convite_id = ?1 AND status = 'valido'`).bind(id),
+  ]);
+  await auditar(db, c.get('usuario').id, 'convite_cancelado', String(id));
+  return c.json({ ok: true });
 });
 
 r.post('/admin/cortesias/:id/cancelar', async (c) => {

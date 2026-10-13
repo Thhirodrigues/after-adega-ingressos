@@ -38,8 +38,8 @@ button.bt.sec.peq,a.bt.sec.peq{color:var(--cor2)}
 button.bt:disabled{background:#1e293b;color:#64748b;box-shadow:none;opacity:.6;cursor:not-allowed}
 .bt.bloco{display:flex;width:100%;margin-top:1rem}
 .tag{display:inline-block;padding:.12rem .6rem;border-radius:999px;font-size:.72rem;font-weight:700;border:1px solid rgba(100,116,139,.4);color:var(--mudo);background:rgba(100,116,139,.2)}
-.tag.pago,.tag.valido{background:rgba(34,197,94,.15);color:#86efac;border-color:rgba(34,197,94,.45);box-shadow:0 0 5px rgba(34,197,94,.55),0 0 12px rgba(34,197,94,.25);text-shadow:0 0 5px rgba(34,197,94,.6)}
-.tag.aguardando_pagamento{background:rgba(245,158,11,.2);color:#fcd34d;border-color:rgba(245,158,11,.45);box-shadow:0 0 5px rgba(245,158,11,.6),0 0 12px rgba(245,158,11,.3);text-shadow:0 0 5px rgba(245,158,11,.7)}
+.tag.pago,.tag.valido,.tag.resgatado{background:rgba(34,197,94,.15);color:#86efac;border-color:rgba(34,197,94,.45);box-shadow:0 0 5px rgba(34,197,94,.55),0 0 12px rgba(34,197,94,.25);text-shadow:0 0 5px rgba(34,197,94,.6)}
+.tag.aguardando_pagamento,.tag.pendente{background:rgba(245,158,11,.2);color:#fcd34d;border-color:rgba(245,158,11,.45);box-shadow:0 0 5px rgba(245,158,11,.6),0 0 12px rgba(245,158,11,.3);text-shadow:0 0 5px rgba(245,158,11,.7)}
 .tag.expirado,.tag.cancelado,.tag.usado{background:rgba(244,63,94,.2);color:#fda4af;border-color:rgba(244,63,94,.45);box-shadow:0 0 5px rgba(244,63,94,.6),0 0 12px rgba(244,63,94,.3);text-shadow:0 0 5px rgba(244,63,94,.7)}
 .aviso{position:fixed;left:1rem;right:1rem;bottom:calc(1rem + env(safe-area-inset-bottom));max-width:34rem;margin:auto;padding:.8rem 1rem;border-radius:12px;background:#1b2438;border:1px solid var(--linha);box-shadow:0 12px 30px rgba(0,0,0,.6);z-index:20}
 .aviso.erro{border-color:rgba(244,63,94,.5);background:#2a1620;color:#fda4af}

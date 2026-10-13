@@ -7,6 +7,7 @@ import admin from './routes/admin.js';
 import portaria from './routes/portaria.js';
 import ingressos from './routes/ingressos.js';
 import mp from './routes/mp.js';
+import convites from './routes/convites.js';
 
 const app = new Hono();
 
@@ -44,6 +45,7 @@ app.route('/api', publico);
 app.route('/api', pedidos);
 app.route('/api', ingressos);
 app.route('/api', mp);
+app.route('/api', convites);
 app.route('/api', portaria);
 app.route('/api', admin);
 

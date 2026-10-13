@@ -7,6 +7,7 @@ import { criarSessao, exigir, guardarSenha } from '../lib/auth.js';
 import { alertar } from '../lib/alertas.js';
 import { TERMOS_VERSAO } from '../lib/termos.js';
 import { hmacHex } from '../lib/crypto.js';
+import { resgatarPendentes } from '../lib/convites.js';
 import * as v from '../lib/validar.js';
 
 const r = new Hono();
@@ -147,9 +148,11 @@ r.post('/auth/logout', exigir(), async (c) => {
 
 r.get('/me', exigir(), async (c) => {
   const u = c.get('usuario');
+  const convites_resgatados = await resgatarPendentes(c.env.DB, u).catch(() => 0);
   const nao_lidos = u.papel === 'admin' ? (await c.env.DB.prepare('SELECT COUNT(*) AS n FROM alertas WHERE lido_em IS NULL').first()).n : 0;
   return c.json({
     nao_lidos,
+    convites_resgatados,
     id: u.id,
     cpf: u.cpf,
     nome: u.nome,
