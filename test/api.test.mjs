@@ -834,49 +834,6 @@ test('cupons: sem taxa, % de desconto, VIP com limite, inválido e limite de ten
   assert.equal(f.total_recebido_centavos, f.receita_ingressos_centavos + f.taxa_servico_centavos);
 });
 
-test('remover compras de teste: só da conta escolhida, lotes voltam e conta fica', async () => {
-  const vend = async () => (await admin.get('/api/admin/financeiro')).json.lotes.find((x) => x.id === loteId).vendidos;
-  const antes = await vend();
-  const a = await novoComprador();
-  const b = await novoComprador();
-  for (const { c } of [a, b]) {
-    const r = await c.post('/api/pedidos', { aceito_termos: true, lote_id: loteId, quantidade: 1, nome_pagador: 'Pagador Teste' });
-    assert.equal(r.status, 201, JSON.stringify(r.json));
-    const id = (await admin.get('/api/admin/pedidos')).json.pedidos.find((p) => p.codigo === r.json.codigo).id;
-    assert.equal((await admin.post(`/api/admin/pedidos/${id}/confirmar`)).status, 200);
-  }
-  assert.equal(await vend(), antes + 2);
-  const contas = (await admin.get('/api/admin/compras-teste')).json.contas;
-  const ida = contas.find((x) => x.email === a.d.email).id;
-  assert.equal((await a.c.get('/api/admin/compras-teste')).status, 403);
-  assert.equal((await admin.post('/api/admin/remover-compras', { usuario_id: ida })).status, 400); // sem a frase
-  assert.equal((await admin.post('/api/admin/remover-compras', { usuario_id: 999999, confirmacao: 'REMOVER COMPRAS' })).status, 404);
-  const ok = await admin.post('/api/admin/remover-compras', { usuario_id: ida, confirmacao: 'REMOVER COMPRAS' });
-  assert.equal(ok.status, 200, JSON.stringify(ok.json));
-  assert.deepEqual(ok.json.apagados, { pedidos: 1, ingressos: 1 });
-  assert.equal((await a.c.get('/api/meus-ingressos')).json.ingressos.length, 0);
-  assert.equal((await a.c.get('/api/me')).status, 200); // a conta continua
-  assert.equal((await b.c.get('/api/meus-ingressos')).json.ingressos.length, 1); // a outra não foi tocada
-  assert.equal(await vend(), antes + 1); // só a vaga da conta removida voltou
-});
-
-test('zerar dados de teste: exige frase, apaga tudo menos admin/config/eventos/lotes', async () => {
-  assert.equal((await admin.post('/api/admin/zerar-teste', { confirmacao: 'zerar' })).status, 400);
-  const { c: comprador } = await novoComprador();
-  assert.equal((await comprador.post('/api/admin/zerar-teste', { confirmacao: 'ZERAR DADOS DE TESTE' })).status, 403);
-  const antes = (await admin.get('/api/admin/usuarios')).json.usuarios.length;
-  assert.ok(antes > 1);
-  const cfgAntes = (await admin.get('/api/admin/config')).json;
-  const r = await admin.post('/api/admin/zerar-teste', { confirmacao: 'ZERAR DADOS DE TESTE' });
-  assert.equal(r.status, 200);
-  assert.ok(r.json.apagados.usuarios >= 1);
-  const us = (await admin.get('/api/admin/usuarios')).json.usuarios;
-  assert.ok(us.length >= 1 && us.every((u) => u.papel === 'admin'));
-  assert.equal((await admin.get('/api/admin/config')).json.pix_chave, cfgAntes.pix_chave);
-  assert.ok((await admin.get('/api/admin/lotes')).json.lotes.every((l) => l.vendidos === 0 && l.reservados === 0));
-  assert.equal((await admin.get('/api/admin/pedidos')).json.pedidos.length, 0);
-});
-
 test('push: estado da assinatura (registrada / não registrada / cancelada)', async () => {
   const ep = 'https://push.example.com/send/abc123-teste-endpoint';
   assert.equal((await admin.get(`/api/admin/push/estado?endpoint=${encodeURIComponent(ep)}`)).json.registrado, false);

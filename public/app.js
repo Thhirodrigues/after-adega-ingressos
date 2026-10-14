@@ -1262,7 +1262,6 @@ rota('/admin/lotes', async () => {
 rota('/admin/config', async () => {
   if (!exigirAdmin()) return;
   const c = await api('GET', '/admin/config');
-  const { contas: contasCompras } = await api('GET', '/admin/compras-teste');
   const resumoPix = c.pix_chave ? `${esc(c.pix_nome || '')} · ${esc(c.pix_chave)}` : '<b style="color:var(--erro)">não configurada</b>';
   layoutAdmin(
     'config',
@@ -1290,43 +1289,8 @@ rota('/admin/config', async () => {
     <details class="item"><summary><b>Contato da organização</b><span class="peq">${esc(c.contato || 'não informado')}</span></summary>
       <form class="card" data-sec="contato">
         <label>Aparece nas páginas de termos e privacidade</label><input name="contato" value="${esc(c.contato || '')}" maxlength="200" placeholder="WhatsApp (11) 99999-9999 · e-mail">
-        <button class="bt peq" style="margin-top:.75rem">Salvar contato</button></form></details>
-    <details class="item" style="border-color:rgba(244,63,94,.45)"><summary><b>Remover compras de teste de uma conta</b><span class="peq">provisório</span></summary>
-      <form class="card" id="frem">
-        <p class="peq" style="margin-top:0">Apaga só os pedidos e ingressos comprados pela conta escolhida (os lotes voltam a ter essas vagas). A conta em si, as outras contas, cortesias, configurações e eventos ficam. <b>Não dá para desfazer.</b></p>
-        ${contasCompras.length ? `<label>Conta</label>
-        <select name="usuario_id" required><option value="">Escolha a conta…</option>${contasCompras
-          .map((x) => `<option value="${x.id}">${esc(x.nome)} ${esc(x.sobrenome)} — ${esc(x.email)} · ${x.pedidos} pedido(s), ${x.ingressos} ingresso(s)${x.pago_centavos ? `, ${brl(x.pago_centavos)} pagos` : ''}</option>`)
-          .join('')}</select>
-        <label>Para confirmar, digite: REMOVER COMPRAS</label><input name="confirmacao" autocomplete="off" autocapitalize="characters">
-        <button class="bt perigo peq" style="margin-top:.75rem">Remover compras desta conta</button>` : '<p class="mudo" style="margin-bottom:0">Nenhuma conta tem compras.</p>'}</form></details>
-    <details class="item" style="border-color:rgba(244,63,94,.45)"><summary><b>Zerar dados de teste</b><span class="peq">apaga pedidos, ingressos e usuários</span></summary>
-      <form class="card" id="fzerar">
-        <p class="peq" style="margin-top:0">Apaga todos os pedidos, ingressos, avisos, histórico e todos os usuários que não são administradores (inclusive hostess). Mantém administradores, configurações, eventos e lotes. <b>Não dá para desfazer.</b></p>
-        <label>Para confirmar, digite: ZERAR DADOS DE TESTE</label><input name="confirmacao" autocomplete="off" autocapitalize="characters">
-        <button class="bt perigo peq" style="margin-top:.75rem">Zerar agora</button></form></details>`,
+        <button class="bt peq" style="margin-top:.75rem">Salvar contato</button></form></details>`,
   );
-  document.getElementById('fzerar').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const fz = e.target;
-    comEspera(fz.querySelector('button'), async () => {
-      const r = await api('POST', '/admin/zerar-teste', { confirmacao: fz.confirmacao.value });
-      fz.confirmacao.value = '';
-      aviso(`Pronto: ${r.apagados.pedidos} pedidos, ${r.apagados.ingressos} ingressos e ${r.apagados.usuarios} usuários apagados.`);
-    });
-  });
-  document.getElementById('frem')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const fr = e.target;
-    if (!fr.usuario_id.value) return aviso('Escolha a conta.', 'erro');
-    const nome = fr.usuario_id.selectedOptions[0].textContent;
-    if (!confirm(`Remover as compras de:\n${nome}\n\nNão dá para desfazer.`)) return;
-    comEspera(fr.querySelector('button'), async () => {
-      const r = await api('POST', '/admin/remover-compras', { usuario_id: Number(fr.usuario_id.value), confirmacao: fr.confirmacao.value });
-      aviso(`Pronto: ${r.apagados.pedidos} pedido(s) e ${r.apagados.ingressos} ingresso(s) de ${r.conta} removidos.`);
-      await navegar();
-    });
-  });
   const fp = app.querySelector('form[data-sec=pix]');
   fp.pix_tipo.value = detectarTipoPix(fp.pix_chave.value);
   const dicaPix = () => (document.getElementById('dica-pix').textContent = DICAS_PIX[fp.pix_tipo.value]);
