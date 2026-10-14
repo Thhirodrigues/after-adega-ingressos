@@ -542,13 +542,22 @@ test('cadastro exige aceite dos termos (e registra versão)', async () => {
   assert.match(info.termos_versao, /^\d{4}-\d{2}-v\d+$/);
 });
 
-test('um pedido em aberto por pessoa; novo pedido gera aviso ao admin', async () => {
+test('um pedido em aberto por pessoa; aviso ao admin só quando escolhe a forma de pagamento', async () => {
   const { c } = await novoComprador();
   const antes = (await admin.get('/api/admin/alertas')).json.alertas.length;
   const p1 = await c.post('/api/pedidos', { aceito_termos: true, lote_id: loteId, quantidade: 1, nome_pagador: 'Fulano de Tal' });
   assert.equal(p1.status, 201, JSON.stringify(p1.json));
+  // só clicar em comprar não avisa ninguém
+  assert.equal((await admin.get('/api/admin/alertas')).json.alertas.length, antes);
+  // outra pessoa não dispara aviso do pedido alheio
+  const { c: outro } = await novoComprador();
+  assert.equal((await outro.post(`/api/pedidos/${p1.json.codigo}/escolheu-pagamento`)).status, 404);
+  assert.equal((await admin.get('/api/admin/alertas')).json.alertas.length, antes);
+  // escolheu a forma (copiou o Pix): aviso, uma vez só
+  assert.equal((await c.post(`/api/pedidos/${p1.json.codigo}/escolheu-pagamento`)).status, 200);
+  assert.equal((await c.post(`/api/pedidos/${p1.json.codigo}/escolheu-pagamento`)).status, 200);
   const alertas = (await admin.get('/api/admin/alertas')).json.alertas;
-  assert.ok(alertas.length > antes);
+  assert.equal(alertas.length, antes + 1);
   assert.equal(alertas[0].tipo, 'novo_pedido');
   assert.ok(alertas[0].detalhe.includes(p1.json.codigo));
   const p2 = await c.post('/api/pedidos', { aceito_termos: true, lote_id: loteId, quantidade: 1, nome_pagador: 'Fulano de Tal' });
@@ -701,6 +710,9 @@ test('mercado pago: link, webhook assinado, valor conferido, idempotência', { s
     assert.equal(exc(0).length, 2);
     await c.post(`/api/pedidos/${cod}/pagar-mp`, { metodo: 'cartao' });
     assert.ok(exc(2).includes('bank_transfer') && !exc(2).includes('credit_card'));
+    // escolher a forma (cartão, depois Pix) avisa o admin uma única vez por pedido
+    const avs = (await admin.get('/api/admin/alertas')).json.alertas.filter((a) => a.tipo === 'novo_pedido' && a.detalhe.includes(`Novo pedido ${cod}:`));
+    assert.equal(avs.length, 1);
     assert.equal((await new Cliente().get('/api/evento')).json.pagamento_automatico, true);
     // assinatura inválida/ausente → 401
     assert.equal((await hook(111, {})).status, 401);
@@ -714,12 +726,13 @@ test('mercado pago: link, webhook assinado, valor conferido, idempotência', { s
     await hook(112, assinar(112));
     assert.equal((await c.get(`/api/pedidos/${cod}`)).json.status, 'aguardando_pagamento');
     // aprovado e correto confirma, gera ingressos, é idempotente
+    const cartaoAntes = (await admin.get('/api/admin/financeiro')).json.resumo.recebido_cartao_centavos;
     pagamentos[113] = { id: 113, status: 'approved', payment_type_id: 'credit_card', currency_id: 'BRL', transaction_amount: p.json.total_centavos / 100, external_reference: cod };
     assert.equal((await hook(113, assinar(113))).status, 200);
     assert.equal((await hook(113, assinar(113))).status, 200);
     assert.equal((await c.get(`/api/pedidos/${cod}`)).json.status, 'pago');
     assert.equal((await c.get('/api/meus-ingressos')).json.ingressos.length, 2);
-    assert.equal((await admin.get('/api/admin/financeiro')).json.resumo.recebido_cartao_centavos, p.json.total_centavos);
+    assert.equal((await admin.get('/api/admin/financeiro')).json.resumo.recebido_cartao_centavos - cartaoAntes, p.json.total_centavos);
     // o mesmo pagamento não confirma outro pedido
     const { c: c2 } = await novoComprador();
     const p2 = await c2.post('/api/pedidos', { aceito_termos: true, lote_id: lm, quantidade: 2, nome_pagador: 'Beltrano Silva' });

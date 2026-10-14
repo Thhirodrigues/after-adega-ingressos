@@ -16,3 +16,21 @@ export async function alertar(c, tipo, detalhe) {
     await tarefa;
   }
 }
+
+const brlTxt = (n) => (n / 100).toFixed(2).replace('.', ',');
+
+// Aviso de novo pedido: só quando a pessoa escolhe a forma de pagamento (não quando apenas clica em comprar).
+// Escolher de novo (ex.: cartão e depois Pix) não repete o aviso do mesmo pedido.
+export async function avisarPedidoEmPagamento(c, pedido, usuario, forma) {
+  const db = c.env.DB;
+  const ja = await db
+    .prepare(`SELECT 1 FROM alertas WHERE tipo = 'novo_pedido' AND detalhe LIKE ?1 LIMIT 1`)
+    .bind(`Novo pedido ${pedido.codigo}:%`)
+    .first();
+  if (ja) return;
+  await alertar(
+    c,
+    'novo_pedido',
+    `Novo pedido ${pedido.codigo}: ${usuario.nome} ${usuario.sobrenome} — ${pedido.quantidade} ingresso(s), R$ ${brlTxt(pedido.total_centavos)}${pedido.cupom_codigo ? ` (cupom ${pedido.cupom_codigo})` : ''}. Escolheu pagar por ${forma}. Aguardando pagamento.`,
+  );
+}

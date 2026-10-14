@@ -422,6 +422,7 @@ rota('/pedido/([A-Za-z0-9]+)', async (codigo) => {
       );
     }
     document.getElementById('copiar')?.addEventListener('click', async () => {
+      api('POST', `/pedidos/${p.codigo}/escolheu-pagamento`, {}).catch(() => {});
       try {
         await navigator.clipboard.writeText(p.pix.copia_e_cola);
         aviso('Código Pix copiado!');

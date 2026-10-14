@@ -5,7 +5,7 @@ import { exigir } from '../lib/auth.js';
 import { qrDoIngresso } from '../lib/crypto.js';
 import * as v from '../lib/validar.js';
 import { buscarPedido, cancelarNaoPago, concluirPedidoGratis, criarPedido, liberarExpirados, visaoPedido } from '../lib/pedidos.js';
-import { alertar } from '../lib/alertas.js';
+import { alertar, avisarPedidoEmPagamento } from '../lib/alertas.js';
 import { TERMOS_VERSAO } from '../lib/termos.js';
 
 const r = new Hono();
@@ -38,10 +38,18 @@ r.post('/pedidos', exigir(), async (c) => {
     await concluirPedidoGratis(c.env.DB, pedido.id, pedido.cupom_codigo);
     pedido = await buscarPedido(c.env.DB, { codigo });
     await alertar(c, 'novo_pedido', `Pedido ${codigo} com cupom ${pedido.cupom_codigo}: ${usuario.nome} ${usuario.sobrenome} — ${quantidade} ingresso(s) sem custo, já confirmado.`);
-  } else {
-    await alertar(c, 'novo_pedido', `Novo pedido ${codigo}: ${usuario.nome} ${usuario.sobrenome} — ${quantidade} ingresso(s), R$ ${cents(pedido.total_centavos)}${pedido.cupom_codigo ? ` (cupom ${pedido.cupom_codigo})` : ''}. Aguardando pagamento.`);
   }
+  // Pedido pago normal: o admin só é avisado quando a pessoa escolhe a forma de pagamento.
   return c.json({ ...(await visaoPedido(c.env.DB, pedido)), mp_disponivel: !!c.env.MP_ACCESS_TOKEN }, 201);
+});
+
+// A pessoa escolheu pagar direto na chave Pix (copiou o código). Dispara o aviso ao admin, uma vez por pedido.
+r.post('/pedidos/:codigo/escolheu-pagamento', exigir(), async (c) => {
+  const usuario = c.get('usuario');
+  const pedido = await buscarPedido(c.env.DB, { codigo: c.req.param('codigo').toUpperCase() });
+  if (!pedido || pedido.comprador_id !== usuario.id) throw new HttpError(404, 'Pedido não encontrado.');
+  if (pedido.status === 'aguardando_pagamento') await avisarPedidoEmPagamento(c, pedido, usuario, 'Pix na chave');
+  return c.json({ ok: true });
 });
 
 r.get('/pedidos/:codigo', exigir(), async (c) => {
