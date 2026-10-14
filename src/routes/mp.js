@@ -26,7 +26,7 @@ r.post('/pedidos/:codigo/pagar-mp', exigir(), async (c) => {
     if (e.mpDetalhe) await alertar(c, 'mp_erro', `Falha ao criar link do Mercado Pago (pedido ${pedido.codigo}, ${metodo || 'todos'}): ${e.mpDetalhe}`).catch(() => {});
     throw e;
   }
-  await avisarPedidoEmPagamento(c, pedido, u, metodo === 'cartao' ? 'cartão' : metodo === 'pix' ? 'Pix (Mercado Pago)' : 'Mercado Pago').catch(() => {});
+  await avisarPedidoEmPagamento(c, pedido, u, metodo === 'cartao' ? 'cartão (Mercado Pago)' : 'Pix (Mercado Pago)').catch(() => {});
   return c.json({ url: pref.url });
 });
 

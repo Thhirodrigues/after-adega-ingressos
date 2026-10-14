@@ -710,9 +710,14 @@ test('mercado pago: link, webhook assinado, valor conferido, idempotência', { s
     assert.equal(exc(0).length, 2);
     await c.post(`/api/pedidos/${cod}/pagar-mp`, { metodo: 'cartao' });
     assert.ok(exc(2).includes('bank_transfer') && !exc(2).includes('credit_card'));
-    // escolher a forma (cartão, depois Pix) avisa o admin uma única vez por pedido
+    // escolher a forma (cartão, depois Pix do Mercado Pago) avisa o admin uma única vez por pedido
     const avs = (await admin.get('/api/admin/alertas')).json.alertas.filter((a) => a.tipo === 'novo_pedido' && a.detalhe.includes(`Novo pedido ${cod}:`));
     assert.equal(avs.length, 1);
+    // mudar para o Pix na chave é outra forma: avisa de novo (uma vez)
+    await c.post(`/api/pedidos/${cod}/escolheu-pagamento`);
+    await c.post(`/api/pedidos/${cod}/escolheu-pagamento`);
+    const avs2 = (await admin.get('/api/admin/alertas')).json.alertas.filter((a) => a.tipo === 'novo_pedido' && a.detalhe.includes(`Novo pedido ${cod}:`));
+    assert.equal(avs2.length, 2);
     assert.equal((await new Cliente().get('/api/evento')).json.pagamento_automatico, true);
     // assinatura inválida/ausente → 401
     assert.equal((await hook(111, {})).status, 401);

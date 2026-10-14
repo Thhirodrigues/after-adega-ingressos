@@ -20,12 +20,13 @@ export async function alertar(c, tipo, detalhe) {
 const brlTxt = (n) => (n / 100).toFixed(2).replace('.', ',');
 
 // Aviso de novo pedido: só quando a pessoa escolhe a forma de pagamento (não quando apenas clica em comprar).
-// Escolher de novo (ex.: cartão e depois Pix) não repete o aviso do mesmo pedido.
+// Trocar entre cartão e Pix do Mercado Pago não repete o aviso; mudar para o Pix na chave (ou o contrário) avisa de novo,
+// porque muda como o dinheiro vai chegar.
 export async function avisarPedidoEmPagamento(c, pedido, usuario, forma) {
   const db = c.env.DB;
   const ja = await db
     .prepare(`SELECT 1 FROM alertas WHERE tipo = 'novo_pedido' AND detalhe LIKE ?1 LIMIT 1`)
-    .bind(`Novo pedido ${pedido.codigo}:%`)
+    .bind(`Novo pedido ${pedido.codigo}:%${forma.includes('Mercado Pago') ? '(Mercado Pago)' : 'Pix na chave'}%`)
     .first();
   if (ja) return;
   await alertar(

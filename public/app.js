@@ -421,8 +421,11 @@ rota('/pedido/([A-Za-z0-9]+)', async (codigo) => {
         }),
       );
     }
+    // Copiar o código (botão ou seleção manual do texto) conta como escolher o Pix na chave.
+    const avisarChave = () => api('POST', `/pedidos/${p.codigo}/escolheu-pagamento`, {}).catch(() => {});
+    document.getElementById('pixcode')?.addEventListener('copy', avisarChave);
     document.getElementById('copiar')?.addEventListener('click', async () => {
-      api('POST', `/pedidos/${p.codigo}/escolheu-pagamento`, {}).catch(() => {});
+      avisarChave();
       try {
         await navigator.clipboard.writeText(p.pix.copia_e_cola);
         aviso('Código Pix copiado!');
