@@ -56,6 +56,47 @@ r.post('/admin/zerar-teste', async (c) => {
   return c.json({ ok: true, apagados: antes });
 });
 
+// ---------- Remover compras de teste de UMA conta (provisório, como o "Zerar") ----------
+// Apaga só os pedidos (e os ingressos desses pedidos) da conta escolhida. Mantém a conta, as demais
+// contas, cortesias por convite, configurações, eventos e lotes (contadores recalculados).
+const FRASE_REMOVER = 'REMOVER COMPRAS';
+r.get('/admin/compras-teste', async (c) => {
+  const { results } = await c.env.DB.prepare(
+    `SELECT u.id, u.nome, u.sobrenome, u.email, COUNT(p.id) AS pedidos, SUM(p.quantidade) AS ingressos,
+            SUM(CASE WHEN p.status = 'pago' THEN p.total_centavos ELSE 0 END) AS pago_centavos
+       FROM pedidos p JOIN usuarios u ON u.id = p.comprador_id
+      GROUP BY u.id ORDER BY pedidos DESC, u.nome`,
+  ).all();
+  return c.json({ contas: results });
+});
+
+r.post('/admin/remover-compras', async (c) => {
+  const b = await corpo(c);
+  if (String(b.confirmacao ?? '').trim() !== FRASE_REMOVER) throw new HttpError(400, `Digite exatamente: ${FRASE_REMOVER}`);
+  const db = c.env.DB;
+  const uid = v.inteiro(b.usuario_id, 'Conta', 1, 1_000_000_000);
+  const u = await db.prepare('SELECT id, nome, sobrenome FROM usuarios WHERE id = ?1').bind(uid).first();
+  if (!u) throw new HttpError(404, 'Conta não encontrada.');
+  const cont = async (sql) => (await db.prepare(sql).bind(uid).first()).n;
+  const antes = {
+    pedidos: await cont('SELECT COUNT(*) n FROM pedidos WHERE comprador_id = ?1'),
+    ingressos: await cont('SELECT COUNT(*) n FROM ingressos WHERE pedido_id IN (SELECT id FROM pedidos WHERE comprador_id = ?1)'),
+  };
+  const PEDIDOS = '(SELECT id FROM pedidos WHERE comprador_id = ?1)';
+  await db.batch([
+    db.prepare(`DELETE FROM transferencias WHERE ingresso_id IN (SELECT id FROM ingressos WHERE pedido_id IN ${PEDIDOS})`).bind(uid),
+    db.prepare(`DELETE FROM ingressos WHERE pedido_id IN ${PEDIDOS}`).bind(uid),
+    db.prepare('DELETE FROM pedidos WHERE comprador_id = ?1').bind(uid),
+    db.prepare(
+      `UPDATE lotes SET
+         vendidos = COALESCE((SELECT SUM(quantidade) FROM pedidos WHERE lote_id = lotes.id AND status = 'pago' AND contabilizado = 1), 0),
+         reservados = COALESCE((SELECT SUM(quantidade) FROM pedidos WHERE lote_id = lotes.id AND status = 'aguardando_pagamento' AND reserva_ativa = 1), 0)`,
+    ),
+  ]);
+  await auditar(db, c.get('usuario').id, 'compras_de_teste_removidas', JSON.stringify({ usuario: u.id, ...antes }));
+  return c.json({ ok: true, conta: `${u.nome} ${u.sobrenome}`, apagados: antes });
+});
+
 // ---------- Configuração (chave Pix, taxa, prazo da reserva) ----------
 
 const SEGREDOS_CONFIG = ['vapid_privada', 'pin_hash'];

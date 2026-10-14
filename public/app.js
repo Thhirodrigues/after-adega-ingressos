@@ -323,13 +323,14 @@ rota('/comprar/(\\d+)', async (id) => {
         ? `<input type="hidden" name="nome_pagador" value="${esc(`${estado.eu.nome} ${estado.eu.sobrenome}`)}">`
         : `<label>Nome de quem vai fazer o Pix (para conferirmos o pagamento)</label>
       <input name="nome_pagador" required minlength="3" maxlength="80" value="${esc(`${estado.eu.nome} ${estado.eu.sobrenome}`)}">`}
-      <label>Cupom</label>
-      <input name="cupom" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="30">
       <div class="card" style="background:var(--campo);margin-top:1rem">
         <div class="linha"><span>Ingressos</span><b id="t_sub"></b></div>
         <div class="linha"><span>Taxa de serviço</span><b id="t_taxa"></b></div>
         <div class="linha"><span><b>Total</b></span><b class="preco" id="t_tot"></b></div>
       </div>
+      <label class="check"><input type="checkbox" name="temcupom"> <span>Tenho um cupom</span></label>
+      <div id="boxcupom" hidden><label>Cupom</label>
+      <input name="cupom" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="30"></div>
       <label class="check"><input type="checkbox" name="aceito" required> <span>Li e aceito as <a href="#/regras" target="_blank" rel="noopener">regras de compra</a>. Sei que ingresso é pessoal e de uso único e que <b>qualquer envio de print ou foto do QR Code é de minha inteira responsabilidade</b>, podendo resultar em entrada negada.</span></label>
       <p class="peq">${d.pagamento_automatico ? 'Na próxima tela você escolhe cartão ou Pix.' : 'Ao gerar o Pix,'} Seguramos seus ingressos por ${d.reserva_minutos || 20} minutos para você pagar.</p>
       <button class="bt bloco" id="btpagar" disabled>${d.pagamento_automatico ? 'Ir para o pagamento' : 'Gerar Pix'}</button>
@@ -340,6 +341,11 @@ rota('/comprar/(\\d+)', async (id) => {
   const travarPagar = () => (btPagar.disabled = !f.aceito.checked);
   f.aceito.addEventListener('change', travarPagar);
   travarPagar();
+  f.temcupom.addEventListener('change', () => {
+    document.getElementById('boxcupom').hidden = !f.temcupom.checked;
+    if (f.temcupom.checked) f.cupom.focus();
+    else f.cupom.value = '';
+  });
   try {
     const g = JSON.parse(sessionStorage.getItem('qtd') || 'null');
     if (g && String(g.lote) === id && Number(g.q) >= 1 && Number(g.q) <= max) f.querySelector('.qtd').setValor(Number(g.q));
@@ -358,7 +364,7 @@ rota('/comprar/(\\d+)', async (id) => {
     e.preventDefault();
     comEspera(btPagar, async () => {
       try {
-        const r = await api('POST', '/pedidos', { lote_id: l.id, quantidade: Number(f.quantidade.value), nome_pagador: f.nome_pagador.value, cupom: f.cupom.value.trim(), aceito_termos: f.aceito.checked === true });
+        const r = await api('POST', '/pedidos', { lote_id: l.id, quantidade: Number(f.quantidade.value), nome_pagador: f.nome_pagador.value, cupom: f.temcupom.checked ? f.cupom.value.trim() : '', aceito_termos: f.aceito.checked === true });
         location.hash = `#/pedido/${r.codigo}`;
       } catch (e) {
         if (e.status === 409 && e.dados?.pedido_aberto) {
@@ -1256,6 +1262,7 @@ rota('/admin/lotes', async () => {
 rota('/admin/config', async () => {
   if (!exigirAdmin()) return;
   const c = await api('GET', '/admin/config');
+  const { contas: contasCompras } = await api('GET', '/admin/compras-teste');
   const resumoPix = c.pix_chave ? `${esc(c.pix_nome || '')} · ${esc(c.pix_chave)}` : '<b style="color:var(--erro)">não configurada</b>';
   layoutAdmin(
     'config',
@@ -1284,6 +1291,15 @@ rota('/admin/config', async () => {
       <form class="card" data-sec="contato">
         <label>Aparece nas páginas de termos e privacidade</label><input name="contato" value="${esc(c.contato || '')}" maxlength="200" placeholder="WhatsApp (11) 99999-9999 · e-mail">
         <button class="bt peq" style="margin-top:.75rem">Salvar contato</button></form></details>
+    <details class="item" style="border-color:rgba(244,63,94,.45)"><summary><b>Remover compras de teste de uma conta</b><span class="peq">provisório</span></summary>
+      <form class="card" id="frem">
+        <p class="peq" style="margin-top:0">Apaga só os pedidos e ingressos comprados pela conta escolhida (os lotes voltam a ter essas vagas). A conta em si, as outras contas, cortesias, configurações e eventos ficam. <b>Não dá para desfazer.</b></p>
+        ${contasCompras.length ? `<label>Conta</label>
+        <select name="usuario_id" required><option value="">Escolha a conta…</option>${contasCompras
+          .map((x) => `<option value="${x.id}">${esc(x.nome)} ${esc(x.sobrenome)} — ${esc(x.email)} · ${x.pedidos} pedido(s), ${x.ingressos} ingresso(s)${x.pago_centavos ? `, ${brl(x.pago_centavos)} pagos` : ''}</option>`)
+          .join('')}</select>
+        <label>Para confirmar, digite: REMOVER COMPRAS</label><input name="confirmacao" autocomplete="off" autocapitalize="characters">
+        <button class="bt perigo peq" style="margin-top:.75rem">Remover compras desta conta</button>` : '<p class="mudo" style="margin-bottom:0">Nenhuma conta tem compras.</p>'}</form></details>
     <details class="item" style="border-color:rgba(244,63,94,.45)"><summary><b>Zerar dados de teste</b><span class="peq">apaga pedidos, ingressos e usuários</span></summary>
       <form class="card" id="fzerar">
         <p class="peq" style="margin-top:0">Apaga todos os pedidos, ingressos, avisos, histórico e todos os usuários que não são administradores (inclusive hostess). Mantém administradores, configurações, eventos e lotes. <b>Não dá para desfazer.</b></p>
@@ -1297,6 +1313,18 @@ rota('/admin/config', async () => {
       const r = await api('POST', '/admin/zerar-teste', { confirmacao: fz.confirmacao.value });
       fz.confirmacao.value = '';
       aviso(`Pronto: ${r.apagados.pedidos} pedidos, ${r.apagados.ingressos} ingressos e ${r.apagados.usuarios} usuários apagados.`);
+    });
+  });
+  document.getElementById('frem')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const fr = e.target;
+    if (!fr.usuario_id.value) return aviso('Escolha a conta.', 'erro');
+    const nome = fr.usuario_id.selectedOptions[0].textContent;
+    if (!confirm(`Remover as compras de:\n${nome}\n\nNão dá para desfazer.`)) return;
+    comEspera(fr.querySelector('button'), async () => {
+      const r = await api('POST', '/admin/remover-compras', { usuario_id: Number(fr.usuario_id.value), confirmacao: fr.confirmacao.value });
+      aviso(`Pronto: ${r.apagados.pedidos} pedido(s) e ${r.apagados.ingressos} ingresso(s) de ${r.conta} removidos.`);
+      await navegar();
     });
   });
   const fp = app.querySelector('form[data-sec=pix]');
