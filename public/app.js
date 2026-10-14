@@ -957,8 +957,7 @@ rota('/admin/financeiro', async () => {
       ${kpi('Por cartão', brl(r.recebido_cartao_centavos))}
       ${kpi('Em dinheiro', brl(r.recebido_dinheiro_centavos))}
     </div>
-    <p class="peq">Pedidos pagos: ${r.pedidos_pagos}. Vencidos sem pagamento: ${r.pedidos_vencidos} (${brl(r.valor_vencido_centavos)}). Cancelados: ${r.pedidos_cancelados}.</p>
-    <p class="peq mudo">Do recebido: ${brl(r.receita_ingressos_centavos)} em ingressos e ${brl(r.taxa_servico_centavos)} em taxa de serviço${r.descontos_cupom_centavos ? ` · ${brl(r.descontos_cupom_centavos)} concedidos em cupons` : ''}. Pix direto na chave não tem taxa de gateway.</p>
+    <p class="peq">Taxas recebidas: <b>${brl(r.taxa_servico_centavos)}</b></p>
     <h2>Ingressos</h2>
     <div class="kpis">
       ${kpi('Vendidos (pagos)', r.ingressos_vendidos)}
