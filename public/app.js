@@ -405,7 +405,12 @@ rota('/pedido/([A-Za-z0-9]+)', async (codigo) => {
       <p class="peq">Esta tela atualiza sozinha depois que o pagamento for confirmado.</p>
       <div class="acoes"><button class="bt perigo peq" id="cancelar">Cancelar pedido</button></div>`;
     } else if (p.status === 'pago') {
-      corpo = `<div class="card atual"><b>Pagamento confirmado!</b><p class="mudo">Seus ingressos estão em "Meus ingressos".</p><a class="bt" href="#/meus">Ver meus ingressos</a></div>`;
+      corpo = `<div class="card atual"><b>Pagamento confirmado!</b><p class="mudo">Seus ingressos estão em "Meus ingressos".</p><a class="bt" href="#/meus">Ver meus ingressos</a></div>
+      <div class="card obrigado"><b>Ingresso garantido, te vejo dia 23 🫶🏼</b>
+        <p class="mudo">Se quiser dar uma força, posta o flyer nos seus stories. Ajuda a festa a encher.</p>
+        <img src="/flyer-story.jpg" alt="Flyer After D'adega">
+        <div class="acoes2"><button class="bt bloco" id="stories">Postar nos stories</button>
+        <a class="bt sec bloco" href="/flyer-story.jpg" download="after-dadega.jpg" id="baixarflyer">Baixar imagem</a></div></div>`;
     } else if (p.status === 'expirado') {
       corpo = `<div class="card"><b>Reserva expirada.</b><p class="mudo">Se você já pagou, fale com a organização informando o código ${esc(p.codigo)}. Caso contrário, faça um novo pedido.</p><a class="bt sec" href="#/">Voltar</a></div>`;
     } else {
@@ -442,6 +447,22 @@ rota('/pedido/([A-Za-z0-9]+)', async (codigo) => {
         getSelection().removeAllRanges();
         getSelection().addRange(r);
         aviso('Selecione e copie o código acima.', 'erro');
+      }
+    });
+    document.getElementById('stories')?.addEventListener('click', async (e) => {
+      const bt = e.currentTarget;
+      try {
+        const blob = await (await fetch('/flyer-story.jpg')).blob();
+        const arq = new File([blob], 'after-dadega.jpg', { type: 'image/jpeg' });
+        if (navigator.canShare && navigator.canShare({ files: [arq] })) {
+          await navigator.share({ files: [arq] });
+          return;
+        }
+        aviso('Seu navegador não abre o compartilhamento direto. Baixe a imagem e poste nos stories.', 'erro');
+        document.getElementById('baixarflyer')?.click();
+      } catch (err) {
+        if (err && err.name === 'AbortError') return;
+        aviso('Não deu pra abrir o compartilhamento. Use "Baixar imagem".', 'erro');
       }
     });
     document.getElementById('cancelar')?.addEventListener('click', async () => {

@@ -133,7 +133,7 @@ form.card[hidden]{display:none}
 details.kpi-det{cursor:pointer}details.kpi-det>summary{list-style:none;display:flex;flex-direction:column;gap:.15rem}details.kpi-det>summary::-webkit-details-marker{display:none}details.kpi-det[open]{grid-column:1/-1}details.kpi-det table{margin-top:.6rem;width:100%}
 
 /* Sino de notificações (menu, depois de "Sair") */
-#nav .sino{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0;margin-left:.2rem;border-radius:50%;border:1px solid currentColor;background:transparent;cursor:pointer;position:relative;-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none}
+#nav .sino{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;margin-left:.2rem;border-radius:50%;border:1px solid currentColor;background:transparent;cursor:pointer;position:relative;-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none}
 #nav .sino svg{display:block}
 #nav .sino .risco{display:none}
 #nav .sino.verde{color:#4ade80;background:rgba(34,197,94,.14);box-shadow:0 0 8px rgba(34,197,94,.7),0 0 20px rgba(34,197,94,.35);text-shadow:none}
@@ -146,3 +146,6 @@ details.kpi-det{cursor:pointer}details.kpi-det>summary{list-style:none;display:f
 @media (prefers-reduced-motion:reduce){#nav .sino.vermelho{animation:none}}
 #nav .sair-sino{display:inline-flex;align-items:center;gap:.6rem;white-space:nowrap}
 #nav .sino{margin-left:0}
+
+.obrigado img{width:100%;max-width:15rem;border-radius:12px;display:block;margin:.6rem auto}
+.obrigado .acoes2{display:flex;flex-direction:column;gap:.5rem}
