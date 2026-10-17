@@ -51,6 +51,12 @@ r.put('/admin/config', async (c) => {
     novos.max_ingressos_por_pedido = String(v.inteiro(b.max_ingressos_por_pedido, 'Máximo por pedido', 1, 50));
   }
   if ('contato' in b) novos.contato = String(b.contato ?? '').trim().slice(0, 200);
+  if ('contato_whatsapp' in b) {
+    let d = String(b.contato_whatsapp ?? '').replace(/\D/g, '');
+    if (d && !d.startsWith('55')) d = '55' + d;
+    if (d && (d.length < 12 || d.length > 13)) throw new HttpError(400, 'Celular inválido. Use DDD + número.');
+    novos.contato_whatsapp = d;
+  }
   const chaves = Object.keys(novos);
   if (!chaves.length) throw new HttpError(400, 'Nada para atualizar.');
   await db.batch(

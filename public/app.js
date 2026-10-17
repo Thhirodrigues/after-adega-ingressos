@@ -768,7 +768,13 @@ rota('/conta', async () => {
 
 // Termos de uso, regras de compra e privacidade (rascunho: vale revisão jurídica antes de divulgar em larga escala).
 const TERMOS_VERSAO = '2026-10-v3';
-const contatoHtml = (c) => (c ? `<b>${esc(c)}</b>` : 'o contato informado pela organização na página do evento');
+const contatoHtml = (c) => {
+  const [txt, zap] = Array.isArray(c) ? c : [c, ''];
+  const partes = [];
+  if (txt) partes.push(`<b>${esc(txt)}</b>`);
+  if (zap) partes.push(`<a href="https://wa.me/${esc(zap)}" target="_blank" rel="noopener"><b>WhatsApp ${esc(zap.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, '($1) $2-$3'))}</b></a>`);
+  return partes.length ? partes.join(' · ') : 'o contato informado pela organização na página do evento';
+};
 const TEXTO_REGRAS = (contato) => `
   <h2>1. Sua conta</h2>
   <p>Informe dados verdadeiros no cadastro. A senha e a resposta secreta são pessoais: não as compartilhe. Tudo o que for feito com a sua conta é de sua responsabilidade.</p>
@@ -806,8 +812,8 @@ const TEXTO_PRIVACIDADE = (contato) => `
   <p>Adotamos medidas técnicas para proteger os dados, mas nenhum sistema é totalmente seguro. Se houver incidente que possa causar risco a você, avisaremos como a lei determina.</p>
   <p class="peq">Política de privacidade · versão ${TERMOS_VERSAO}.</p>`;
 async function paginaLegal(titulo, texto) {
-  let contato = '';
-  try { contato = (await api('GET', '/contato')).contato || ''; } catch {}
+  let contato = ['', ''];
+  try { const r = await api('GET', '/contato'); contato = [r.contato || '', r.contato_whatsapp || '']; } catch {}
   app.innerHTML = `<h1>${titulo}</h1><div class="card regras">${texto(contato)}</div><a class="bt sec" href="javascript:history.back()">Voltar</a>`;
 }
 rota('/regras', () => paginaLegal('Termos de uso e regras de compra', TEXTO_REGRAS));
@@ -1329,9 +1335,10 @@ rota('/admin/config', async () => {
         <div><label>Transferências encerram (horas antes da festa)</label><input name="transferencia_limite_horas" inputmode="numeric" value="${esc(c.transferencia_limite_horas ?? 48)}"></div></div>
         <p class="peq">Alterar a taxa vale só para pedidos novos; pedidos já feitos mantêm o valor combinado.</p>
         <button class="bt peq" style="margin-top:.5rem">Salvar regras</button></form></details>
-    <details class="item"><summary><b>Contato da organização</b><span class="peq">${esc(c.contato || 'não informado')}</span></summary>
+    <details class="item"><summary><b>Contato da organização</b><span class="peq">${esc([c.contato, c.contato_whatsapp && '+' + c.contato_whatsapp].filter(Boolean).join(' · ') || 'não informado')}</span></summary>
       <form class="card" data-sec="contato">
-        <label>Aparece nas páginas de termos e privacidade</label><input name="contato" value="${esc(c.contato || '')}" maxlength="200" placeholder="WhatsApp (11) 99999-9999 · e-mail">
+        <label>Contato</label><input name="contato" value="${esc(c.contato || '')}" maxlength="200" placeholder="E-mail ou texto de contato">
+        <label>Celular WhatsApp (opcional)</label><input name="contato_whatsapp" inputmode="tel" value="${esc((c.contato_whatsapp || '').replace(/^55/, ''))}" placeholder="11 99999-9999">
         <button class="bt peq" style="margin-top:.75rem">Salvar contato</button></form></details>`,
   );
   document.getElementById('push-ativar').addEventListener('click', (e) =>
@@ -1389,7 +1396,8 @@ rota('/admin/config', async () => {
         const corpo = {};
         for (const [k, v] of Object.entries(d)) {
           if (k === 'pix_tipo') continue;
-          if (String(v).trim() !== '') corpo[k] = ['pix_chave', 'pix_nome', 'pix_cidade', 'contato'].includes(k) ? v.trim() : Number(v);
+          if (k === 'contato_whatsapp' || k === 'contato') corpo[k] = String(v).trim();
+          else if (String(v).trim() !== '') corpo[k] = ['pix_chave', 'pix_nome', 'pix_cidade', 'contato'].includes(k) ? v.trim() : Number(v);
         }
         if (corpo.pix_chave !== undefined) corpo.pix_chave = normalizarChavePix(fp.pix_tipo.value, corpo.pix_chave);
         await api('PUT', '/admin/config', corpo);

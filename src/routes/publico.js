@@ -60,7 +60,7 @@ r.get('/evento', async (c) => {
 // Contato da organização e versão dos termos (páginas legais). Público.
 r.get('/contato', async (c) => {
   const cfg = await configuracoes(c.env.DB);
-  return c.json({ contato: cfg.contato || '', termos_versao: TERMOS_VERSAO });
+  return c.json({ contato: cfg.contato || '', contato_whatsapp: cfg.contato_whatsapp || '', termos_versao: TERMOS_VERSAO });
 });
 
 // Flyer da tela de agradecimento: o que o admin enviou; sem envio, cai no flyer padrão do site.

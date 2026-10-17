@@ -863,3 +863,12 @@ test('flyer: padrão por redirect, admin troca, valida tipo e volta ao padrão',
   assert.equal((await admin.req('DELETE', '/api/admin/flyer', {})).status, 200);
   assert.equal((await fetch(BASE + '/api/flyer', { redirect: 'manual' })).status, 302);
 });
+
+test('contato: WhatsApp opcional, normalizado, validado e público', async () => {
+  assert.equal((await admin.put('/api/admin/config', { contato_whatsapp: '123' })).status, 400);
+  assert.equal((await admin.put('/api/admin/config', { contato: 'oi@exemplo.com', contato_whatsapp: '(11) 98888-7777' })).status, 200);
+  const r = await new Cliente().get('/api/contato');
+  assert.equal(r.json.contato_whatsapp, '5511988887777');
+  assert.equal((await admin.put('/api/admin/config', { contato_whatsapp: '' })).status, 200);
+  assert.equal((await new Cliente().get('/api/contato')).json.contato_whatsapp, '');
+});
