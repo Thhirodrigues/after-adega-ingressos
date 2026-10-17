@@ -183,9 +183,10 @@ function desenharNav() {
   else {
     if (eu.papel === 'admin') h += `<a href="#/admin">Admin${eu.nao_lidos ? ` <span class="badge">${eu.nao_lidos}</span>` : ''}</a>`;
     if (eu.papel === 'admin' || eu.papel === 'hostess') h += '<a href="#/portaria">Portaria</a>';
-    h += '<a href="#/meus">Meus ingressos</a><a href="#/conta">Conta</a><button id="sair">Sair</button>';
+    h += '<a href="#/meus">Meus ingressos</a><a href="#/conta">Conta</a><span class="sair-sino"><button id="sair">Sair</button>' + (eu.papel === 'admin' ? htmlSino() : '') + '</span>';
   }
   nav.innerHTML = h;
+  ligarSino();
   document.getElementById('sair')?.addEventListener('click', async () => {
     try { await api('POST', '/auth/logout', {}); } catch {}
     estado.eu = null;
@@ -1822,7 +1823,7 @@ async function assinarPush(reg) {
   return sub;
 }
 async function verificarPush(forcar = false) {
-  if (estado.eu?.papel !== 'admin') { pintarBannerPush(null); return null; }
+  if (estado.eu?.papel !== 'admin') return null;
   if (!forcar && Date.now() - estadoPush.t < 30000) return estadoPush.situacao;
   estadoPush.t = Date.now();
   let sit;
@@ -1844,24 +1845,87 @@ async function verificarPush(forcar = false) {
     sit = estadoPush.situacao; // sem internet / erro passageiro: mantém o último estado conhecido
   }
   estadoPush.situacao = sit;
-  pintarBannerPush(sit);
+  if (sit === 'ok') pushJaAtivoSet(true);
+  pintarSino();
   return sit;
 }
-function pintarBannerPush(sit) {
-  const topo = document.querySelector('.topo');
-  if (!topo) return;
-  let b = document.getElementById('bannerpush');
-  const msgs = {
-    desativado: ['Notificações desativadas neste aparelho: você NÃO será avisado de pedidos, pagamentos e portaria.', 'Ativar'],
-    bloqueado: ['Notificações bloqueadas pelo navegador: você NÃO será avisado de novos pedidos. Libere em Configurações do site → Notificações e abra o app de novo.', null],
-    instalar: ['No iPhone, instale o site na tela inicial para receber notificações.', null],
-    sem_suporte: ['Este navegador não recebe notificações. Use o Chrome (Android) ou instale o site na tela inicial.', null],
-  };
-  if (!sit || sit === 'ok' || !msgs[sit]) { b?.remove(); return; }
-  if (!b) { b = document.createElement('div'); b.id = 'bannerpush'; b.className = 'banner-push'; topo.appendChild(b); }
-  const [txt, botao] = msgs[sit];
-  b.innerHTML = `<span>${txt}</span>${botao ? `<button type="button" class="bt peq" id="bannerpush-ativar">${botao}</button>` : ''}`;
-  document.getElementById('bannerpush-ativar')?.addEventListener('click', (e) => ativarPush(e.target));
+// ---------- Sino de notificações (menu, depois de "Sair") ----------
+// verde = ativadas · vermelho com risco, piscando = desativadas · amarelo = estavam ativadas e o sistema desligou
+const pushJaAtivo = () => { try { return localStorage.getItem('push_ja_ativo') === '1'; } catch { return false; } };
+const pushJaAtivoSet = (v) => { try { v ? localStorage.setItem('push_ja_ativo', '1') : localStorage.removeItem('push_ja_ativo'); } catch {} };
+function sinoClasse() {
+  const s = estadoPush.situacao;
+  if (s === 'ok') return 'verde';
+  if (!s) return 'neutro';
+  return pushJaAtivo() && !pushManual() ? 'amarelo' : 'vermelho';
+}
+const SINO_TITULO = {
+  verde: 'Notificações ativadas. Toque duas vezes para enviar um teste; segure para desativar.',
+  vermelho: 'Notificações desativadas. Toque para ativar.',
+  amarelo: 'O sistema desativou as notificações. Toque para religar.',
+  neutro: 'Verificando notificações…',
+};
+function htmlSino() {
+  const c = sinoClasse();
+  return `<button type="button" id="sino" class="sino ${c}" title="${SINO_TITULO[c]}" aria-label="${SINO_TITULO[c]}">
+    <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/><line class="risco" x1="3" y1="3" x2="21" y2="21"/></svg></button>`;
+}
+function pintarSino() {
+  const b = document.getElementById('sino');
+  if (!b) return;
+  const c = sinoClasse();
+  b.className = `sino ${c}`;
+  b.title = SINO_TITULO[c];
+  b.setAttribute('aria-label', SINO_TITULO[c]);
+}
+async function testarPush() {
+  try {
+    const r = await api('POST', '/admin/push/teste', {});
+    aviso(r.enviados ? `Teste enviado (${r.enviados} aparelho${r.enviados === 1 ? '' : 's'}).` : 'Nenhum aparelho recebeu o teste. Toque no sino para religar.', r.enviados ? 'ok' : 'erro');
+  } catch (e) { aviso(e.message, 'erro'); }
+  await verificarPush(true);
+}
+async function desativarPushManual() {
+  if (!confirm('Desativar as notificações neste aparelho?')) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      await api('POST', '/admin/push/cancelar', { endpoint: sub.endpoint });
+      await sub.unsubscribe();
+    }
+    pushManualSet(true);
+    pushJaAtivoSet(false);
+    await verificarPush(true);
+    aviso('Notificações desativadas.');
+  } catch (e) { aviso(e.message, 'erro'); }
+}
+function ligarSino() {
+  const b = document.getElementById('sino');
+  if (!b) return;
+  let ultimo = 0, esperaMsg = null, segurou = false, seguraTimer = null;
+  const solta = () => clearTimeout(seguraTimer);
+  b.addEventListener('pointerdown', () => {
+    segurou = false;
+    if (estadoPush.situacao === 'ok') seguraTimer = setTimeout(() => { segurou = true; desativarPushManual(); }, 800);
+  });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => b.addEventListener(ev, solta));
+  b.addEventListener('contextmenu', (e) => e.preventDefault());
+  b.addEventListener('click', () => {
+    if (segurou) { segurou = false; return; }
+    const sit = estadoPush.situacao;
+    if (sit === 'ok') {
+      const t = Date.now();
+      if (t - ultimo < 450) { ultimo = 0; clearTimeout(esperaMsg); testarPush(); return; }
+      ultimo = t;
+      esperaMsg = setTimeout(() => aviso('Notificações ativadas. Toque duas vezes para enviar um teste; segure para desativar.'), 450);
+      return;
+    }
+    if (sit === 'bloqueado') return aviso('Notificações bloqueadas pelo navegador. Libere em Configurações do site → Notificações e abra o app de novo.', 'erro');
+    if (sit === 'instalar') return aviso('No iPhone, instale o site na tela inicial para receber notificações.', 'erro');
+    if (sit === 'sem_suporte') return aviso('Este navegador não recebe notificações. Use o Chrome (Android) ou instale o site na tela inicial.', 'erro');
+    ativarPush(null).catch((e) => aviso(e.message, 'erro'));
+  });
 }
 async function ativarPush(botao) {
   const fazer = async () => {
@@ -1883,15 +1947,10 @@ setInterval(() => verificarPush(true), 5 * 60 * 1000);
 rota('/admin/avisos', async () => {
   if (!exigirAdmin()) return;
   const [d, cfg] = await Promise.all([api('GET', '/admin/alertas'), api('GET', '/admin/config')]);
-  const suporta = pushSuportado();
-  const ativo = suporta && (await verificarPush(true)) === 'ok';
+  verificarPush(true);
   layoutAdmin(
     'avisos',
-    `<div class="card"><h2 style="margin-top:0">Notificações no celular</h2>
-      ${suporta ? `<p class="peq">${ativo ? 'Ativadas neste aparelho.' : 'Desativadas neste aparelho.'} No iPhone só funciona com o site instalado na tela inicial.</p>
-      <div class="acoes"><button class="bt" id="pushon">${ativo ? 'Reativar' : 'Ativar notificações'}</button>${ativo ? '<button class="bt sec" id="pushtest">Enviar teste</button><button class="bt sec" id="pushoff">Desativar</button>' : ''}</div>` : '<p class="peq">Este navegador não suporta notificações.</p>'}
-    </div>
-    <form class="card" id="fpin"><h2 style="margin-top:0">Senha de desbloqueio da recepção</h2>
+    `<form class="card" id="fpin"><h2 style="margin-top:0">Senha de desbloqueio da recepção</h2>
       <p class="peq">${cfg.pin_definido ? 'Já definida.' : '<b>Ainda não definida</b> — sem ela a recepcionista não consegue desfazer entradas.'} Ela precisa digitá-la para desfazer uma entrada; você recebe um aviso a cada uso.</p>
       <label>Nova senha (4 a 12 caracteres)</label><input name="pin" required minlength="4" maxlength="12" autocomplete="off">
       <button class="bt bloco">Salvar senha</button></form>
@@ -1915,31 +1974,6 @@ rota('/admin/avisos', async () => {
       aviso('Senha de desbloqueio salva.');
     });
   });
-  document.getElementById('pushon')?.addEventListener('click', async (e) => {
-    await ativarPush(e.target);
-    navegar();
-  });
-  document.getElementById('pushtest')?.addEventListener('click', (e) =>
-    comEspera(e.target, async () => {
-      const r = await api('POST', '/admin/push/teste', {});
-      aviso(r.enviados ? `Teste enviado (${r.enviados} aparelho${r.enviados === 1 ? '' : 's'}).` : 'Nenhum aparelho recebeu o teste. Toque em "Reativar" e tente de novo.', r.enviados ? 'ok' : 'erro');
-      await verificarPush(true);
-    }),
-  );
-  document.getElementById('pushoff')?.addEventListener('click', (e) =>
-    comEspera(e.target, async () => {
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.getSubscription();
-      if (sub) {
-        await api('POST', '/admin/push/cancelar', { endpoint: sub.endpoint });
-        await sub.unsubscribe();
-      }
-      pushManualSet(true);
-      await verificarPush(true);
-      aviso('Notificações desativadas.');
-      navegar();
-    }),
-  );
 });
 
 const CATEGORIAS_CONV = { dj: 'DJ', aniversariante: 'Aniversariante', convidado: 'Amigo / parceiro' };
