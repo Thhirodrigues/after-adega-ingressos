@@ -745,17 +745,26 @@ rota('/conta', async () => {
   app.innerHTML = `
     <h1>Minha conta</h1>
     <p class="mudo">${esc(estado.eu.nome)} ${esc(estado.eu.sobrenome)}</p>
+    <details class="item"><summary><b>Resposta secreta</b><span class="peq">${estado.eu.tem_resposta ? 'definida' : '<b style="color:var(--erro)">não definida</b>'}</span></summary>
     <form class="card" id="f">
-      <h2 style="margin-top:0">Resposta secreta</h2>
-      <p class="peq">${estado.eu.tem_resposta ? 'Você já tem uma resposta secreta. Preencha abaixo para trocar.' : '<b>Você ainda não definiu uma resposta secreta</b> — sem ela, só a organização consegue refazer sua senha.'}</p>
+      <p class="peq" style="margin-top:0">${estado.eu.tem_resposta ? 'Para trocar, digite a nova resposta e a senha atual.' : '<b>Você ainda não definiu uma resposta secreta</b> — sem ela, só a organização consegue refazer sua senha.'}</p>
       <label>Senha atual</label><input name="atual" type="password" required autocomplete="current-password">
-      ${campoResposta('Nova resposta secreta (1 palavra, 4 a 8 letras)')}
-      <button class="bt bloco">Salvar resposta</button>
-    </form>
+      ${campoResposta(estado.eu.tem_resposta ? 'Resposta secreta (toque para trocar)' : 'Nova resposta secreta (1 palavra, 4 a 8 letras)')}
+      <button class="bt peq" style="margin-top:.75rem">Salvar resposta</button>
+    </form></details>
     <p><a href="#/trocar-senha">Trocar senha</a> · <a href="#/regras">Regras de compra</a></p>`;
   const f = document.getElementById('f');
+  if (estado.eu.tem_resposta) {
+    const r = f.resposta;
+    r.type = 'password';
+    r.value = r.defaultValue = '••••••••';
+    r.dataset.mascara = '1';
+    r.addEventListener('focus', () => { if (r.dataset.mascara) { r.value = ''; delete r.dataset.mascara; } });
+    r.addEventListener('blur', () => { if (!r.value) { r.value = r.defaultValue; r.dataset.mascara = '1'; } });
+  }
   f.addEventListener('submit', (e) => {
     e.preventDefault();
+    if (f.resposta.dataset.mascara) return aviso('Digite a nova resposta secreta para trocar.', 'erro');
     comEspera(f.querySelector('button'), async () => {
       const cpfUso = estado.eu.cpf;
       await api('POST', '/auth/resposta', { senha_atual: await derivar(cpfUso, f.atual.value), resposta: await derivarResposta(cpfUso, f.resposta.value) });
