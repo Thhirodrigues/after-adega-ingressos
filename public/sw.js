@@ -1,6 +1,6 @@
 // Deixa o site abrir sem internet (ingressos e portaria). Rede primeiro; se falhar, usa o salvo.
-const VERSAO = 'fastpass-v47';
-const BASE = ['/', '/index.html', '/style.css', '/app.js', '/vendor/qrcode.js', '/vendor/jsQR.js', '/manifest.webmanifest', '/icon-192.png', '/logo-marca.png', '/splash.js'];
+const VERSAO = 'fastpass-v48';
+const BASE = ['/', '/index.html', '/style.css', '/app.js', '/vendor/qrcode.js', '/vendor/jsQR.js', '/manifest.webmanifest', '/icon-192.png', '/badge-96.png', '/logo-marca.png', '/splash.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSAO).then((c) => c.addAll(BASE)).then(() => self.skipWaiting()));
@@ -51,7 +51,7 @@ self.addEventListener('push', (e) => {
       } catch {}
       const abas = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       abas.forEach((a) => a.postMessage({ tipo: 'push' }));
-      await self.registration.showNotification(titulo, { body: corpo, icon: '/icon-192.png', badge: '/icon-192.png', tag: 'aviso-admin', renotify: true });
+      await self.registration.showNotification(titulo, { body: corpo, icon: '/icon-192.png', badge: '/badge-96.png', tag: 'aviso-admin', renotify: true });
     })(),
   );
 });
