@@ -32,6 +32,6 @@ export async function avisarPedidoEmPagamento(c, pedido, usuario, forma) {
   await alertar(
     c,
     'novo_pedido',
-    `Novo pedido ${pedido.codigo}: ${usuario.nome} ${usuario.sobrenome} — ${pedido.quantidade} ingresso(s), R$ ${brlTxt(pedido.total_centavos)}${pedido.cupom_codigo ? ` (cupom ${pedido.cupom_codigo})` : ''}. Escolheu pagar por ${forma}. Aguardando pagamento.`,
+    `Novo pedido ${pedido.codigo}: **${usuario.nome} ${usuario.sobrenome}** — ${pedido.quantidade} ingresso(s), R$ ${brlTxt(pedido.total_centavos)}${pedido.cupom_codigo ? ` (cupom ${pedido.cupom_codigo})` : ''} (${forma.includes('Mercado Pago') ? 'Mercado Pago' : 'Pix na chave'}). Aguardando pagamento.`,
   );
 }

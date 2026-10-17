@@ -946,10 +946,10 @@ const ABAS = [
   ['pedidos', 'Pedidos'],
   ['eventos', 'Eventos'],
   ['lotes', 'Lotes e cupons'],
-  ['config', 'Configurações'],
   ['cortesias', 'Cortesias'],
   ['usuarios', 'Usuários'],
   ['avisos', 'Avisos'],
+  ['config', 'Configurações'],
 ];
 function layoutAdmin(ativa, html) {
   app.innerHTML = `
@@ -1307,7 +1307,7 @@ rota('/admin/config', async () => {
     <details class="item"><summary><b>Senha de desbloqueio da recepção</b><span class="peq">${c.pin_definido ? 'definida' : '<b style="color:var(--erro)">não definida</b>'}</span></summary>
       <form class="card" id="fpin">
         <p class="peq" style="margin-top:0">${c.pin_definido ? 'Já definida.' : '<b>Ainda não definida</b> — sem ela a recepcionista não consegue desfazer entradas.'} Ela precisa digitá-la para desfazer uma entrada; você recebe um aviso a cada uso.</p>
-        <label>Nova senha (4 a 12 caracteres)</label><input name="pin" required minlength="4" maxlength="12" autocomplete="off">
+        <label>${c.pin_definido ? 'Senha (toque para trocar)' : 'Nova senha (4 a 12 caracteres)'}</label><input name="pin" type="password" required minlength="4" maxlength="12" autocomplete="new-password"${c.pin_definido ? ' value="••••••••" data-mascara="1"' : ''}>
         <button class="bt peq" style="margin-top:.75rem">Salvar senha</button></form></details>
     <details class="item"><summary><b>Recebimento por Pix</b><span class="peq">${resumoPix}</span></summary>
       <form class="card" data-sec="pix">
@@ -1338,9 +1338,13 @@ rota('/admin/config', async () => {
     ativarPush(e.currentTarget).then(() => irParaLista('#secoes-config')).catch((er) => aviso(er.message, 'erro')));
   document.getElementById('push-teste').addEventListener('click', () => testarPush());
   document.getElementById('push-desligar').addEventListener('click', () => desativarPushManual().then(() => irParaLista('#secoes-config')));
+  const campoPin = document.getElementById('fpin').pin;
+  campoPin.addEventListener('focus', () => { if (campoPin.dataset.mascara) { campoPin.value = ''; delete campoPin.dataset.mascara; } });
+  campoPin.addEventListener('blur', () => { if (!campoPin.value && campoPin.defaultValue) { campoPin.value = campoPin.defaultValue; campoPin.dataset.mascara = '1'; } });
   document.getElementById('fpin').addEventListener('submit', (e) => {
     e.preventDefault();
     const f = e.target;
+    if (f.pin.dataset.mascara) return aviso('Digite a nova senha para trocar.', 'erro');
     comEspera(f.querySelector('button'), async () => {
       await api('PUT', '/admin/pin', { pin: f.pin.value });
       aviso('Senha de desbloqueio salva.');
@@ -1948,7 +1952,7 @@ const SINO_TITULO = {
 function htmlSino() {
   const c = sinoClasse();
   return `<button type="button" id="sino" class="sino ${c}" title="${SINO_TITULO[c]}" aria-label="${SINO_TITULO[c]}">
-    <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/><line class="risco" x1="3" y1="3" x2="21" y2="21"/></svg></button>`;
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/><line class="risco" x1="3" y1="3" x2="21" y2="21"/></svg></button>`;
 }
 function pintarSino() {
   const b = document.getElementById('sino');
@@ -2031,7 +2035,7 @@ rota('/admin/avisos', async () => {
   layoutAdmin(
     'avisos',
     `<div class="card"><div class="linha"><h2 style="margin:0">Avisos</h2>${d.nao_lidos ? '<button class="bt sec peq" id="lidos">Marcar como lidos</button>' : ''}</div>
-      ${d.alertas.length ? d.alertas.map((a) => `<div class="linha" style="margin-top:.6rem"><div>${a.lido_em ? '' : '<span class="badge">novo</span> '}${esc(a.detalhe)}<div class="peq">${hora(a.criado_em)}</div></div></div>`).join('') : '<p class="mudo">Nenhum aviso ainda.</p>'}
+      ${d.alertas.length ? d.alertas.map((a) => `<div class="linha aviso-item" style="margin-top:.6rem"><div>${a.lido_em ? '' : '<span class="badge">novo</span> '}${esc(a.detalhe).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')}<div class="peq">${hora(a.criado_em)}</div></div></div>`).join('') : '<p class="mudo">Nenhum aviso ainda.</p>'}
     </div>`,
   );
   document.getElementById('lidos')?.addEventListener('click', (e) =>

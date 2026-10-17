@@ -71,7 +71,7 @@ r.post('/mp/webhook', async (c) => {
   if (pg.status !== 'approved') return c.json({ ok: true });
 
   if (pg.currency_id !== 'BRL' || Math.round(Number(pg.transaction_amount) * 100) !== pedido.total_centavos) {
-    await alertar(c, 'mp_valor_diferente', `Pedido ${codigo}: pagamento ${pg.id} aprovado com valor diferente (R$ ${pg.transaction_amount}, esperado R$ ${reais(pedido.total_centavos)}). Não foi confirmado.`);
+    await alertar(c, 'mp_valor_diferente', `Pedido ${codigo} ERRO: valor diferente do esperado (esperado R$ ${reais(pedido.total_centavos)}), não confirmado. R$ ${pg.transaction_amount} (Mercado Pago)`);
     return c.json({ ok: true });
   }
   if (pedido.status === 'pago') return c.json({ ok: true });
@@ -86,9 +86,9 @@ r.post('/mp/webhook', async (c) => {
   const depois = await buscarPedido(db, { id: pedido.id });
   if (depois.status === 'pago') {
     await auditar(db, null, 'pedido_confirmado_mp', `${codigo} pagamento ${pg.id}`);
-    await alertar(c, 'pedido_pago_mp', `Pedido ${codigo} pago e confirmado automaticamente (Mercado Pago, R$ ${reais(pedido.total_centavos)}).`);
+    await alertar(c, 'pedido_pago_mp', `Pedido ${codigo} recebido R$ ${reais(pedido.total_centavos)} (Mercado Pago)`);
   } else {
-    await alertar(c, 'mp_sem_estoque', `ATENÇÃO: pedido ${codigo} foi pago no Mercado Pago (R$ ${reais(pedido.total_centavos)}) mas a reserva venceu e não há mais ingressos. Devolva o valor no painel do Mercado Pago.`);
+    await alertar(c, 'mp_sem_estoque', `Pedido ${codigo} ERRO: reserva venceu e não há mais ingressos, devolva o valor no painel do Mercado Pago. R$ ${reais(pedido.total_centavos)} (Mercado Pago)`);
   }
   return c.json({ ok: true });
 });
