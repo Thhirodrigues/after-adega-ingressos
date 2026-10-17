@@ -312,6 +312,7 @@ test('cortesias por convite: cadastro, validações e permissões', async () => 
   assert.equal((await hostess.post('/api/admin/convites', base)).status, 403);
   assert.equal((await admin.post('/api/admin/convites', { ...base, categoria: 'vip' })).status, 400);
   assert.equal((await admin.post('/api/admin/convites', { ...base, telefone: '123' })).status, 400);
+  { const ok = await admin.post('/api/admin/convites', { ...base, nome: 'Teste Zap', telefone: '11977776666' }); assert.equal(ok.status, 201); assert.equal(ok.json.telefone, '5511977776666'); assert.match(ok.json.token, /^[0-9a-f]{32}$/); }
   assert.equal((await admin.post('/api/admin/convites', { ...base, quantidade: 9 })).status, 400);
   assert.equal((await admin.post('/api/admin/convites', { ...base, categoria: 'aniversariante' })).status, 400); // falta nascimento
   assert.equal((await admin.post('/api/admin/convites', { ...base, categoria: 'aniversariante', nascimento: '2999-01-01' })).status, 400);

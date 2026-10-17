@@ -764,7 +764,7 @@ r.post('/admin/convites', async (c) => {
     .first();
   let resgatado = false;
   if (conta) resgatado = await resgatarPendentes(db, conta).then((n) => n > 0).catch(() => false);
-  return c.json({ ok: true, id: res.meta.last_row_id, token, resgatado }, 201);
+  return c.json({ ok: true, id: res.meta.last_row_id, token, resgatado, telefone: d.telefone }, 201);
 });
 
 r.get('/admin/convites', async (c) => {

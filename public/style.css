@@ -85,10 +85,14 @@ th{color:var(--mudo);font-weight:600;font-size:.78rem;text-transform:uppercase;l
 .check input{width:auto;margin-top:.25rem;flex:none}
 .regras h2{font-size:1rem;margin:1rem 0 .25rem}.regras p{margin:.2rem 0;color:var(--mudo)}
 .overlay.modal{background:rgba(5,8,15,.8);text-align:left}
+.overlay.modal button.bt:not(.sec):not(.perigo):not(.ok){background:var(--grad);margin-top:1rem}
+.overlay.modal button.bt.sec{margin-top:.5rem}
 .badge[hidden]{display:none}
 .abas .badge{margin-left:.4rem}
 
 .overlay.modal{background:rgba(5,8,15,.8);text-align:left}
+.overlay.modal button.bt:not(.sec):not(.perigo):not(.ok){background:var(--grad);margin-top:1rem}
+.overlay.modal button.bt.sec{margin-top:.5rem}
 .badge[hidden]{display:none}
 .abas .badge{margin-left:.4rem}
 .qtd{display:inline-flex;align-items:center;gap:.25rem;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:#161e2e;padding:.2rem}

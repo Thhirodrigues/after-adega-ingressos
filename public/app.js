@@ -2131,9 +2131,25 @@ rota('/admin/cortesias', async () => {
   f.addEventListener('submit', (e) => {
     e.preventDefault();
     comEspera(f.querySelector('button'), async () => {
-      const r = await api('POST', '/admin/convites', lerForm(f));
-      aviso(r.resgatado ? 'Cortesia cadastrada e já liberada: a pessoa já tinha conta.' : 'Cortesia cadastrada. Abra-a na lista e toque em “Enviar pelo WhatsApp”.');
-      await irParaLista('#lista-cortesias');
+      const dados = lerForm(f);
+      const r = await api('POST', '/admin/convites', dados);
+      const cv = { ...dados, telefone: r.telefone, token: r.token };
+      const ov = document.createElement('div');
+      ov.className = 'overlay modal';
+      ov.innerHTML = `<div class="card ov-corpo"><h2 style="margin-top:0">Cortesia cadastrada</h2>
+        <p><b>${esc(cv.nome)}</b> · ${esc(CATEGORIAS_CONV[cv.categoria])}${cv.quantidade > 1 ? ` · ${cv.quantidade} ingressos` : ''}</p>
+        ${r.resgatado ? '<p class="peq">A pessoa já tinha conta: o ingresso já está liberado no app dela. Se quiser, avise pelo WhatsApp.</p>' : ''}
+        <div style="margin-top:1rem">
+          <button type="button" class="bt bloco" id="cort-zap">Enviar pelo WhatsApp</button>
+          <button type="button" class="bt sec bloco" id="cort-copia" style="margin-top:.5rem">Copiar link</button>
+          <button type="button" class="bt sec bloco" id="cort-fecha" style="margin-top:.5rem">Enviar depois</button></div></div>`;
+      document.body.appendChild(ov);
+      const fim = () => { ov.remove(); irParaLista('#lista-cortesias'); };
+      ov.querySelector('#cort-zap').addEventListener('click', () => { window.open(zapConvite(cv, evento), '_blank', 'noopener'); setTimeout(fim, 400); });
+      ov.querySelector('#cort-fecha').addEventListener('click', fim);
+      ov.querySelector('#cort-copia').addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(linkConvite(cv.token)); aviso('Link copiado.'); } catch { prompt('Copie o link:', linkConvite(cv.token)); }
+      });
     });
   });
   app.querySelectorAll('form[data-convite]').forEach((fc) => {
