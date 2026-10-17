@@ -2104,9 +2104,18 @@ rota('/admin/cortesias', async () => {
             <button type="button" class="bt perigo peq" data-cancela="${x.id}">Cancelar convite</button>
           </div><div class="erro-conv"></div></form></details>`;
       }
-      return `<details class="item">${cab}<div class="card"><p class="peq" style="margin:0">Celular: ${esc(x.telefone)}${x.email ? `<br>E-mail: ${esc(x.email)}` : ''}${x.nascimento ? `<br>Nascimento: ${dataBR(x.nascimento)}` : ''}
-        ${x.status === 'resgatado' ? `<br>Conta: ${esc(x.conta || '—')} · resgatado em ${hora(x.resgatado_em)}<br>Ingressos: ${x.validos} válido(s) · ${x.entraram} usado(s)` : ''}</p>
-        ${x.status !== 'cancelado' ? `<div class="acoes" style="margin-top:.75rem"><button class="bt perigo peq" data-cancela="${x.id}">Cancelar convite${x.status === 'resgatado' ? ' e ingressos não usados' : ''}</button></div>` : ''}</div></details>`;
+      if (x.status === 'resgatado') {
+        return `<details class="item">${cab}<form class="card" data-convite="${x.id}">
+          <p class="peq" style="margin-top:0">Conta: ${esc(x.conta || '—')} · resgatado em ${hora(x.resgatado_em)}<br>Ingressos: ${x.validos} válido(s) · ${x.entraram} usado(s)</p>
+          ${camposConv(x)}
+          <p class="peq">Mudar a quantidade ajusta os ingressos da conta (aumentar cria os novos na hora; reduzir cancela os não usados). Trocar o celular ou e-mail cancela os ingressos não usados e libera de novo para o novo contato.</p>
+          <div class="acoes" style="margin-top:.75rem">
+            <button class="bt peq">Salvar</button>
+            <button type="button" class="bt sec peq" data-zap="${esc(zapConvite(x, evento))}">Enviar pelo WhatsApp</button>
+            <button type="button" class="bt perigo peq" data-cancela="${x.id}">Cancelar convite e ingressos não usados</button>
+          </div><div class="erro-conv"></div></form></details>`;
+      }
+      return `<details class="item">${cab}<div class="card"><p class="peq" style="margin:0">Celular: ${esc(x.telefone)}${x.email ? `<br>E-mail: ${esc(x.email)}` : ''}${x.nascimento ? `<br>Nascimento: ${dataBR(x.nascimento)}` : ''}</p></div></details>`;
     })
     .join('');
   layoutAdmin(
@@ -2158,11 +2167,12 @@ rota('/admin/cortesias', async () => {
       e.preventDefault();
       comEspera(fc.querySelector('button'), async () => {
         const r = await api('PUT', `/admin/convites/${fc.dataset.convite}`, lerForm(fc));
-        aviso(r.resgatado ? 'Salvo. A pessoa já tinha conta, então o ingresso foi liberado.' : 'Convite atualizado.');
+        aviso(r.ajustado ? 'Cortesia atualizada.' : r.resgatado ? 'Salvo. A pessoa já tinha conta, então o ingresso foi liberado.' : 'Convite atualizado.');
         await irParaLista('#lista-cortesias');
       });
     });
   });
+  app.querySelectorAll('[data-zap]').forEach((b) => b.addEventListener('click', () => window.open(b.dataset.zap, '_blank', 'noopener')));
   app.querySelectorAll('[data-copia]').forEach((b) =>
     b.addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(b.dataset.copia); aviso('Link copiado.'); } catch { prompt('Copie o link:', b.dataset.copia); }

@@ -12,7 +12,7 @@ import { inserirUsuario, lerDadosUsuario } from './auth.js';
 import { alertar } from '../lib/alertas.js';
 import { chavesVapid, enviarPush } from '../lib/push.js';
 import { aleatorioHex, hmacHex } from '../lib/crypto.js';
-import { resgatarPendentes } from '../lib/convites.js';
+import { ROTULO_CATEGORIA, resgatarPendentes } from '../lib/convites.js';
 import { SQL_USADOS, TIPOS_CUPOM, normalizarCupom } from '../lib/cupons.js';
 
 const r = new Hono();
@@ -781,23 +781,71 @@ r.get('/admin/convites', async (c) => {
   return c.json({ convites: results, evento });
 });
 
-// Corrige um convite que ainda não foi resgatado (telefone/e-mail errado, nome, etc.).
+// Edita um convite. Pendente: qualquer campo. Já resgatado: nome, categoria e quantidade ajustam os ingressos
+// da própria conta; trocar celular/e-mail devolve o convite a "pendente" (ingressos não usados são cancelados)
+// e ele é liberado de novo para a conta do novo contato, se já existir.
 r.put('/admin/convites/:id', async (c) => {
   const id = v.inteiro(c.req.param('id'), 'Convite', 1, 1_000_000_000);
   const db = c.env.DB;
   const atual = await db.prepare('SELECT * FROM convites WHERE id = ?1').bind(id).first();
   if (!atual) throw new HttpError(404, 'Convite não encontrado.');
-  if (atual.status !== 'pendente') throw new HttpError(409, 'Só convites ainda não resgatados podem ser editados. Cancele e crie outro.');
+  if (atual.status === 'cancelado') throw new HttpError(409, 'Convite cancelado não pode ser editado. Cadastre outro.');
   const b = await corpo(c);
   const d = lerConvite(b, { parcial: true });
   const novo = { ...atual, ...d };
   if (novo.categoria === 'aniversariante' && !novo.nascimento) throw new HttpError(400, 'Informe a data de nascimento do aniversariante.');
   if (novo.categoria !== 'aniversariante') novo.nascimento = null;
-  await db
-    .prepare(`UPDATE convites SET categoria = ?2, nome = ?3, telefone = ?4, email = ?5, nascimento = ?6, quantidade = ?7 WHERE id = ?1 AND status = 'pendente'`)
-    .bind(id, novo.categoria, novo.nome, novo.telefone, novo.email, novo.nascimento, novo.quantidade)
-    .run();
-  await auditar(db, c.get('usuario').id, 'convite_editado', String(id));
+  const campos = `categoria = ?2, nome = ?3, telefone = ?4, email = ?5, nascimento = ?6, quantidade = ?7`;
+  const vals = [id, novo.categoria, novo.nome, novo.telefone, novo.email, novo.nascimento, novo.quantidade];
+
+  if (atual.status === 'resgatado') {
+    const mudouContato = novo.telefone !== atual.telefone || (novo.email || null) !== (atual.email || null);
+    const cnt = await db
+      .prepare(
+        `SELECT SUM(status = 'usado') AS usados, SUM(status = 'valido') AS validos FROM ingressos WHERE convite_id = ?1`,
+      )
+      .bind(id)
+      .first();
+    const usados = cnt?.usados || 0;
+    const validos = cnt?.validos || 0;
+    if (mudouContato) {
+      if (usados > 0) throw new HttpError(409, 'Já entrou gente com esta cortesia na portaria, então não dá para trocar o celular ou e-mail.');
+      await db.batch([
+        db.prepare(`UPDATE ingressos SET status = 'cancelado' WHERE convite_id = ?1 AND status = 'valido'`).bind(id),
+        db.prepare(`UPDATE convites SET ${campos}, status = 'pendente', usuario_id = NULL, resgatado_em = NULL WHERE id = ?1 AND status = 'resgatado'`).bind(...vals),
+      ]);
+      await auditar(db, c.get('usuario').id, 'convite_contato_trocado', String(id));
+      // segue para a liberação automática abaixo
+    } else {
+      const diff = novo.quantidade - (usados + validos);
+      if (diff < 0 && validos < -diff) throw new HttpError(409, 'Só dá para reduzir ingressos que ainda não foram usados na portaria.');
+      const ops = [db.prepare(`UPDATE convites SET ${campos} WHERE id = ?1 AND status = 'resgatado'`).bind(...vals)];
+      if (diff < 0) {
+        ops.push(
+          db.prepare(`UPDATE ingressos SET status = 'cancelado' WHERE id IN (SELECT id FROM ingressos WHERE convite_id = ?1 AND status = 'valido' ORDER BY id DESC LIMIT ?2)`).bind(id, -diff),
+        );
+      }
+      for (let n = 0; n < diff; n++) {
+        ops.push(
+          db
+            .prepare(
+              `INSERT INTO ingressos (pedido_id, evento_id, lote_id, dono_id, tipo, status, criado_em, motivo, categoria, convite_id)
+               VALUES (NULL, ?1, NULL, ?2, 'cortesia', 'valido', ?3, ?4, ?5, ?6)`,
+            )
+            .bind(atual.evento_id, atual.usuario_id, agora(), ROTULO_CATEGORIA[novo.categoria], novo.categoria, id),
+        );
+      }
+      if (novo.categoria !== atual.categoria) {
+        ops.push(db.prepare(`UPDATE ingressos SET motivo = ?2, categoria = ?3 WHERE convite_id = ?1 AND status = 'valido'`).bind(id, ROTULO_CATEGORIA[novo.categoria], novo.categoria));
+      }
+      await db.batch(ops);
+      await auditar(db, c.get('usuario').id, 'convite_editado', `${id} (resgatado, ${diff >= 0 ? '+' : ''}${diff} ingresso(s))`);
+      return c.json({ ok: true, resgatado: true, ajustado: true });
+    }
+  } else {
+    await db.prepare(`UPDATE convites SET ${campos} WHERE id = ?1 AND status = 'pendente'`).bind(...vals).run();
+    await auditar(db, c.get('usuario').id, 'convite_editado', String(id));
+  }
   const conta = await db
     .prepare(`SELECT id, telefone, email FROM usuarios WHERE ativo = 1 AND (telefone = ?1 OR (?2 IS NOT NULL AND lower(email) = ?2)) LIMIT 1`)
     .bind(novo.telefone, novo.email)

@@ -358,7 +358,7 @@ test('cortesias: resgate no cadastro (telefone), portaria com 4 últimos número
   assert.equal((await dj.post(`/api/convites/${cv.json.token}/resgatar`)).json.ja, true); // idempotente
   assert.equal((await intruso.post(`/api/convites/${cv.json.token}/resgatar`)).status, 409); // já resgatado
   assert.equal((await new Cliente().get(`/api/convites/${cv.json.token}`)).json.estado, 'resgatado');
-  assert.equal((await admin.put(`/api/admin/convites/${cv.json.id}`, { nome: 'Outro' })).status, 409); // resgatado não edita
+  assert.equal((await admin.put(`/api/admin/convites/${cv.json.id}`, { nome: 'Outro' })).status, 200); // resgatado agora pode ser ajustado (nome)
 
   // portaria: lista exige os 4 últimos números do telefone do convite
   const alvo = tel.slice(-4);
@@ -872,4 +872,41 @@ test('contato: WhatsApp opcional, normalizado, validado e público', async () =>
   assert.equal(r.json.contato_whatsapp, '5511988887777');
   assert.equal((await admin.put('/api/admin/config', { contato_whatsapp: '' })).status, 200);
   assert.equal((await new Cliente().get('/api/contato')).json.contato_whatsapp, '');
+});
+
+test('cortesias: editar convite já resgatado (quantidade, troca de celular por engano, cancelado não edita)', async () => {
+  const telErrado = telUnico();
+  const c = new Cliente();
+  assert.equal((await c.post('/api/auth/cadastro', dados({ telefone: telErrado }))).status, 201);
+  const cv = await admin.post('/api/admin/convites', { categoria: 'dj', nome: 'DJ Teste', telefone: telErrado, quantidade: 1 });
+  assert.equal(cv.json.resgatado, true);
+  const meus = async (cl) => (await cl.get('/api/meus-ingressos')).json.ingressos.filter((i) => i.status === 'valido').length;
+  assert.equal(await meus(c), 1);
+
+  // precisa de mais uma cortesia: edita em vez de criar outra
+  let r = await admin.put(`/api/admin/convites/${cv.json.id}`, { quantidade: 2 });
+  assert.equal(r.status, 200);
+  assert.equal(await meus(c), 2);
+  r = await admin.put(`/api/admin/convites/${cv.json.id}`, { quantidade: 1 });
+  assert.equal(r.status, 200);
+  assert.equal(await meus(c), 1);
+  // mudar a categoria muda o motivo do ingresso
+  assert.equal((await admin.put(`/api/admin/convites/${cv.json.id}`, { categoria: 'convidado' })).status, 200);
+  assert.equal((await c.get('/api/meus-ingressos')).json.ingressos.find((i) => i.status === 'valido').motivo, 'Amigo/parceiro');
+
+  // cadastrou com o celular errado: troca o celular, os ingressos da conta errada somem e o convite volta a pendente
+  const telCerto = telUnico();
+  assert.equal((await admin.put(`/api/admin/convites/${cv.json.id}`, { telefone: telCerto })).status, 200);
+  assert.equal(await meus(c), 0);
+  let lista = (await admin.get('/api/admin/convites')).json.convites.find((x) => x.id === cv.json.id);
+  assert.equal(lista.status, 'pendente');
+  // a pessoa certa se cadastra e recebe
+  const certo = new Cliente();
+  assert.equal((await certo.post('/api/auth/cadastro', dados({ telefone: telCerto }))).status, 201);
+  assert.equal((await certo.get("/api/me")).json.convites_resgatados, 1); // o resgate roda ao abrir a conta
+  assert.equal(await meus(certo), 1);
+
+  // cancelado não se edita
+  assert.equal((await admin.post(`/api/admin/convites/${cv.json.id}/cancelar`, {})).status, 200);
+  assert.equal((await admin.put(`/api/admin/convites/${cv.json.id}`, { quantidade: 2 })).status, 409);
 });
