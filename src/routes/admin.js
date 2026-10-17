@@ -30,7 +30,10 @@ const publicas = (cfg) => {
   for (const k of SEGREDOS_CONFIG) delete o[k];
   return o;
 };
-r.get('/admin/config', async (c) => c.json(publicas(await configuracoes(c.env.DB))));
+r.get('/admin/config', async (c) => {
+  const fl = await c.env.DB.prepare(`SELECT 1 AS x FROM arquivos WHERE nome = 'flyer'`).first();
+  return c.json({ ...publicas(await configuracoes(c.env.DB)), flyer_personalizado: !!fl });
+});
 
 r.put('/admin/config', async (c) => {
   const b = await corpo(c);
@@ -614,6 +617,32 @@ r.put('/admin/pin', async (c) => {
     .bind(await hmacHex(c.env.PEPPER, `pin|${pin}`))
     .run();
   await auditar(c.env.DB, c.get('usuario').id, 'pin_definido');
+  return c.json({ ok: true });
+});
+
+// ---------- Flyer da tela de agradecimento ----------
+const TIPOS_IMG = { 'image/jpeg': [0xff, 0xd8, 0xff], 'image/png': [0x89, 0x50, 0x4e, 0x47], 'image/webp': [0x52, 0x49, 0x46, 0x46] };
+r.put('/admin/flyer', async (c) => {
+  const b = await corpo(c);
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(b.imagem ?? ''));
+  if (!m) throw new HttpError(400, 'Envie uma imagem JPG, PNG ou WebP.');
+  let bin;
+  try { bin = atob(m[2]); } catch { throw new HttpError(400, 'Imagem inválida.'); }
+  if (bin.length > 1_500_000) throw new HttpError(413, 'Imagem grande demais (máx. 1,5 MB).');
+  const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
+  if (!TIPOS_IMG[m[1]].every((x, i) => bytes[i] === x)) throw new HttpError(400, 'O arquivo não parece ser uma imagem válida.');
+  await c.env.DB.prepare(
+    `INSERT INTO arquivos (nome, tipo, dados, atualizado_em) VALUES ('flyer', ?1, ?2, ?3)
+     ON CONFLICT(nome) DO UPDATE SET tipo = excluded.tipo, dados = excluded.dados, atualizado_em = excluded.atualizado_em`,
+  )
+    .bind(m[1], bytes, agora())
+    .run();
+  await auditar(c.env.DB, c.get('usuario').id, 'flyer_trocado');
+  return c.json({ ok: true });
+});
+r.delete('/admin/flyer', async (c) => {
+  await c.env.DB.prepare(`DELETE FROM arquivos WHERE nome = 'flyer'`).run();
+  await auditar(c.env.DB, c.get('usuario').id, 'flyer_padrao');
   return c.json({ ok: true });
 });
 

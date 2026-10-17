@@ -63,4 +63,14 @@ r.get('/contato', async (c) => {
   return c.json({ contato: cfg.contato || '', termos_versao: TERMOS_VERSAO });
 });
 
+// Flyer da tela de agradecimento: o que o admin enviou; sem envio, cai no flyer padrão do site.
+r.get('/flyer', async (c) => {
+  const f = await c.env.DB.prepare(`SELECT tipo, dados, atualizado_em FROM arquivos WHERE nome = 'flyer'`).first();
+  if (!f) return c.redirect('/flyer-story.jpg', 302);
+  const etag = `"${f.atualizado_em}"`;
+  const cab = { ETag: etag, 'Cache-Control': 'no-cache' };
+  if (c.req.header('if-none-match') === etag) return new Response(null, { status: 304, headers: cab });
+  return new Response(new Uint8Array(f.dados), { headers: { ...cab, 'Content-Type': f.tipo } });
+});
+
 export default r;

@@ -844,3 +844,22 @@ test('push: estado da assinatura (registrada / não registrada / cancelada)', as
   const { c: comprador } = await novoComprador();
   assert.equal((await comprador.get(`/api/admin/push/estado?endpoint=${encodeURIComponent(ep)}`)).status, 403);
 });
+
+test('flyer: padrão por redirect, admin troca, valida tipo e volta ao padrão', async () => {
+  const c = new Cliente();
+  const sem = await fetch(BASE + '/api/flyer', { redirect: 'manual' });
+  assert.equal(sem.status, 302);
+  // PNG mínimo de 1x1
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+  assert.equal((await c.put('/api/admin/flyer', { imagem: png })).status, 401);
+  assert.equal((await admin.put('/api/admin/flyer', { imagem: 'data:image/png;base64,AAAA' })).status, 400); // bytes não são PNG
+  assert.equal((await admin.put('/api/admin/flyer', { imagem: 'texto' })).status, 400);
+  assert.equal((await admin.put('/api/admin/flyer', { imagem: png })).status, 200);
+  assert.equal((await admin.get('/api/admin/config')).json.flyer_personalizado, true);
+  const r = await fetch(BASE + '/api/flyer');
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-type'), 'image/png');
+  assert.equal((await r.arrayBuffer()).byteLength, 70);
+  assert.equal((await admin.req('DELETE', '/api/admin/flyer', {})).status, 200);
+  assert.equal((await fetch(BASE + '/api/flyer', { redirect: 'manual' })).status, 302);
+});

@@ -408,9 +408,9 @@ rota('/pedido/([A-Za-z0-9]+)', async (codigo) => {
       corpo = `<div class="card atual"><b>Pagamento confirmado!</b><p class="mudo">Seus ingressos estão em "Meus ingressos".</p><a class="bt" href="#/meus">Ver meus ingressos</a></div>
       <div class="card obrigado"><b>Ingresso garantido, te vejo dia 23 🫶🏼</b>
         <p class="mudo">Se quiser dar uma força, posta o flyer nos seus stories. Ajuda a festa a encher.</p>
-        <img src="/flyer-story.jpg" alt="Flyer After D'adega">
+        <img src="/api/flyer" alt="Flyer da festa">
         <div class="acoes2"><button class="bt bloco" id="stories">Postar nos stories</button>
-        <a class="bt sec bloco" href="/flyer-story.jpg" download="after-dadega.jpg" id="baixarflyer">Baixar imagem</a></div></div>`;
+        <a class="bt sec bloco" href="/api/flyer" download="flyer-festa.jpg" id="baixarflyer">Baixar imagem</a></div></div>`;
     } else if (p.status === 'expirado') {
       corpo = `<div class="card"><b>Reserva expirada.</b><p class="mudo">Se você já pagou, fale com a organização informando o código ${esc(p.codigo)}. Caso contrário, faça um novo pedido.</p><a class="bt sec" href="#/">Voltar</a></div>`;
     } else {
@@ -452,8 +452,8 @@ rota('/pedido/([A-Za-z0-9]+)', async (codigo) => {
     document.getElementById('stories')?.addEventListener('click', async (e) => {
       const bt = e.currentTarget;
       try {
-        const blob = await (await fetch('/flyer-story.jpg')).blob();
-        const arq = new File([blob], 'after-dadega.jpg', { type: 'image/jpeg' });
+        const blob = await (await fetch('/api/flyer')).blob();
+        const arq = new File([blob], 'flyer-festa.jpg', { type: blob.type || 'image/jpeg' });
         if (navigator.canShare && navigator.canShare({ files: [arq] })) {
           await navigator.share({ files: [arq] });
           return;
@@ -946,7 +946,7 @@ const ABAS = [
   ['pedidos', 'Pedidos'],
   ['eventos', 'Eventos'],
   ['lotes', 'Lotes e cupons'],
-  ['config', 'Pix e taxas'],
+  ['config', 'Configurações'],
   ['cortesias', 'Cortesias'],
   ['usuarios', 'Usuários'],
   ['avisos', 'Avisos'],
@@ -1283,11 +1283,32 @@ rota('/admin/lotes', async () => {
 
 rota('/admin/config', async () => {
   if (!exigirAdmin()) return;
-  const c = await api('GET', '/admin/config');
+  const [c, sitPush] = await Promise.all([api('GET', '/admin/config'), verificarPush(true)]);
+  const TXT_PUSH = { ok: 'ativadas neste aparelho', desativado: 'desativadas', bloqueado: 'bloqueadas pelo navegador', instalar: 'instale o app no iPhone', sem_suporte: 'sem suporte neste navegador' };
   const resumoPix = c.pix_chave ? `${esc(c.pix_nome || '')} · ${esc(c.pix_chave)}` : '<b style="color:var(--erro)">não configurada</b>';
   layoutAdmin(
     'config',
     `<h2 id="secoes-config">Configurações</h2>
+    <details class="item" id="det-push"><summary><b>Notificações</b><span class="peq">${esc(TXT_PUSH[sitPush] || 'verificando…')}</span></summary>
+      <div class="card"><p class="peq" style="margin-top:0">Avisos de compra, pedido em pagamento e erros de confirmação na portaria chegam como notificação neste aparelho. O sino no menu faz o mesmo.</p>
+        <div class="acoes">
+          <button type="button" class="bt peq" id="push-ativar">${sitPush === 'ok' ? 'Reativar neste aparelho' : 'Ativar notificações'}</button>
+          <button type="button" class="bt sec peq" id="push-teste"${sitPush === 'ok' ? '' : ' disabled'}>Enviar teste</button>
+          <button type="button" class="bt perigo peq" id="push-desligar"${sitPush === 'ok' ? '' : ' disabled'}>Desativar neste aparelho</button>
+        </div></div></details>
+    <details class="item"><summary><b>Flyer da tela de agradecimento</b><span class="peq">${c.flyer_personalizado ? 'enviado por você' : 'padrão'}</span></summary>
+      <div class="card"><p class="peq" style="margin-top:0">Aparece depois do pagamento, com o botão de postar nos stories. Use imagem vertical (9:16 funciona melhor). A troca vale na hora.</p>
+        <img id="flyer-prev" src="/api/flyer?v=${Date.now()}" alt="Flyer atual" style="width:100%;max-width:12rem;border-radius:10px;display:block;margin:.5rem 0">
+        <input type="file" id="flyer-arq" accept="image/*" hidden>
+        <div class="acoes">
+          <button type="button" class="bt peq" id="flyer-trocar">Escolher nova imagem</button>
+          ${c.flyer_personalizado ? '<button type="button" class="bt sec peq" id="flyer-padrao">Voltar ao padrão</button>' : ''}
+        </div></div></details>
+    <details class="item"><summary><b>Senha de desbloqueio da recepção</b><span class="peq">${c.pin_definido ? 'definida' : '<b style="color:var(--erro)">não definida</b>'}</span></summary>
+      <form class="card" id="fpin">
+        <p class="peq" style="margin-top:0">${c.pin_definido ? 'Já definida.' : '<b>Ainda não definida</b> — sem ela a recepcionista não consegue desfazer entradas.'} Ela precisa digitá-la para desfazer uma entrada; você recebe um aviso a cada uso.</p>
+        <label>Nova senha (4 a 12 caracteres)</label><input name="pin" required minlength="4" maxlength="12" autocomplete="off">
+        <button class="bt peq" style="margin-top:.75rem">Salvar senha</button></form></details>
     <details class="item"><summary><b>Recebimento por Pix</b><span class="peq">${resumoPix}</span></summary>
       <form class="card" data-sec="pix">
         <label>Tipo da chave Pix</label>
@@ -1313,6 +1334,44 @@ rota('/admin/config', async () => {
         <label>Aparece nas páginas de termos e privacidade</label><input name="contato" value="${esc(c.contato || '')}" maxlength="200" placeholder="WhatsApp (11) 99999-9999 · e-mail">
         <button class="bt peq" style="margin-top:.75rem">Salvar contato</button></form></details>`,
   );
+  document.getElementById('push-ativar').addEventListener('click', (e) =>
+    ativarPush(e.currentTarget).then(() => irParaLista('#secoes-config')).catch((er) => aviso(er.message, 'erro')));
+  document.getElementById('push-teste').addEventListener('click', () => testarPush());
+  document.getElementById('push-desligar').addEventListener('click', () => desativarPushManual().then(() => irParaLista('#secoes-config')));
+  document.getElementById('fpin').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    comEspera(f.querySelector('button'), async () => {
+      await api('PUT', '/admin/pin', { pin: f.pin.value });
+      aviso('Senha de desbloqueio salva.');
+      await irParaLista('#secoes-config');
+    });
+  });
+  const arq = document.getElementById('flyer-arq');
+  document.getElementById('flyer-trocar').addEventListener('click', () => arq.click());
+  arq.addEventListener('change', () =>
+    comEspera(document.getElementById('flyer-trocar'), async () => {
+      const f = arq.files[0];
+      if (!f) return;
+      const bmp = await createImageBitmap(f).catch(() => null);
+      if (!bmp) throw new Error('Não consegui abrir essa imagem. Tente um JPG ou PNG.');
+      const esc2 = Math.min(1, 1920 / Math.max(bmp.width, bmp.height));
+      const cv = document.createElement('canvas');
+      cv.width = Math.round(bmp.width * esc2);
+      cv.height = Math.round(bmp.height * esc2);
+      cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+      let q = 0.9, url = cv.toDataURL('image/jpeg', q);
+      while (url.length > 1_900_000 && q > 0.4) { q -= 0.1; url = cv.toDataURL('image/jpeg', q); }
+      await api('PUT', '/admin/flyer', { imagem: url });
+      aviso('Flyer atualizado.');
+      await irParaLista('#secoes-config');
+    }));
+  document.getElementById('flyer-padrao')?.addEventListener('click', (e) =>
+    comEspera(e.currentTarget, async () => {
+      await api('DELETE', '/admin/flyer');
+      aviso('Flyer padrão restaurado.');
+      await irParaLista('#secoes-config');
+    }));
   const fp = app.querySelector('form[data-sec=pix]');
   fp.pix_tipo.value = detectarTipoPix(fp.pix_chave.value);
   const dicaPix = () => (document.getElementById('dica-pix').textContent = DICAS_PIX[fp.pix_tipo.value]);
@@ -1967,15 +2026,11 @@ setInterval(() => verificarPush(true), 5 * 60 * 1000);
 
 rota('/admin/avisos', async () => {
   if (!exigirAdmin()) return;
-  const [d, cfg] = await Promise.all([api('GET', '/admin/alertas'), api('GET', '/admin/config')]);
+  const d = await api('GET', '/admin/alertas');
   verificarPush(true);
   layoutAdmin(
     'avisos',
-    `<form class="card" id="fpin"><h2 style="margin-top:0">Senha de desbloqueio da recepção</h2>
-      <p class="peq">${cfg.pin_definido ? 'Já definida.' : '<b>Ainda não definida</b> — sem ela a recepcionista não consegue desfazer entradas.'} Ela precisa digitá-la para desfazer uma entrada; você recebe um aviso a cada uso.</p>
-      <label>Nova senha (4 a 12 caracteres)</label><input name="pin" required minlength="4" maxlength="12" autocomplete="off">
-      <button class="bt bloco">Salvar senha</button></form>
-    <div class="card"><div class="linha"><h2 style="margin:0">Avisos</h2>${d.nao_lidos ? '<button class="bt sec peq" id="lidos">Marcar como lidos</button>' : ''}</div>
+    `<div class="card"><div class="linha"><h2 style="margin:0">Avisos</h2>${d.nao_lidos ? '<button class="bt sec peq" id="lidos">Marcar como lidos</button>' : ''}</div>
       ${d.alertas.length ? d.alertas.map((a) => `<div class="linha" style="margin-top:.6rem"><div>${a.lido_em ? '' : '<span class="badge">novo</span> '}${esc(a.detalhe)}<div class="peq">${hora(a.criado_em)}</div></div></div>`).join('') : '<p class="mudo">Nenhum aviso ainda.</p>'}
     </div>`,
   );
@@ -1986,15 +2041,6 @@ rota('/admin/avisos', async () => {
       navegar();
     }),
   );
-  document.getElementById('fpin').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const f = e.target;
-    comEspera(f.querySelector('button'), async () => {
-      await api('PUT', '/admin/pin', { pin: f.pin.value });
-      f.reset();
-      aviso('Senha de desbloqueio salva.');
-    });
-  });
 });
 
 const CATEGORIAS_CONV = { dj: 'DJ', aniversariante: 'Aniversariante', convidado: 'Amigo / parceiro' };
