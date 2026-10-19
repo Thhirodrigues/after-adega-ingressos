@@ -1431,7 +1431,6 @@ rota('/admin/usuarios', async () => {
   layoutAdmin(
     'usuarios',
     `${resets}
-    <div class="acoes" style="margin:.25rem 0"><button class="bt sec peq" id="corrigir-nomes" type="button">Corrigir nomes em caixa alta</button></div>
     <h2 id="lista-usuarios" class="h-mais">Usuários (${u.usuarios.length}) <button type="button" class="mais" data-abre="f" aria-label="Novo usuário" title="Cadastrar hostess ou admin">+</button></h2>
     ${u.usuarios
       .map(
@@ -1449,13 +1448,6 @@ rota('/admin/usuarios', async () => {
       <div class="linha"><button class="bt peq">Cadastrar</button><button type="button" class="bt sec peq" data-fecha="f">Cancelar</button></div></form>`,
   );
   ligarMais();
-  document.getElementById('corrigir-nomes').addEventListener('click', (e) =>
-    comEspera(e.target, async () => {
-      const r = await api('POST', '/admin/corrigir-nomes', {});
-      aviso(r.corrigidos ? `${r.corrigidos} nome(s) corrigido(s).` : 'Nenhum nome em caixa alta.');
-      if (r.corrigidos) navegar();
-    }),
-  );
   app.querySelectorAll('select[data-papel]').forEach((sel) =>
     sel.addEventListener('change', async () => {
       if (!confirm(`Mudar o perfil desta pessoa para "${sel.value}"?`)) return navegar();

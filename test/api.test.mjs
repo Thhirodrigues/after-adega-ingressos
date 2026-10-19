@@ -910,25 +910,3 @@ test('cortesias: editar convite já resgatado (quantidade, troca de celular por 
   assert.equal((await admin.post(`/api/admin/convites/${cv.json.id}/cancelar`, {})).status, 200);
   assert.equal((await admin.put(`/api/admin/convites/${cv.json.id}`, { quantidade: 2 })).status, 409);
 });
-
-test('corrigir nomes em caixa alta já salvos: só usuários totalmente maiúsculos', async () => {
-  const c = new Cliente();
-  assert.equal((await c.post('/api/auth/cadastro', dados({ nome: 'Ana', sobrenome: 'Teste' }))).status, 201);
-  const m = (await c.get('/api/me')).json;
-  const id = (m.usuario ?? m).id;
-  const c2 = new Cliente();
-  assert.equal((await c2.post('/api/auth/cadastro', dados({ nome: 'Ronald', sobrenome: 'Mcdonaldx' }))).status, 201);
-  const id2 = ((await c2.get('/api/me')).json.usuario ?? (await c2.get('/api/me')).json).id;
-  // nomes antigos gravados antes da normalização: um todo em maiúsculas e outro misto
-  sql(`UPDATE usuarios SET nome = 'CARLOS EDUARDO', sobrenome = 'DA SILVA' WHERE id = ${id}; UPDATE usuarios SET sobrenome = 'McDonald' WHERE id = ${id2}`);
-  assert.equal((await c.post('/api/admin/corrigir-nomes')).status, 403);
-  const r = await admin.post('/api/admin/corrigir-nomes');
-  assert.equal(r.status, 200, JSON.stringify(r.json));
-  assert.ok(r.json.corrigidos >= 1);
-  const us = (await admin.get('/api/admin/usuarios')).json.usuarios;
-  const u = us.find((x) => x.id === id);
-  assert.equal(u.nome, 'Carlos Eduardo');
-  assert.equal(u.sobrenome, 'Da Silva');
-  assert.ok(us.some((x) => x.sobrenome === 'McDonald'), 'nome misto não é alterado');
-  assert.equal((await admin.post('/api/admin/corrigir-nomes')).json.corrigidos, 0, 'idempotente');
-});

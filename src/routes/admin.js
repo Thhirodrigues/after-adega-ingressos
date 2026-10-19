@@ -332,30 +332,6 @@ r.get('/admin/usuarios', async (c) => {
   return c.json({ usuarios: results });
 });
 
-// Corrige nomes de usuários que já estavam salvos em CAIXA ALTA. Convites de cortesia ficam como o admin digitou (ex.: nome artístico de DJ).
-// Só mexe em nomes totalmente em maiúsculas; os que já têm minúsculas (ex.: "McDonald") ficam como estão.
-const tudoMaiusculo = (x) => {
-  const t = String(x ?? '');
-  return /\p{L}{2,}/u.test(t) && t === t.toLocaleUpperCase('pt-BR') && t !== t.toLocaleLowerCase('pt-BR');
-};
-r.post('/admin/corrigir-nomes', async (c) => {
-  const db = c.env.DB;
-  const trocas = [];
-  const stmts = [];
-  const { results: us } = await db.prepare('SELECT id, nome, sobrenome FROM usuarios').all();
-  for (const u of us) {
-    const nome = tudoMaiusculo(u.nome) ? v.nomeProprio(u.nome, 'Nome', 1, 80) : u.nome;
-    const sobrenome = tudoMaiusculo(u.sobrenome) ? v.nomeProprio(u.sobrenome, 'Sobrenome', 1, 80) : u.sobrenome;
-    if (nome !== u.nome || sobrenome !== u.sobrenome) {
-      stmts.push(db.prepare('UPDATE usuarios SET nome = ?2, sobrenome = ?3 WHERE id = ?1').bind(u.id, nome, sobrenome));
-      trocas.push(`${u.nome} ${u.sobrenome} → ${nome} ${sobrenome}`);
-    }
-  }
-  if (stmts.length) await db.batch(stmts);
-  await auditar(db, c.get('usuario').id, 'nomes_corrigidos', String(trocas.length));
-  return c.json({ ok: true, corrigidos: trocas.length, trocas });
-});
-
 // Cria hostess/admin com senha provisória (o navegador do admin já envia a senha esticada).
 r.post('/admin/usuarios', async (c) => {
   const b = await corpo(c);
