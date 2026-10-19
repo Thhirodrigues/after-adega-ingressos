@@ -1004,7 +1004,7 @@ rota('/admin/financeiro', async () => {
       ${kpi('Por cartão', brl(r.recebido_cartao_centavos))}
       ${kpi('Em dinheiro', brl(r.recebido_dinheiro_centavos))}
     </div>
-    <p class="peq">Total sem taxas: <b>${brl(r.total_recebido_centavos - r.taxa_servico_centavos)}</b> &nbsp;·&nbsp; Taxas recebidas: <b>${brl(r.taxa_servico_centavos)}</b></p>
+    <p class="peq linha-taxas"><span>Total sem taxas: <b>${brl(r.total_recebido_centavos - r.taxa_servico_centavos)}</b></span><span>Taxas recebidas: <b>${brl(r.taxa_servico_centavos)}</b></span></p>
     <h2>Ingressos</h2>
     <div class="kpis">
       ${kpi('Vendidos (pagos)', r.ingressos_vendidos)}
