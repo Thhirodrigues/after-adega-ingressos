@@ -9,6 +9,18 @@ export function texto(v, campo, min, max) {
   return s;
 }
 
+// Nome próprio: "JOÃO DA SILVA", "joão da silva" e "João Da Silva" viram "João da Silva".
+// Cada palavra começa em maiúscula (inclusive depois de hífen ou apóstrofo); preposições ficam minúsculas.
+const PREPOSICOES = new Set(['da', 'das', 'de', 'do', 'dos', 'e']);
+export function nomeProprio(v, campo, min, max) {
+  const s = texto(v, campo, min, max);
+  return s
+    .toLocaleLowerCase('pt-BR')
+    .split(' ')
+    .map((p, i) => (i > 0 && PREPOSICOES.has(p) ? p : p.replace(/(^|[-'’])(\p{L})/gu, (_, sep, l) => sep + l.toLocaleUpperCase('pt-BR'))))
+    .join(' ');
+}
+
 export function inteiro(v, campo, min, max) {
   const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
   if (!Number.isInteger(n) || n < min || n > max) {

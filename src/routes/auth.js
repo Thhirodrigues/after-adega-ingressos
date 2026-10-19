@@ -82,8 +82,8 @@ export function lerDadosUsuario(b, { exigirResposta = false } = {}) {
   return {
     resposta,
     cpf: v.cpf(b.cpf),
-    nome: v.texto(b.nome, 'Nome', 2, 40),
-    sobrenome: v.texto(b.sobrenome, 'Sobrenome', 2, 60),
+    nome: v.nomeProprio(b.nome, 'Nome', 2, 40),
+    sobrenome: v.nomeProprio(b.sobrenome, 'Sobrenome', 2, 60),
     email: v.email(b.email),
     telefone: v.telefone(b.telefone),
     senha: v.senhaDerivada(b.senha),

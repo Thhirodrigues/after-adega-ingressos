@@ -593,7 +593,7 @@ test('exportações CSV: só admin; sem CPF; protege contra fórmula', async () 
   const ped = await c2.post('/api/pedidos', { aceito_termos: true, lote_id: loteId, quantidade: 1, nome_pagador: 'Fulano de Tal' });
   assert.equal(ped.status, 201);
   const v2 = await (await fetch(BASE + '/api/admin/export/vendas.csv', { headers: { cookie: admin.cookie } })).text();
-  assert.ok(v2.includes('"\'=SOMA Teste"'));
+  assert.ok(v2.includes('"\'=soma Teste"'), 'nome é normalizado e o CSV protege contra fórmula');
 });
 
 test('venda presencial: dinheiro/porta, sem taxa, estoque atômico, lote só-porta oculto online', async () => {
