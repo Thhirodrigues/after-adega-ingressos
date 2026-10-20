@@ -930,3 +930,27 @@ test('venda na porta: celular do convidado é opcional, validado e vai para o CS
   const lista = JSON.stringify((await hostess.get('/api/portaria/lista')).json);
   assert.ok(!lista.includes('5511988887777'));
 });
+
+test('portaria: lote "Só online" não aparece na venda; lote "Só na porta" aparece mesmo inativo', async () => {
+  const hostess = new Cliente();
+  const hd = dados();
+  assert.equal((await admin.post('/api/admin/usuarios', { ...hd, papel: 'hostess' })).status, 201);
+  assert.equal((await hostess.post('/api/auth/login', { cpf: hd.cpf, senha: hd.senha })).status, 200);
+  const mk = (nome, canal, ativo) => admin.post('/api/admin/lotes', { evento_id: eventoId, nome, valor_centavos: 2500, quantidade: 5, ativo, canal });
+  const on = (await mk('Só online X', 'online', true)).json.id;
+  const porta = (await mk('Porta inativa X', 'porta', false)).json.id;
+  const todosInativo = (await mk('Todos inativo X', 'todos', false)).json.id;
+  const ids = (await hostess.get('/api/portaria/lotes-venda')).json.lotes.map((l) => l.id);
+  assert.ok(!ids.includes(on), 'só online não aparece');
+  assert.ok(ids.includes(porta), 'só na porta aparece mesmo com "ativo" desmarcado');
+  assert.ok(!ids.includes(todosInativo), 'online+porta inativo não aparece');
+  const venda = (lote_id) => hostess.post('/api/portaria/venda', { lote_id, quantidade: 1, nomes: ['Teste Porta'], forma: 'dinheiro' });
+  assert.equal((await venda(on)).status, 404);
+  assert.equal((await venda(todosInativo)).status, 404);
+  assert.equal((await venda(porta)).status, 201);
+  const l = (await admin.get('/api/admin/lotes')).json.lotes.find((x) => x.id === porta);
+  assert.equal(l.vendidos, 1);
+  assert.equal(l.reservados, 0);
+  // e continua invisível/indisponível online
+  assert.ok(!(await new Cliente().get('/api/evento')).json.lotes.some((x) => x.id === porta));
+});

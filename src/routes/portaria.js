@@ -206,7 +206,7 @@ r.get('/portaria/lotes-venda', async (c) => {
   const { results } = await db
     .prepare(
       `SELECT id, nome, valor_centavos, canal, (quantidade - vendidos - reservados) AS disponiveis
-         FROM lotes WHERE evento_id = ?1 AND ativo = 1 AND canal <> 'online' ORDER BY ordem, id`,
+         FROM lotes WHERE evento_id = ?1 AND (ativo = 1 OR canal = 'porta') AND canal <> 'online' ORDER BY ordem, id`,
     )
     .bind(ev.id)
     .all();

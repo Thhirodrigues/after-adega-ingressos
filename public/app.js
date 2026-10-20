@@ -1202,7 +1202,7 @@ rota('/admin/lotes', async () => {
         <div><label>Ordem de venda (1 = primeiro)</label><input name="ordem" inputmode="numeric" value="${l.ordem}"></div>
         <div><label>Quem pode comprar</label><select name="canal"><option value="todos" ${l.canal === 'todos' ? 'selected' : ''}>Online e na porta</option><option value="online" ${l.canal === 'online' ? 'selected' : ''}>Só online</option><option value="porta" ${l.canal === 'porta' ? 'selected' : ''}>Só na porta</option></select></div>
       </div>
-      <label><input type="checkbox" name="ativo" ${l.ativo ? 'checked' : ''} style="width:auto"> Lote ativo (visível para venda)</label>
+      <label><input type="checkbox" name="ativo" ${l.ativo ? 'checked' : ''} style="width:auto"> Lote ativo (venda online; lote “Só na porta” aparece na portaria mesmo desmarcado)</label>
       <button class="bt peq" style="margin-top:.75rem">Salvar lote</button></form></details>`,
     )
     .join('');

@@ -288,7 +288,8 @@ export async function venderPresencial(db, vendedor, { loteId, quantidade, nomes
     )
     .bind(loteId)
     .first();
-  if (!lote || !lote.ativo || !lote.evento_ativo || lote.canal === 'online') {
+  // "Lote ativo" vale só para a venda online: lote "Só na porta" vende na portaria mesmo desmarcado.
+  if (!lote || (!lote.ativo && lote.canal !== 'porta') || !lote.evento_ativo || lote.canal === 'online') {
     throw new HttpError(404, 'Lote indisponível para venda presencial.');
   }
   const t = agora();
@@ -307,14 +308,14 @@ export async function venderPresencial(db, vendedor, { loteId, quantidade, nomes
                     CAST(?3 * l.valor_centavos AS INTEGER), 0, CAST(?3 * l.valor_centavos AS INTEGER),
                     ?4, 'aguardando_pagamento', 1, 0, ?5, ?6, 'porta', ?2, ?7
                FROM lotes l
-              WHERE l.id = ?8 AND l.ativo = 1 AND l.canal <> 'online'
+              WHERE l.id = ?8 AND (l.ativo = 1 OR l.canal = 'porta') AND l.canal <> 'online'
                 AND (l.quantidade - l.vendidos - l.reservados) >= ?3`,
           )
           .bind(cod, vendedor.id, quantidade, nomes[0], t, t + 120, forma, loteId),
         db
           .prepare(
             `UPDATE lotes SET reservados = reservados + ?1
-              WHERE id = ?2 AND ativo = 1 AND (quantidade - vendidos - reservados) >= ?1`,
+              WHERE id = ?2 AND (ativo = 1 OR canal = 'porta') AND (quantidade - vendidos - reservados) >= ?1`,
           )
           .bind(quantidade, loteId),
       ]);
