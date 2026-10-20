@@ -1783,7 +1783,12 @@ rota('/portaria', async () => {
       <label>Forma de pagamento</label>
       <div class="grade"><label class="check" style="margin:0"><input type="radio" name="forma" value="dinheiro" checked> <span>Dinheiro</span></label>
       <label class="check" style="margin:0"><input type="radio" name="forma" value="pix_chave"> <span>Pix</span></label>
-      <label class="check" style="margin:0"><input type="radio" name="forma" value="cartao"> <span>Cartão</span></label></div>
+      <label class="check" style="margin:0"><input type="radio" name="forma" value="cartao"> <span>Cartão (Maquininha)</span></label></div>
+      <div class="card" id="vpix" hidden style="background:var(--campo);margin-top:.6rem">
+        <div class="linha"><span class="peq">Chave Pix (CNPJ) · PagSeguro</span><button type="button" class="bt sec peq" id="vpixcopiar">Copiar</button></div>
+        <b style="font-family:var(--mono);font-size:1.05rem;letter-spacing:.02em">37318148000189</b>
+        <p class="peq" style="margin:.4rem 0 0">Favorecido: 37.318.148 THIAGO RODRIGUES CHAVES</p>
+      </div>
       <p class="peq">A entrada de todos é marcada na hora, sem QR.</p>
       <div class="card" style="background:var(--campo);margin-top:1rem"><div class="linha"><span><b>Total a receber</b></span><b class="preco" id="vtotal"></b></div><p class="peq" style="margin:.4rem 0 0">Sem taxa de serviço na venda presencial.</p></div>
       <button class="bt bloco">Registrar venda</button></form>`;
@@ -1796,9 +1801,17 @@ rota('/portaria', async () => {
       $('vtotal').textContent = brl(Number(op.dataset.v) * Number(f.quantidade.value));
       const q = Number(f.quantidade.value);
       const box2 = $('vnomes');
-      const atuais = [...box2.querySelectorAll('input')].map((i) => i.value);
-      box2.innerHTML = Array.from({ length: q }, (_, i) => `<label>${q > 1 ? `Nome da pessoa ${i + 1}` : 'Nome do convidado'}</label><input name="nome${i}" required minlength="2" maxlength="80" autocomplete="off" placeholder="Nome e sobrenome" value="${esc(atuais[i] || '')}">`).join('');
+      const atuais = [...box2.querySelectorAll('input[name^="nome"]')].map((i) => i.value);
+      const cels = [...box2.querySelectorAll('input[name^="cel"]')].map((i) => i.value);
+      box2.innerHTML = Array.from({ length: q }, (_, i) => `<label>${q > 1 ? `Nome da pessoa ${i + 1}` : 'Nome do convidado'}</label><input name="nome${i}" required minlength="2" maxlength="80" autocomplete="off" placeholder="Nome e sobrenome" value="${esc(atuais[i] || '')}">
+        <label>Celular${q > 1 ? ` da pessoa ${i + 1}` : ''} <span class="peq">(opcional)</span></label><input name="cel${i}" type="tel" inputmode="tel" maxlength="16" autocomplete="off" placeholder="11 99999-9999" value="${esc(cels[i] || '')}">`).join('');
     };
+    const mostraPix = () => { $('vpix').hidden = f.forma.value !== 'pix_chave'; };
+    f.querySelectorAll('input[name="forma"]').forEach((r) => r.addEventListener('change', mostraPix));
+    mostraPix();
+    $('vpixcopiar').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText('37318148000189'); aviso('Chave Pix copiada!'); } catch { aviso('Copie a chave exibida na tela.', 'erro'); }
+    });
     f.lote.addEventListener('change', calc);
     f.quantidade.addEventListener('change', calc);
     calc();
@@ -1806,7 +1819,7 @@ rota('/portaria', async () => {
       e.preventDefault();
       comEspera(f.querySelector('button'), async () => {
         try {
-          const r = await api('POST', '/portaria/venda', { lote_id: Number(f.lote.value), quantidade: Number(f.quantidade.value), nomes: [...$('vnomes').querySelectorAll('input')].map((i) => i.value), forma: f.forma.value });
+          const r = await api('POST', '/portaria/venda', { lote_id: Number(f.lote.value), quantidade: Number(f.quantidade.value), nomes: [...$('vnomes').querySelectorAll('input[name^="nome"]')].map((i) => i.value), celulares: [...$('vnomes').querySelectorAll('input[name^="cel"]')].map((i) => i.value), forma: f.forma.value });
           aviso(`Venda registrada: ${r.quantidade} ingresso(s), ${brl(r.total_centavos)} em ${({ dinheiro: 'dinheiro', cartao: 'cartão' })[r.forma] || 'Pix'} · entrada marcada.`);
           try { await atualizarLista(); } catch {}
           desenharTopo();

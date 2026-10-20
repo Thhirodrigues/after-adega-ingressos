@@ -910,3 +910,23 @@ test('cortesias: editar convite já resgatado (quantidade, troca de celular por 
   assert.equal((await admin.post(`/api/admin/convites/${cv.json.id}/cancelar`, {})).status, 200);
   assert.equal((await admin.put(`/api/admin/convites/${cv.json.id}`, { quantidade: 2 })).status, 409);
 });
+
+test('venda na porta: celular do convidado é opcional, validado e vai para o CSV de vendas', async () => {
+  const lp = (await admin.post('/api/admin/lotes', { evento_id: eventoId, nome: 'Porta celular', valor_centavos: 3000, quantidade: 10, ativo: true, canal: 'porta' })).json.id;
+  const hostess = new Cliente();
+  const hd = dados();
+  assert.equal((await admin.post('/api/admin/usuarios', { ...hd, papel: 'hostess' })).status, 201);
+  assert.equal((await hostess.post('/api/auth/login', { cpf: hd.cpf, senha: hd.senha })).status, 200);
+  const venda = (b) => hostess.post('/api/portaria/venda', { lote_id: lp, quantidade: 1, nomes: ['Maria Celular'], forma: 'dinheiro', ...b });
+  assert.equal((await venda({ celulares: ['123'] })).status, 400, 'celular inválido');
+  assert.equal((await venda({ celulares: [''] })).status, 201, 'vazio pode');
+  assert.equal((await venda({})).status, 201, 'sem o campo pode');
+  const ok = await hostess.post('/api/portaria/venda', { lote_id: lp, quantidade: 2, nomes: ['Ana Cel', 'Bia Cel'], celulares: ['(11) 98888-7777', ''], forma: 'pix_chave' });
+  assert.equal(ok.status, 201, JSON.stringify(ok.json));
+  const csv = await (await fetch(BASE + '/api/admin/export/vendas.csv', { headers: { cookie: admin.cookie } })).text();
+  assert.ok(csv.includes('Celular do convidado (porta)'));
+  assert.ok(csv.includes('5511988887777'));
+  // a lista da portaria (hostess) não mostra celular
+  const lista = JSON.stringify((await hostess.get('/api/portaria/lista')).json);
+  assert.ok(!lista.includes('5511988887777'));
+});

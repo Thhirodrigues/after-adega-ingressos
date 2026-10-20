@@ -279,7 +279,7 @@ export async function visaoPedido(db, p) {
 // Venda presencial (porta ou dinheiro em mãos): sem taxa de serviço, já nasce paga.
 // Reaproveita a reserva + confirmação atômicas; depois grava o nome do convidado.
 // Cada ingresso recebe o nome de uma pessoa e a entrada é marcada na hora (sem QR).
-export async function venderPresencial(db, vendedor, { loteId, quantidade, nomes, forma }) {
+export async function venderPresencial(db, vendedor, { loteId, quantidade, nomes, celulares = [], forma }) {
   await liberarExpirados(db);
   const lote = await db
     .prepare(
@@ -334,8 +334,8 @@ export async function venderPresencial(db, vendedor, { loteId, quantidade, nomes
   await db.batch(
     ings.map((ing, i) =>
       db
-        .prepare(`UPDATE ingressos SET nome_avulso = ?2, status = 'usado', usado_em = ?3, usado_por = ?4 WHERE id = ?1`)
-        .bind(ing.id, nomes[i] ?? nomes[0], t, vendedor.id),
+        .prepare(`UPDATE ingressos SET nome_avulso = ?2, status = 'usado', usado_em = ?3, usado_por = ?4, celular_avulso = ?5 WHERE id = ?1`)
+        .bind(ing.id, nomes[i] ?? nomes[0], t, vendedor.id, celulares[i] || null),
     ),
   );
   return { id: p.id, codigo };

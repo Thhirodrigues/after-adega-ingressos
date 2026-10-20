@@ -238,7 +238,8 @@ r.get('/admin/export/vendas.csv', async (c) => {
   if (!ev) throw new HttpError(404, 'Nenhum evento ativo.');
   const { results } = await c.env.DB.prepare(
     `SELECT p.codigo, p.status, p.quantidade, p.subtotal_centavos, p.taxa_centavos, p.total_centavos, p.nome_pagador, p.canal, p.forma_pagamento, p.cupom_codigo, p.desconto_centavos,
-            p.criado_em, p.pago_em, u.nome || ' ' || u.sobrenome AS comprador, u.email, u.telefone, l.nome AS lote
+            p.criado_em, p.pago_em, u.nome || ' ' || u.sobrenome AS comprador, u.email, u.telefone, l.nome AS lote,
+            (SELECT group_concat(i.celular_avulso, ' / ') FROM ingressos i WHERE i.pedido_id = p.id AND i.celular_avulso IS NOT NULL) AS celulares_porta
        FROM pedidos p JOIN usuarios u ON u.id = p.comprador_id JOIN lotes l ON l.id = p.lote_id
       WHERE p.evento_id = ?1 ORDER BY p.id`,
   )
@@ -246,8 +247,8 @@ r.get('/admin/export/vendas.csv', async (c) => {
     .all();
   await auditar(c.env.DB, c.get('usuario').id, 'export_vendas', String(results.length));
   const reais = (n) => (n / 100).toFixed(2).replace('.', ',');
-  const linhas = [['Pedido', 'Situação', 'Lote', 'Qtd', 'Ingressos (R$)', 'Desconto (R$)', 'Cupom', 'Taxa (R$)', 'Total (R$)', 'Comprador', 'Pagador (Pix)', 'Canal', 'Forma', 'E-mail', 'Celular', 'Criado em', 'Pago em']];
-  for (const p of results) linhas.push([p.codigo, p.status, p.lote, p.quantidade, reais(p.subtotal_centavos), reais(p.desconto_centavos || 0), p.cupom_codigo || '', reais(p.taxa_centavos), reais(p.total_centavos), p.comprador, p.nome_pagador, p.canal === 'porta' ? 'porta' : 'online', ({ dinheiro: 'dinheiro', cartao: 'cartão (maquininha)', cupom: 'cupom', mercadopago: 'mercado pago' })[p.forma_pagamento] || 'pix', p.email, p.telefone, fmtData(p.criado_em), fmtData(p.pago_em)]);
+  const linhas = [['Pedido', 'Situação', 'Lote', 'Qtd', 'Ingressos (R$)', 'Desconto (R$)', 'Cupom', 'Taxa (R$)', 'Total (R$)', 'Comprador', 'Pagador (Pix)', 'Canal', 'Forma', 'E-mail', 'Celular', 'Criado em', 'Pago em', 'Celular do convidado (porta)']];
+  for (const p of results) linhas.push([p.codigo, p.status, p.lote, p.quantidade, reais(p.subtotal_centavos), reais(p.desconto_centavos || 0), p.cupom_codigo || '', reais(p.taxa_centavos), reais(p.total_centavos), p.comprador, p.nome_pagador, p.canal === 'porta' ? 'porta' : 'online', ({ dinheiro: 'dinheiro', cartao: 'cartão (maquininha)', cupom: 'cupom', mercadopago: 'mercado pago' })[p.forma_pagamento] || 'pix', p.email, p.telefone, fmtData(p.criado_em), fmtData(p.pago_em), p.celulares_porta || '']);
   return resp(c, `vendas-${ev.data_evento}.csv`, csv(linhas));
 });
 
