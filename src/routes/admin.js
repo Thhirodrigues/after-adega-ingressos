@@ -657,7 +657,20 @@ r.delete('/admin/flyer', async (c) => {
 r.get('/admin/alertas', async (c) => {
   const { results } = await c.env.DB.prepare('SELECT id, tipo, detalhe, criado_em, lido_em FROM alertas ORDER BY id DESC LIMIT 100').all();
   const n = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM alertas WHERE lido_em IS NULL').first();
-  return c.json({ alertas: results, nao_lidos: n.n });
+  // Avisos de pedido trazem o pedido (situação de agora), para o admin confirmar o Pix direto do aviso.
+  const codigoDe = (a) => (/^(?:Novo pedido|Pedido) ([A-Z0-9]{6})\b/.exec(a.detalhe) || [])[1];
+  const codigos = [...new Set(results.map(codigoDe).filter(Boolean))];
+  const pedidos = new Map();
+  if (codigos.length) {
+    const { results: ps } = await c.env.DB.prepare(
+      `SELECT id, codigo, status, expira_em FROM pedidos WHERE codigo IN (${codigos.map((_, i) => `?${i + 1}`).join(',')})`,
+    )
+      .bind(...codigos)
+      .all();
+    const t = agora();
+    for (const p of ps) pedidos.set(p.codigo, { id: p.id, codigo: p.codigo, status: p.status === 'aguardando_pagamento' && p.expira_em < t ? 'expirado' : p.status });
+  }
+  return c.json({ alertas: results.map((a) => ({ ...a, pedido: pedidos.get(codigoDe(a)) || null })), nao_lidos: n.n });
 });
 
 // Usado pelo service worker ao receber o "toque" do push: devolve o aviso mais recente não lido.

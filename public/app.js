@@ -2065,9 +2065,21 @@ rota('/admin/avisos', async () => {
   layoutAdmin(
     'avisos',
     `<div class="card"><div class="linha"><h2 style="margin:0">Avisos</h2>${d.nao_lidos ? '<button class="bt sec peq" id="lidos">Marcar como lidos</button>' : ''}</div>
-      ${d.alertas.length ? d.alertas.map((a) => `<div class="linha aviso-item" style="margin-top:.6rem"><div>${a.lido_em ? '' : '<span class="badge">novo</span> '}${esc(a.detalhe).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')}<div class="peq">${hora(a.criado_em)}</div></div></div>`).join('') : '<p class="mudo">Nenhum aviso ainda.</p>'}
+      ${d.alertas.length ? d.alertas.map((a) => `<div class="linha aviso-item" style="margin-top:.6rem"><div>${a.lido_em ? '' : '<span class="badge">novo</span> '}${esc(a.detalhe).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')}<div class="peq">${hora(a.criado_em)}${a.pedido ? ` · pedido agora: ${tag(a.pedido.status)}` : ''}</div>
+        ${a.tipo === 'novo_pedido' && a.pedido && ['aguardando_pagamento', 'expirado'].includes(a.pedido.status) ? `<div class="acoes" style="margin-top:.4rem"><button class="bt ok peq" data-confirmar-pedido="${a.pedido.id}">Confirmar Pix</button><a class="bt sec peq" href="#/admin/pedidos" data-ver-pedidos>Ver pedido</a></div>` : ''}</div></div>`).join('') : '<p class="mudo">Nenhum aviso ainda.</p>'}
     </div>`,
   );
+  app.querySelectorAll('[data-confirmar-pedido]').forEach((b) =>
+    b.addEventListener('click', () => {
+      if (!confirm('Confirmar que o Pix deste pedido caiu na conta? Confira no extrato: valor exato, horário e nome do pagador.')) return;
+      comEspera(b, async () => {
+        await api('POST', `/admin/pedidos/${b.dataset.confirmarPedido}/confirmar`, {});
+        aviso('Pedido confirmado. Ingressos liberados.');
+        navegar();
+      });
+    }),
+  );
+  app.querySelectorAll('[data-ver-pedidos]').forEach((a) => a.addEventListener('click', () => { try { sessionStorage.setItem('fped', 'todos'); } catch {} }));
   document.getElementById('lidos')?.addEventListener('click', (e) =>
     comEspera(e.target, async () => {
       await api('POST', '/admin/alertas/lidos', {});

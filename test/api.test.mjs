@@ -957,3 +957,18 @@ test('portaria: lote "Só online" não aparece na venda; lote "Só na porta" apa
   // e continua invisível/indisponível online
   assert.ok(!(await new Cliente().get('/api/evento')).json.lotes.some((x) => x.id === porta));
 });
+
+test('avisos de pedido trazem o pedido e dá para confirmar o Pix a partir dele', async () => {
+  const { c } = await novoComprador();
+  const lt = (await admin.post('/api/admin/lotes', { evento_id: eventoId, nome: 'Lote aviso', valor_centavos: 3000, quantidade: 10, ativo: true, canal: 'online' })).json.id;
+  const p = await c.post('/api/pedidos', { aceito_termos: true, lote_id: lt, quantidade: 1, nome_pagador: 'Pagador Aviso' });
+  assert.equal(p.status, 201, JSON.stringify(p.json));
+  await c.post(`/api/pedidos/${p.json.codigo}/escolheu-pagamento`);
+  const busca = async () => (await admin.get('/api/admin/alertas')).json.alertas.find((a) => a.tipo === 'novo_pedido' && a.detalhe.includes(`Novo pedido ${p.json.codigo}:`));
+  const a = await busca();
+  assert.ok(a, 'aviso existe');
+  assert.equal(a.pedido.codigo, p.json.codigo);
+  assert.equal(a.pedido.status, 'aguardando_pagamento');
+  assert.equal((await admin.post(`/api/admin/pedidos/${a.pedido.id}/confirmar`, {})).status, 200);
+  assert.equal((await busca()).pedido.status, 'pago');
+});
