@@ -1431,10 +1431,12 @@ rota('/admin/usuarios', async () => {
   layoutAdmin(
     'usuarios',
     `${resets}
-    <h2 id="lista-usuarios" class="h-mais">Usuários (${u.usuarios.length}) <button type="button" class="mais" data-abre="f" aria-label="Novo usuário" title="Cadastrar hostess ou admin">+</button></h2>
+    <h2 id="lista-usuarios" class="h-mais">Usuários (<span id="cont-usuarios">${u.usuarios.length}</span>) <button type="button" class="mais" data-abre="f" aria-label="Novo usuário" title="Cadastrar hostess ou admin">+</button></h2>
+    <input type="search" id="busca-usuarios" placeholder="Buscar por nome, e-mail, celular ou CPF" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-bottom:.6rem">
+    <div id="lista-usuarios-itens">
     ${u.usuarios
       .map(
-        (x) => `<details class="item"><summary><b>${esc(x.nome)} ${esc(x.sobrenome)}</b><span class="peq">${esc(x.papel)}${x.ativo ? '' : ' · <span class="tag cancelado">inativo</span>'}</span></summary>
+        (x) => `<details class="item" data-busca="${esc(semAcento(`${x.nome} ${x.sobrenome} ${x.email} ${x.telefone} ${soDig(x.telefone)} ${x.cpf} ${fmtCpf(x.cpf)} ${x.papel}`))}"><summary><b>${esc(x.nome)} ${esc(x.sobrenome)}</b><span class="peq">${esc(x.papel)}${x.ativo ? '' : ' · <span class="tag cancelado">inativo</span>'}</span></summary>
         <div class="card">
           <p class="peq" style="margin:0 0 .6rem">${esc(x.telefone)}<br>${esc(x.email)}</p>
           ${x.id === estado.eu.id ? '' : `<label>Perfil</label><select data-papel="${x.id}"><option value="comprador"${x.papel === 'comprador' ? ' selected' : ''}>comprador</option><option value="hostess"${x.papel === 'hostess' ? ' selected' : ''}>hostess</option><option value="admin"${x.papel === 'admin' ? ' selected' : ''}>admin</option></select>`}
@@ -1443,11 +1445,27 @@ rota('/admin/usuarios', async () => {
         </div></details>`,
       )
       .join('')}
+    <p class="mudo" id="sem-usuarios" hidden>Nenhum usuário encontrado.</p>
+    </div>
     <form class="card" id="f" hidden><b>Cadastrar recepcionista (hostess) ou admin</b>
       ${campoUsuario('<label>Perfil</label><select name="papel"><option value="hostess">Hostess (leitura de QR e lista)</option><option value="admin">Administrador</option></select>' + campoSenha('senha', 'Senha provisória (ela troca no 1º acesso)'))}
       <div class="linha"><button class="bt peq">Cadastrar</button><button type="button" class="bt sec peq" data-fecha="f">Cancelar</button></div></form>`,
   );
   ligarMais();
+  // Busca: filtra a lista já carregada (sem acento e sem diferenciar maiúsculas); todas as palavras digitadas precisam aparecer.
+  const buscaUsu = document.getElementById('busca-usuarios');
+  const filtrarUsuarios = () => {
+    const termos = semAcento(buscaUsu.value).split(/\s+/).filter(Boolean);
+    let n = 0;
+    app.querySelectorAll('#lista-usuarios-itens details.item').forEach((el) => {
+      const ok = termos.every((t) => el.dataset.busca.includes(t));
+      el.hidden = !ok;
+      if (ok) n++;
+    });
+    document.getElementById('cont-usuarios').textContent = termos.length ? `${n} de ${u.usuarios.length}` : u.usuarios.length;
+    document.getElementById('sem-usuarios').hidden = n > 0;
+  };
+  buscaUsu.addEventListener('input', filtrarUsuarios);
   app.querySelectorAll('select[data-papel]').forEach((sel) =>
     sel.addEventListener('change', async () => {
       if (!confirm(`Mudar o perfil desta pessoa para "${sel.value}"?`)) return navegar();

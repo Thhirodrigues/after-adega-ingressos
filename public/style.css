@@ -156,3 +156,4 @@ details.kpi-det{cursor:pointer}details.kpi-det>summary{list-style:none;display:f
 .obrigado .acoes2{display:flex;flex-direction:column;gap:.5rem}
 .aviso-item{font-size:.85rem}.aviso-item .peq{font-size:.72rem}
 #nav .sino svg{width:18px;height:18px}
+details.item[hidden]{display:none}
