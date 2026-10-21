@@ -719,6 +719,9 @@ test('mercado pago: link, webhook assinado, valor conferido, idempotência', { s
     await c.post(`/api/pedidos/${cod}/escolheu-pagamento`);
     const avs2 = (await admin.get('/api/admin/alertas')).json.alertas.filter((a) => a.tipo === 'novo_pedido' && a.detalhe.includes(`Novo pedido ${cod}:`));
     assert.equal(avs2.length, 2);
+    assert.ok(avs2.some((x) => x.detalhe.includes('(Pix pela chave · PagBank)')), 'chave diz PagBank');
+    assert.ok(avs2.some((x) => x.detalhe.includes('(abriu o pagamento no Mercado Pago)')));
+    assert.ok(!avs2.some((x) => /Pix na chave/.test(x.detalhe)));
     assert.equal((await new Cliente().get('/api/evento')).json.pagamento_automatico, true);
     // assinatura inválida/ausente → 401
     assert.equal((await hook(111, {})).status, 401);

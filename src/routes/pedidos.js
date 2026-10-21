@@ -48,7 +48,7 @@ r.post('/pedidos/:codigo/escolheu-pagamento', exigir(), async (c) => {
   const usuario = c.get('usuario');
   const pedido = await buscarPedido(c.env.DB, { codigo: c.req.param('codigo').toUpperCase() });
   if (!pedido || pedido.comprador_id !== usuario.id) throw new HttpError(404, 'Pedido não encontrado.');
-  if (pedido.status === 'aguardando_pagamento') await avisarPedidoEmPagamento(c, pedido, usuario, 'Pix na chave');
+  if (pedido.status === 'aguardando_pagamento') await avisarPedidoEmPagamento(c, pedido, usuario, 'Pix pela chave');
   return c.json({ ok: true });
 });
 
