@@ -974,6 +974,7 @@ test('avisos de pedido trazem o pedido e dá para confirmar o Pix a partir dele'
   assert.equal(a.pedido.status, 'aguardando_pagamento');
   assert.equal((await admin.post(`/api/admin/pedidos/${a.pedido.id}/confirmar`, {})).status, 200);
   assert.equal((await busca()).pedido.status, 'pago');
+});
 
 test('portaria: entrada de convidado sem conta pelos 4 últimos números (parcial e total)', async () => {
   const tel = telUnico();
