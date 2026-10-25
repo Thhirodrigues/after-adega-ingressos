@@ -5,7 +5,7 @@ import { hmacHex, igual, qrDoIngresso, sha256Hex } from '../lib/crypto.js';
 import { alertar } from '../lib/alertas.js';
 import * as v from '../lib/validar.js';
 import { lerQr, registrarEntrada } from '../lib/portaria.js';
-import { telefoneTitular } from '../lib/convites.js';
+import { ROTULO_CATEGORIA, telefoneTitular } from '../lib/convites.js';
 import { venderPresencial } from '../lib/pedidos.js';
 
 const r = new Hono();
@@ -57,7 +57,13 @@ r.get('/portaria/lista', async (c) => {
     });
   }
   const { results: pend } = await db
-    .prepare(`SELECT id, nome, categoria, quantidade FROM convites WHERE evento_id = ?1 AND status = 'pendente' ORDER BY nome`)
+    .prepare(
+      `SELECT * FROM (
+         SELECT c.id, c.nome, c.categoria, c.quantidade,
+                c.quantidade - (SELECT COUNT(*) FROM ingressos i WHERE i.convite_id = c.id AND i.status != 'cancelado') AS restantes
+           FROM convites c WHERE c.evento_id = ?1 AND c.status = 'pendente'
+       ) WHERE restantes > 0 ORDER BY nome`,
+    )
     .bind(ev.id)
     .all();
   return c.json({ evento: ev, gerado_em: agora(), ...(await contagem(db, ev.id)), ingressos, pendentes: pend });
@@ -120,6 +126,61 @@ r.post('/portaria/entrada-manual', async (c) => {
   const res = await registrarEntrada(db, { id, eventoId: ev.id, quando: agora(), porId: u.id });
   if (res.resultado === 'ok') await auditar(db, u.id, 'entrada_manual', String(id));
   return c.json({ ...res, ...(await contagem(db, ev.id)) });
+});
+
+// Entrada de convidado que ainda não tem conta (cortesia pendente): a recepção digita os 4 últimos números
+// do celular cadastrado pelo admin. Os ingressos nascem já usados, em nome do convidado.
+r.post('/portaria/entrada-convite', async (c) => {
+  const b = await corpo(c);
+  const db = c.env.DB;
+  const u = c.get('usuario');
+  const ev = await eventoAtivo(db);
+  const id = v.inteiro(b.convite_id, 'Convite', 1, 1_000_000_000);
+  const ultimos = String(b.ultimos4 ?? '').replace(/\D/g, '');
+  if (ultimos.length !== 4) throw new HttpError(400, 'Digite os 4 últimos números do celular do convidado.');
+  const cv = await db.prepare(`SELECT * FROM convites WHERE id = ?1 AND evento_id = ?2`).bind(id, ev.id).first();
+  if (!cv) throw new HttpError(404, 'Convite não encontrado.');
+  if (cv.status !== 'pendente') throw new HttpError(409, 'Este convite já foi resgatado ou cancelado.');
+  const ja = (await db.prepare(`SELECT COUNT(*) AS n FROM ingressos WHERE convite_id = ?1 AND status != 'cancelado'`).bind(id).first())?.n ?? 0;
+  const restantes = cv.quantidade - ja;
+  if (restantes <= 0) throw new HttpError(409, 'Todos os ingressos desta cortesia já entraram.');
+  const chave = `c4:${id}`;
+  const t = agora();
+  const tent = await db.prepare('SELECT bloqueado_ate FROM tentativas_login WHERE cpf = ?1').bind(chave).first();
+  if (tent && tent.bloqueado_ate > t) throw new HttpError(429, 'Muitas tentativas erradas. Aguarde alguns minutos ou chame o administrador.');
+  if (!igual(cv.telefone.slice(-4), ultimos)) {
+    await db
+      .prepare(
+        `INSERT INTO tentativas_login (cpf, falhas, bloqueado_ate, atualizado_em) VALUES (?1, 1, 0, ?2)
+         ON CONFLICT(cpf) DO UPDATE SET
+           falhas = CASE WHEN falhas + 1 >= 3 THEN 0 ELSE falhas + 1 END,
+           bloqueado_ate = CASE WHEN falhas + 1 >= 3 THEN ?3 ELSE bloqueado_ate END,
+           atualizado_em = ?2`,
+      )
+      .bind(chave, t, t + 900)
+      .run();
+    await auditar(db, u.id, 'confirmacao_errada', `convite ${id}`);
+    await alertar(c, 'confirmacao_errada', `Na portaria, ${u.nome} ${u.sobrenome} informou 4 últimos números que não conferem com ${cv.nome} (cortesia pendente). Entrada não liberada.`);
+    throw new HttpError(403, 'Os 4 últimos números não conferem. Entrada não liberada.');
+  }
+  await db.prepare('DELETE FROM tentativas_login WHERE cpf = ?1').bind(chave).run();
+  const quantas = Math.min(restantes, Math.max(1, Number.parseInt(b.quantas ?? restantes, 10) || restantes));
+  const rotulo = ROTULO_CATEGORIA[cv.categoria];
+  await db.batch(
+    Array.from({ length: quantas }, (_, k) =>
+      db
+        .prepare(
+          `INSERT INTO ingressos (pedido_id, evento_id, lote_id, dono_id, tipo, status, criado_em, usado_em, usado_por, motivo, categoria, convite_id, nome_avulso)
+           VALUES (NULL, ?1, NULL, ?2, 'cortesia', 'usado', ?3, ?3, ?2, ?4, ?5, ?6, ?7)`,
+        )
+        .bind(ev.id, u.id, t, rotulo, cv.categoria, id, cv.quantidade > 1 ? `${cv.nome} (${ja + k + 1}/${cv.quantidade})` : cv.nome),
+    ),
+  );
+  if (quantas >= restantes) {
+    await db.prepare(`UPDATE convites SET status = 'resgatado', resgatado_em = ?2 WHERE id = ?1 AND status = 'pendente'`).bind(id, t).run();
+  }
+  await auditar(db, u.id, 'entrada_convite', `${id} (${quantas})`);
+  return c.json({ resultado: 'ok', nome: cv.nome, tipo: 'cortesia', motivo: rotulo, usado_em: t, quantas, restantes: restantes - quantas, ...(await contagem(db, ev.id)) });
 });
 
 // Envia as entradas registradas sem internet. Cada item: { qr } ou { ingresso_id }, e "em" (epoch s).

@@ -1740,18 +1740,36 @@ rota('/portaria', async () => {
           )
           .join('')
       : '<p class="mudo">Nenhum ingresso encontrado.</p>';
-    const pend = (P.pendentes || []).filter((x) => q && semAcento(x.nome).includes(q)).slice(0, 20);
+    const pend = (P.pendentes || []).filter((x) => !q || semAcento(x.nome).includes(q)).slice(0, 50);
     if (pend.length) {
-      $('itens').insertAdjacentHTML('beforeend', pend.map((x) => `<div class="card"><div class="linha"><div><b>${esc(x.nome)}</b><div class="peq">cortesia (${esc(CATEGORIAS_CONV[x.categoria] || '')}) · ainda não se cadastrou</div></div><div class="acoes">${tag('pendente')}</div></div><p class="peq" style="margin:.5rem 0 0">Não entra até abrir o link da cortesia e fazer o cadastro no celular dela.</p></div>`).join(''));
+      $('itens').insertAdjacentHTML('beforeend', pend.map((x) => `<div class="card"><div class="linha"><div><b>${esc(x.nome)}</b><div class="peq">cortesia (${esc(CATEGORIAS_CONV[x.categoria] || '')})${x.restantes > 1 ? ` · ${x.restantes} ingressos` : ''} · sem cadastro no app</div></div><div class="acoes">${tag('pendente')}<button class="bt peq" data-pend="${x.id}">Dar entrada</button></div></div></div>`).join(''));
     }
+    $('itens').querySelectorAll('[data-pend]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const x = (P.pendentes || []).find((y) => y.id === Number(b.dataset.pend));
+        if (!x) return;
+        if (!navigator.onLine) return aviso('Sem internet: a entrada de quem não tem cadastro precisa de conexão.', 'erro');
+        const resp = await pedirDigitos(`Entrada de ${x.nome}`, x.restantes || 1);
+        if (resp === null) return;
+        try {
+          const r = await apiTimeout('POST', '/portaria/entrada-convite', { convite_id: x.id, ultimos4: resp.d4, quantas: resp.quantas });
+          mostrarResultado(r);
+          try { await atualizarLista(); } catch {}
+          desenharTopo();
+          desenharLista();
+        } catch (e) {
+          aviso(e.message, 'erro');
+        }
+      }),
+    );
     $('itens').querySelectorAll('[data-man]').forEach((b) =>
       b.addEventListener('click', async () => {
         const it = P.lista.find((x) => x.id === Number(b.dataset.man));
         if (!it) return;
-        const d4 = await pedirDigitos(`Entrada de ${it.nome}`);
-        if (d4 === null) return;
+        const resp = await pedirDigitos(`Entrada de ${it.nome}`);
+        if (resp === null) return;
         try {
-          mostrarResultado(await entradaManual(it, d4));
+          mostrarResultado(await entradaManual(it, resp.d4));
           desenharLista();
         } catch (e) {
           aviso(e.message, 'erro');
@@ -1920,19 +1938,20 @@ function pedirPin(titulo) {
   });
 }
 
-function pedirDigitos(titulo) {
+function pedirDigitos(titulo, maxQtd = 1) {
   return new Promise((resolve) => {
     const ov = document.createElement('div');
     ov.className = 'overlay modal';
     ov.innerHTML = `<form class="card ov-corpo"><h2 style="margin-top:0">${esc(titulo)}</h2>
       <label>4 últimos números do celular do titular</label><input name="d4" required inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" placeholder="0000" style="font-size:1.6rem;letter-spacing:.4rem;text-align:center">
+      ${maxQtd > 1 ? `<label>Quantas pessoas entram agora?</label><select name="quantas">${Array.from({ length: maxQtd }, (_, i) => maxQtd - i).map((n) => `<option>${n}</option>`).join('')}</select>` : ''}
       <p class="peq">Peça para a pessoa falar os números. Não mostre nem leia o telefone cadastrado.</p>
       <div class="acoes" style="margin-top:1rem"><button class="bt">Liberar entrada</button><button type="button" class="bt sec" id="cancela">Cancelar</button></div></form>`;
     document.body.appendChild(ov);
     const f = ov.querySelector('form');
     f.d4.focus();
     const fim = (v) => { ov.remove(); resolve(v); };
-    f.addEventListener('submit', (e) => { e.preventDefault(); fim(f.d4.value.replace(/\D/g, '')); });
+    f.addEventListener('submit', (e) => { e.preventDefault(); fim({ d4: f.d4.value.replace(/\D/g, ''), quantas: f.quantas ? Number(f.quantas.value) : 1 }); });
     ov.querySelector('#cancela').addEventListener('click', () => fim(null));
   });
 }

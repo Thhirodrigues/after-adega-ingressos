@@ -18,9 +18,11 @@ export async function resgatar(db, convite, usuario) {
     .bind(convite.id, usuario.id, t)
     .run();
   if (res.meta.changes !== 1) return false;
+  // Parte da cortesia pode ter entrado direto pela portaria (sem conta): só nascem os ingressos que faltam.
+  const ja = (await db.prepare(`SELECT COUNT(*) AS n FROM ingressos WHERE convite_id = ?1 AND status != 'cancelado'`).bind(convite.id).first())?.n ?? 0;
   try {
     await db.batch(
-      Array.from({ length: convite.quantidade }, () =>
+      Array.from({ length: Math.max(0, convite.quantidade - ja) }, () =>
         db
           .prepare(
             `INSERT INTO ingressos (pedido_id, evento_id, lote_id, dono_id, tipo, status, criado_em, motivo, categoria, convite_id)

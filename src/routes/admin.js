@@ -784,7 +784,7 @@ r.post('/admin/convites', async (c) => {
 r.get('/admin/convites', async (c) => {
   const { results } = await c.env.DB.prepare(
     `SELECT c.id, c.categoria, c.nome, c.telefone, c.email, c.nascimento, c.quantidade, c.token, c.status, c.criado_em, c.resgatado_em,
-            u.nome || ' ' || u.sobrenome AS conta,
+            COALESCE(u.nome || ' ' || u.sobrenome, CASE WHEN c.status = 'resgatado' THEN 'baixa na portaria' END) AS conta,
             (SELECT COUNT(*) FROM ingressos i WHERE i.convite_id = c.id AND i.status = 'usado') AS entraram,
             (SELECT COUNT(*) FROM ingressos i WHERE i.convite_id = c.id AND i.status = 'valido') AS validos
        FROM convites c LEFT JOIN usuarios u ON u.id = c.usuario_id
@@ -832,6 +832,7 @@ r.put('/admin/convites/:id', async (c) => {
       // segue para a liberação automática abaixo
     } else {
       const diff = novo.quantidade - (usados + validos);
+      if (diff > 0 && !atual.usuario_id) throw new HttpError(409, 'Esta cortesia foi baixada na portaria, sem conta. Para liberar mais ingressos, cadastre outra cortesia.');
       if (diff < 0 && validos < -diff) throw new HttpError(409, 'Só dá para reduzir ingressos que ainda não foram usados na portaria.');
       const ops = [db.prepare(`UPDATE convites SET ${campos} WHERE id = ?1 AND status = 'resgatado'`).bind(...vals)];
       if (diff < 0) {
