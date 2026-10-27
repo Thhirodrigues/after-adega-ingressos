@@ -788,7 +788,7 @@ r.get('/admin/convites', async (c) => {
             (SELECT COUNT(*) FROM ingressos i WHERE i.convite_id = c.id AND i.status = 'usado') AS entraram,
             (SELECT COUNT(*) FROM ingressos i WHERE i.convite_id = c.id AND i.status = 'valido') AS validos
        FROM convites c LEFT JOIN usuarios u ON u.id = c.usuario_id
-      WHERE c.evento_id = (SELECT id FROM eventos WHERE ativo = 1 ORDER BY data_evento LIMIT 1)
+      WHERE c.evento_id = (SELECT id FROM eventos WHERE ativo = 1 ORDER BY data_evento LIMIT 1) AND c.excluido_em IS NULL
       ORDER BY c.id DESC LIMIT 300`,
   ).all();
   const evento = await c.env.DB.prepare('SELECT nome, data_evento FROM eventos WHERE ativo = 1 ORDER BY data_evento LIMIT 1').first();
@@ -882,6 +882,22 @@ r.post('/admin/convites/:id/cancelar', async (c) => {
     db.prepare(`UPDATE ingressos SET status = 'cancelado' WHERE convite_id = ?1 AND status = 'valido'`).bind(id),
   ]);
   await auditar(db, c.get('usuario').id, 'convite_cancelado', String(id));
+  return c.json({ ok: true });
+});
+
+// Exclui a cortesia: some da lista, os ingressos (inclusive já usados) deixam de valer e de contar.
+// O registro fica no banco e a ação fica na auditoria.
+r.delete('/admin/convites/:id', async (c) => {
+  const id = v.inteiro(c.req.param('id'), 'Convite', 1, 1_000_000_000);
+  const db = c.env.DB;
+  const cv = await db.prepare('SELECT id, nome, status FROM convites WHERE id = ?1 AND excluido_em IS NULL').bind(id).first();
+  if (!cv) throw new HttpError(404, 'Convite não encontrado.');
+  const afetados = await db.prepare(`SELECT COUNT(*) AS n FROM ingressos WHERE convite_id = ?1 AND status IN ('valido', 'usado')`).bind(id).first();
+  await db.batch([
+    db.prepare(`UPDATE convites SET status = 'cancelado', excluido_em = ?2 WHERE id = ?1`).bind(id, agora()),
+    db.prepare(`UPDATE ingressos SET status = 'cancelado' WHERE convite_id = ?1 AND status IN ('valido', 'usado')`).bind(id),
+  ]);
+  await auditar(db, c.get('usuario').id, 'convite_excluido', `${id} ${cv.nome} (${afetados?.n ?? 0} ingresso(s))`);
   return c.json({ ok: true });
 });
 

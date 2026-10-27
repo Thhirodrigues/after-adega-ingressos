@@ -1013,3 +1013,35 @@ test('portaria: entrada de convidado sem conta pelos 4 últimos números (parcia
   // sem permissão: comprador não usa a rota
   assert.equal((await p.post('/api/portaria/entrada-convite', { convite_id: cv2.json.id, ultimos4: '1234' })).status, 403);
 });
+
+test('cortesias: excluir (válida, já usada na portaria e pendente) some da lista e não conta', async () => {
+  const fin = async () => (await admin.get('/api/admin/financeiro')).json.resumo;
+  const base = await fin();
+  // cortesia de quem já tem conta, ainda não usada
+  const tel = telUnico();
+  const c = new Cliente();
+  assert.equal((await c.post('/api/auth/cadastro', dados({ telefone: tel }))).status, 201);
+  const cv = await admin.post('/api/admin/convites', { categoria: 'dj', nome: 'DJ Desistiu', telefone: tel, quantidade: 2 });
+  assert.equal(cv.json.resgatado, true);
+  assert.equal((await fin()).cortesias, base.cortesias + 2);
+  assert.equal((await hostess.req('DELETE', `/api/admin/convites/${cv.json.id}`, {})).status, 403); // só admin
+  assert.equal((await admin.req('DELETE', `/api/admin/convites/${cv.json.id}`, {})).status, 200);
+  assert.equal((await fin()).cortesias, base.cortesias);
+  assert.ok(!(await admin.get('/api/admin/convites')).json.convites.some((x) => x.id === cv.json.id));
+  assert.equal((await c.get('/api/meus-ingressos')).json.ingressos.filter((i) => i.status === 'valido').length, 0);
+  assert.equal((await admin.req('DELETE', `/api/admin/convites/${cv.json.id}`, {})).status, 404); // já excluída
+
+  // cortesia pendente de teste, que entrou pela portaria: excluir também tira a entrada da contagem
+  const tel2 = telUnico();
+  const cv2 = await admin.post('/api/admin/convites', { categoria: 'convidado', nome: 'Teste Meu', telefone: tel2, quantidade: 1 });
+  const antes = (await fin()).entraram;
+  assert.equal((await hostess.post('/api/portaria/entrada-convite', { convite_id: cv2.json.id, ultimos4: tel2.slice(-4) })).status, 200);
+  assert.equal((await fin()).entraram, antes + 1);
+  assert.equal((await admin.req('DELETE', `/api/admin/convites/${cv2.json.id}`, {})).status, 200);
+  assert.equal((await fin()).entraram, antes);
+
+  // pendente nunca resgatada
+  const cv3 = await admin.post('/api/admin/convites', { categoria: 'convidado', nome: 'Pendente Excluida', telefone: telUnico(), quantidade: 1 });
+  assert.equal((await admin.req('DELETE', `/api/admin/convites/${cv3.json.id}`, {})).status, 200);
+  assert.ok(!(await hostess.get('/api/portaria/lista')).json.pendentes.some((x) => x.id === cv3.json.id));
+});

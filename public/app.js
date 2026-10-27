@@ -2163,7 +2163,7 @@ rota('/admin/cortesias', async () => {
             <button class="bt peq">Salvar</button>
             <a class="bt sec peq" target="_blank" rel="noopener" href="${esc(zapConvite(x, evento))}">Enviar pelo WhatsApp</a>
             <button type="button" class="bt sec peq" data-copia="${esc(linkConvite(x.token))}">Copiar link</button>
-            <button type="button" class="bt perigo peq" data-cancela="${x.id}">Cancelar convite</button>
+            <button type="button" class="bt perigo peq" data-exclui="${x.id}" data-nome="${esc(x.nome)}">Excluir cortesia</button>
           </div><div class="erro-conv"></div></form></details>`;
       }
       if (x.status === 'resgatado') {
@@ -2174,10 +2174,11 @@ rota('/admin/cortesias', async () => {
           <div class="acoes" style="margin-top:.75rem">
             <button class="bt peq">Salvar</button>
             <button type="button" class="bt sec peq" data-zap="${esc(zapConvite(x, evento))}">Enviar pelo WhatsApp</button>
-            <button type="button" class="bt perigo peq" data-cancela="${x.id}">Cancelar convite e ingressos não usados</button>
+            <button type="button" class="bt perigo peq" data-exclui="${x.id}" data-nome="${esc(x.nome)}">Excluir cortesia</button>
           </div><div class="erro-conv"></div></form></details>`;
       }
-      return `<details class="item">${cab}<div class="card"><p class="peq" style="margin:0">Celular: ${esc(x.telefone)}${x.email ? `<br>E-mail: ${esc(x.email)}` : ''}${x.nascimento ? `<br>Nascimento: ${dataBR(x.nascimento)}` : ''}</p></div></details>`;
+      return `<details class="item">${cab}<div class="card"><p class="peq" style="margin:0">Celular: ${esc(x.telefone)}${x.email ? `<br>E-mail: ${esc(x.email)}` : ''}${x.nascimento ? `<br>Nascimento: ${dataBR(x.nascimento)}` : ''}</p>
+        <div class="acoes" style="margin-top:.75rem"><button type="button" class="bt perigo peq" data-exclui="${x.id}" data-nome="${esc(x.nome)}">Excluir da lista</button></div></div></details>`;
     })
     .join('');
   layoutAdmin(
@@ -2238,6 +2239,16 @@ rota('/admin/cortesias', async () => {
   app.querySelectorAll('[data-copia]').forEach((b) =>
     b.addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(b.dataset.copia); aviso('Link copiado.'); } catch { prompt('Copie o link:', b.dataset.copia); }
+    }),
+  );
+  app.querySelectorAll('[data-exclui]').forEach((b) =>
+    b.addEventListener('click', () => {
+      if (!confirm(`Excluir a cortesia de ${b.dataset.nome}?\n\nOs ingressos dela deixam de valer e de contar. Se a pessoa já entrou na festa, a entrada também deixa de contar.`)) return;
+      comEspera(b, async () => {
+        await api('DELETE', `/admin/convites/${b.dataset.exclui}`);
+        aviso('Cortesia excluída.');
+        await irParaLista('#lista-cortesias');
+      });
     }),
   );
   app.querySelectorAll('[data-cancela]').forEach((b) =>
