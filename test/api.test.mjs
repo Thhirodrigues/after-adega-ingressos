@@ -1143,3 +1143,39 @@ test('evento: início e término (data e hora) validados; o término manda no en
     await admin.put(`/api/admin/eventos/${eventoId}`, { data_evento: original.data_evento, hora_inicio: original.hora_inicio, data_fim: original.data_fim, hora_fim: original.hora_fim, ativo: 1 });
   }
 });
+
+test('vários eventos: consulta por evento, auditoria separada por evento e evento encerrado só leitura', async () => {
+  const dia = (n) => new Date(Date.now() + n * 86400e3).toISOString().slice(0, 10);
+  // evento futuro (não ativo) e evento já encerrado
+  const fut = await admin.post('/api/admin/eventos', { nome: 'Festa Futura Aud', data_evento: dia(60), hora_inicio: '22:00', data_fim: dia(61), hora_fim: '06:00' });
+  const pas = await admin.post('/api/admin/eventos', { nome: 'Festa Passada Aud', data_evento: dia(-5), hora_inicio: '22:00', data_fim: dia(-4), hora_fim: '06:00' });
+  assert.equal(fut.status, 201);
+  assert.equal(pas.status, 201);
+  const lista = (await admin.get('/api/admin/eventos')).json.eventos;
+  assert.equal(lista.find((e) => e.id === pas.json.id).encerrado, 1);
+  assert.equal(lista.find((e) => e.id === fut.json.id).encerrado, 0);
+  assert.equal(lista.find((e) => e.id === eventoId).encerrado, 0);
+
+  // evento futuro (ainda não encerrado) aceita lote; a auditoria dele só tem as ações dele
+  const lf = await admin.post('/api/admin/lotes', { evento_id: fut.json.id, nome: 'Lote Futuro', valor_centavos: 1000, quantidade: 10, ativo: false });
+  assert.equal(lf.status, 201);
+  const audFut = (await admin.get(`/api/admin/auditoria?evento_id=${fut.json.id}`)).json.itens;
+  assert.ok(audFut.some((x) => x.acao === 'lote_criado'));
+  assert.ok(audFut.some((x) => x.acao === 'evento_criado' && x.detalhe.includes('Festa Futura Aud')));
+  const audAtivo = (await admin.get(`/api/admin/auditoria?evento_id=${eventoId}`)).json.itens;
+  assert.ok(!audAtivo.some((x) => x.detalhe.includes('Festa Futura Aud')));
+  assert.ok(audAtivo.some((x) => x.acao === 'entrada_qr')); // entradas da portaria ficaram no evento ativo
+  assert.equal((await admin.get('/api/admin/auditoria?evento_id=999999')).status, 404);
+
+  // evento encerrado: consulta liberada, alterações recusadas
+  const id = pas.json.id;
+  assert.equal((await admin.get(`/api/admin/financeiro?evento_id=${id}`)).status, 200);
+  assert.equal((await admin.get(`/api/admin/pedidos?evento_id=${id}`)).status, 200);
+  assert.equal((await admin.get(`/api/admin/convites?evento_id=${id}`)).json.convites.length, 0);
+  assert.equal((await admin.get(`/api/admin/export/vendas.csv?evento_id=${id}`).catch(() => ({ status: 0 }))).status, 200);
+  assert.equal((await admin.post('/api/admin/lotes', { evento_id: id, nome: 'Tarde', valor_centavos: 1000, quantidade: 5, ativo: true })).status, 409);
+  assert.equal((await admin.post('/api/admin/cupons', { evento_id: id, codigo: 'TARDE', tipo: 'sem_taxa', ativo: true })).status, 409);
+  assert.equal((await admin.post('/api/admin/convites', { evento_id: id, categoria: 'convidado', nome: 'Tarde Demais', telefone: telUnico(), quantidade: 1 })).status, 409);
+  // o evento ativo continua editável
+  assert.equal((await admin.get(`/api/admin/convites?evento_id=${eventoId}`)).status, 200);
+});

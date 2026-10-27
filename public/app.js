@@ -951,7 +951,7 @@ async function baixarCsv(caminho, nome) {
 const botoesCsv = `<div class="acoes" style="margin:.5rem 0"><button class="bt sec peq" data-csv="convidados">Baixar lista de convidados (CSV)</button><button class="bt sec peq" data-csv="vendas">Baixar vendas (CSV)</button></div>`;
 function ligarCsv() {
   app.querySelectorAll('[data-csv]').forEach((b) =>
-    b.addEventListener('click', () => comEspera(b, () => baixarCsv(`/admin/export/${b.dataset.csv}.csv`, `${b.dataset.csv}.csv`))),
+    b.addEventListener('click', () => comEspera(b, () => baixarCsv(`/admin/export/${b.dataset.csv}.csv${estado.evSel ? `?evento_id=${estado.evSel.id}` : ''}`, `${b.dataset.csv}.csv`))),
   );
 }
 
@@ -967,11 +967,35 @@ const ABAS = [
   ['auditoria', 'Auditoria'],
   ['config', 'Configurações'],
 ];
+// Evento que as abas do admin estão mostrando (não é necessariamente o ativo): lembrado na sessão.
+// Padrão: o ativo; sem ativo, o mais recente.
+async function eventoSel() {
+  estado.eventos = (await api('GET', '/admin/eventos')).eventos;
+  let guardado = 0;
+  try { guardado = Number(sessionStorage.getItem('evsel')) || 0; } catch {}
+  estado.evSel = estado.eventos.find((e) => e.id === guardado) || estado.eventos.find((e) => e.ativo && !e.encerrado) || estado.eventos[0] || null;
+  return estado.evSel;
+}
+const ABAS_POR_EVENTO = new Set(['financeiro', 'pedidos', 'lotes', 'cortesias', 'auditoria']);
+const situacaoEvento = (e) => (e.encerrado ? 'Encerrado' : e.ativo ? 'À venda' : 'Inativo');
 function layoutAdmin(ativa, html) {
+  const porEvento = ABAS_POR_EVENTO.has(ativa) && estado.eventos?.length;
+  const leitura = porEvento && estado.evSel?.encerrado;
   app.innerHTML = `
     <h1>Administração</h1>
+    ${porEvento ? `<label for="ev-sel" class="peq" style="margin:0 0 .25rem">Evento</label>
+    <select id="ev-sel" style="margin-bottom:.6rem">${estado.eventos.map((e) => `<option value="${e.id}"${e.id === estado.evSel?.id ? ' selected' : ''}>${esc(e.nome)} · ${situacaoEvento(e)}</option>`).join('')}</select>
+    ${leitura ? '<div class="card aviso-leitura"><b>Evento encerrado: somente leitura.</b> Você pode consultar, exportar CSV e estornar pedidos. Para alterar algo, reabra o evento ajustando o término na aba Eventos.</div>' : ''}` : ''}
     <div class="abas">${ABAS.map(([k, n]) => `<a href="#/admin/${k}" class="${k === ativa ? 'on' : ''}">${n}${k === 'avisos' ? `<span class="badge" data-badge-avisos${estado.eu?.nao_lidos ? '' : ' hidden'}>${estado.eu?.nao_lidos || ''}</span>` : ''}</a>`).join('')}</div>
-    ${html}`;
+    <div id="admin-corpo"${leitura ? ' class="leitura"' : ''}>${html}</div>`;
+  document.getElementById('ev-sel')?.addEventListener('change', (e) => {
+    try { sessionStorage.setItem('evsel', e.target.value); } catch {}
+    navegar();
+  });
+  if (leitura) {
+    // Evento encerrado: formulários só para ler (o servidor também recusa qualquer alteração).
+    app.querySelectorAll('#admin-corpo form input, #admin-corpo form select, #admin-corpo form textarea').forEach((el) => { el.disabled = true; });
+  }
 }
 function exigirAdmin() {
   if (!estado.eu) {
@@ -990,8 +1014,10 @@ rota('/admin', async () => {
 
 rota('/admin/financeiro', async () => {
   if (!exigirAdmin()) return;
-  const f = await api('GET', '/admin/financeiro');
-  if (!f.evento) return layoutAdmin('financeiro', '<p class="mudo">Nenhum evento ativo.</p>');
+  const ev = await eventoSel();
+  if (!ev) return layoutAdmin('financeiro', '<p class="mudo">Nenhum evento cadastrado.</p>');
+  const f = await api('GET', `/admin/financeiro?evento_id=${ev.id}`);
+  if (!f.evento) return layoutAdmin('financeiro', '<p class="mudo">Nenhum evento cadastrado.</p>');
   const r = f.resumo;
   const kpi = (t, v, extra = '') => `<div class="kpi ${extra}"><span class="peq">${t}</span><b>${v}</b></div>`;
   layoutAdmin(
@@ -1036,7 +1062,9 @@ rota('/admin/financeiro', async () => {
 rota('/admin/pedidos', async () => {
   if (!exigirAdmin()) return;
   const filtro = sessionStorage.getItem('fped') || 'todos';
-  const d = await api('GET', `/admin/pedidos${filtro === 'todos' ? '' : `?status=${filtro}`}`);
+  const evP = await eventoSel();
+  if (!evP) return layoutAdmin('pedidos', '<p class="mudo">Nenhum evento cadastrado.</p>');
+  const d = await api('GET', `/admin/pedidos?evento_id=${evP.id}${filtro === 'todos' ? '' : `&status=${filtro}`}`);
   const linhas = d.pedidos
     .map((p) => {
       const st = p.vencido ? 'expirado' : p.status;
@@ -1122,9 +1150,9 @@ rota('/admin/eventos', async () => {
   const ordenados = [...ev.eventos].sort((x, y) => Number(y.ativo) - Number(x.ativo));
   const itens = ordenados
     .map(
-      (e) => `<details class="item"><summary><b>${esc(e.nome)}</b><span class="peq">${e.ativo ? '<span class="tag valido">À venda</span> ' : ''}${dataBR(e.data_evento)} ${esc(e.hora_inicio || '22:00')} → ${e.data_fim && e.data_fim !== e.data_evento ? `${dataBR(e.data_fim)} ` : ''}${esc(e.hora_fim || '06:00')}${e.local ? ` · ${esc(e.local)}` : ''}</span></summary>
+      (e) => `<details class="item"><summary><b>${esc(e.nome)}</b><span class="peq">${e.encerrado ? '<span class="tag cancelado">Encerrado</span> ' : e.ativo ? '<span class="tag valido">À venda</span> ' : ''}${dataBR(e.data_evento)} ${esc(e.hora_inicio || '22:00')} → ${e.data_fim && e.data_fim !== e.data_evento ? `${dataBR(e.data_fim)} ` : ''}${esc(e.hora_fim || '06:00')}${e.local ? ` · ${esc(e.local)}` : ''}</span></summary>
       <form class="card" data-evento="${e.id}">${camposEvento(e)}
-      <div class="linha"><button class="bt peq">Salvar evento</button>${e.ativo ? '' : `<button type="button" class="bt sec peq" data-ativar="${e.id}">Tornar ativo</button>`}</div></form></details>`,
+      <div class="linha"><button class="bt peq">Salvar evento</button>${e.ativo || e.encerrado ? '' : `<button type="button" class="bt sec peq" data-ativar="${e.id}">Tornar ativo</button>`}</div>${e.encerrado ? '<p class="peq">Evento encerrado. Para reabrir, ajuste a data e o horário de término.</p>' : ''}</form></details>`,
     )
     .join('');
   layoutAdmin(
@@ -1183,8 +1211,7 @@ rota('/admin/eventos', async () => {
 
 rota('/admin/lotes', async () => {
   if (!exigirAdmin()) return;
-  const ev = await api('GET', '/admin/eventos');
-  const evAtivo = ev.eventos.find((e) => e.ativo) || ev.eventos[0];
+  const evAtivo = await eventoSel();
   const lo = await api('GET', `/admin/lotes${evAtivo ? `?evento_id=${evAtivo.id}` : ''}`);
   const cu = evAtivo ? await api('GET', `/admin/cupons?evento_id=${evAtivo.id}`) : { cupons: [] };
   const camposCupom = (c = {}) => `<div class="grade">
@@ -1222,7 +1249,7 @@ rota('/admin/lotes', async () => {
     .join('');
   layoutAdmin(
     'lotes',
-`${evAtivo ? `<p class="peq">Evento à venda: <b>${esc(evAtivo.nome)}</b> · ${dataBR(evAtivo.data_evento)}. Para editar nome, data, local ou descrição, use a aba <a href="#/admin/eventos">Eventos</a>.</p>` : ''}
+`${evAtivo ? `<p class="peq">Evento: <b>${esc(evAtivo.nome)}</b> · ${dataBR(evAtivo.data_evento)}. Para editar nome, data, local ou descrição, use a aba <a href="#/admin/eventos">Eventos</a>.</p>` : ''}
     <h2 id="lista-lotes" class="h-mais">Lotes <button type="button" class="mais" data-abre="fnovo" aria-label="Novo lote" title="Novo lote">+</button></h2>${cards || '<p class="mudo">Nenhum lote ainda.</p>'}
     <form class="card" id="fnovo" hidden>
       <b>Novo lote</b>
@@ -2210,12 +2237,14 @@ const ACOES_ALERTA = new Set(['entrada_desfeita', 'entrada_recusada', 'confirmac
 
 rota('/admin/auditoria', async () => {
   if (!exigirAdmin()) return;
+  const evA = await eventoSel();
+  if (!evA) return layoutAdmin('auditoria', '<p class="mudo">Nenhum evento cadastrado.</p>');
   let filtro = '';
   let itens = [];
   let proximo = null;
   layoutAdmin(
     'auditoria',
-    `<p class="mudo">O que cada administrador e cada pessoa da portaria fez. Só leitura.</p>
+    `<p class="mudo">O que cada administrador e cada pessoa da portaria fez neste evento. Só leitura.</p>
     <div class="abas" id="aud-filtro" style="grid-template-columns:repeat(3,1fr)">
       <a href="#" data-papel="" class="on">Todos</a><a href="#" data-papel="admin">Admin</a><a href="#" data-papel="hostess">Portaria</a>
     </div>
@@ -2241,7 +2270,7 @@ rota('/admin/auditoria', async () => {
     maisBt.hidden = !proximo;
   };
   const carregar = async (limpa) => {
-    const d = await api('GET', `/admin/auditoria?papel=${filtro}${limpa || !proximo ? '' : `&antes=${proximo}`}`);
+    const d = await api('GET', `/admin/auditoria?evento_id=${evA.id}&papel=${filtro}${limpa || !proximo ? '' : `&antes=${proximo}`}`);
     itens = limpa ? d.itens : itens.concat(d.itens);
     proximo = d.proximo;
     desenhar();
@@ -2261,7 +2290,9 @@ rota('/admin/auditoria', async () => {
 
 rota('/admin/cortesias', async () => {
   if (!exigirAdmin()) return;
-  const lista = await api('GET', '/admin/convites');
+  const evC = await eventoSel();
+  if (!evC) return layoutAdmin('cortesias', '<p class="mudo">Nenhum evento cadastrado.</p>');
+  const lista = await api('GET', `/admin/convites?evento_id=${evC.id}`);
   const evento = lista.evento;
   const camposConv = (x = {}) => `<label>Categoria</label>
       <select name="categoria">${Object.entries(CATEGORIAS_CONV).map(([k, n]) => `<option value="${k}"${x.categoria === k ? ' selected' : ''}>${n}</option>`).join('')}</select>
@@ -2328,7 +2359,7 @@ rota('/admin/cortesias', async () => {
     e.preventDefault();
     comEspera(f.querySelector('button'), async () => {
       const dados = lerForm(f);
-      const r = await api('POST', '/admin/convites', dados);
+      const r = await api('POST', '/admin/convites', { ...dados, evento_id: evC.id });
       const cv = { ...dados, telefone: r.telefone, token: r.token };
       const ov = document.createElement('div');
       ov.className = 'overlay modal';

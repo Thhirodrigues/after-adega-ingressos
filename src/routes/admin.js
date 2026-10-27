@@ -12,6 +12,7 @@ import { inserirUsuario, lerDadosUsuario } from './auth.js';
 import { alertar } from '../lib/alertas.js';
 import { chavesVapid, enviarPush } from '../lib/push.js';
 import { inicioDoEvento } from '../lib/prazo.js';
+import { eventoEncerrado } from '../lib/evento.js';
 import { aleatorioHex, hmacHex } from '../lib/crypto.js';
 import { ROTULO_CATEGORIA, resgatarPendentes } from '../lib/convites.js';
 import { SQL_USADOS, TIPOS_CUPOM, normalizarCupom } from '../lib/cupons.js';
@@ -76,9 +77,30 @@ r.put('/admin/config', async (c) => {
 // ---------- Eventos e lotes ----------
 
 r.get('/admin/eventos', async (c) => {
-  const { results } = await c.env.DB.prepare('SELECT * FROM eventos ORDER BY data_evento DESC').all();
+  const { results } = await c.env.DB.prepare(`SELECT e.*, ${eventoEncerrado('e')} AS encerrado FROM eventos e ORDER BY e.data_evento DESC`).all();
   return c.json({ eventos: results });
 });
+
+// Evento encerrado (término já passou) é só leitura: nada de lote, cupom, cortesia ou confirmação de pagamento.
+// Estorno/cancelamento de pedido continua permitido (devolução depois da festa).
+async function exigirEditavel(db, eventoId) {
+  const e = await db.prepare(`SELECT ${eventoEncerrado('e')} AS enc FROM eventos e WHERE e.id = ?1`).bind(eventoId).first();
+  if (!e) throw new HttpError(404, 'Evento não encontrado.');
+  if (e.enc) throw new HttpError(409, 'Este evento já foi encerrado: só leitura. Para reabrir, ajuste o término na aba Eventos.');
+}
+
+// Evento que as telas do admin estão consultando: o pedido na URL; senão o ativo; senão o mais recente.
+async function eventoConsulta(db, bruto) {
+  const id = Number.parseInt(bruto ?? '', 10);
+  if (Number.isFinite(id) && id > 0) {
+    const e = await db.prepare('SELECT id, nome, data_evento FROM eventos WHERE id = ?1').bind(id).first();
+    if (!e) throw new HttpError(404, 'Evento não encontrado.');
+    return e;
+  }
+  const e = await db.prepare('SELECT id, nome, data_evento FROM eventos ORDER BY ativo DESC, data_evento DESC LIMIT 1').first();
+  if (!e) throw new HttpError(404, 'Nenhum evento cadastrado.');
+  return e;
+}
 
 // Término do evento: precisa ser depois do início (e no máximo 3 dias depois, para pegar erro de digitação).
 function conferirTermino(dataIni, horaIni, dataFim, horaFim) {
@@ -118,8 +140,9 @@ r.post('/admin/eventos', async (c) => {
       ),
   );
   const res = await db.batch(stmts);
-  await auditar(db, c.get('usuario').id, 'evento_criado', `${v.texto(b.nome, 'Nome', 2, 80)} ${b.data_evento}${ativo ? ' (ativo)' : ''}`);
-  return c.json({ ok: true, id: res[res.length - 1].meta.last_row_id }, 201);
+  const novoId = res[res.length - 1].meta.last_row_id;
+  await auditar(db, c.get('usuario').id, 'evento_criado', `${v.texto(b.nome, 'Nome', 2, 80)} ${b.data_evento}${ativo ? ' (ativo)' : ''}`, novoId);
+  return c.json({ ok: true, id: novoId }, 201);
 });
 
 r.put('/admin/eventos/:id', async (c) => {
@@ -151,7 +174,7 @@ r.put('/admin/eventos/:id', async (c) => {
       .bind(id, nome, data, local, descricao, ativo, hora, dataFim, horaFim),
   );
   await db.batch(stmts);
-  await auditar(db, c.get('usuario').id, 'evento_alterado', `${nome} ${data}${ativo ? ' (ativo)' : ' (inativo)'}`);
+  await auditar(db, c.get('usuario').id, 'evento_alterado', `${nome} ${data}${ativo ? ' (ativo)' : ' (inativo)'}`, id);
   return c.json({ ok: true });
 });
 
@@ -174,6 +197,7 @@ r.post('/admin/lotes', async (c) => {
   if (!(await db.prepare('SELECT 1 FROM eventos WHERE id = ?1').bind(eventoId).first())) {
     throw new HttpError(404, 'Evento não encontrado.');
   }
+  await exigirEditavel(db, eventoId);
   const res = await db
     .prepare(
       `INSERT INTO lotes (evento_id, nome, valor_centavos, quantidade, ativo, ordem, criado_em, canal)
@@ -190,7 +214,7 @@ r.post('/admin/lotes', async (c) => {
       canalLote(b.canal),
     )
     .run();
-  await auditar(db, c.get('usuario').id, 'lote_criado', String(res.meta.last_row_id));
+  await auditar(db, c.get('usuario').id, 'lote_criado', String(res.meta.last_row_id), eventoId);
   return c.json({ ok: true, id: res.meta.last_row_id }, 201);
 });
 
@@ -201,6 +225,7 @@ r.put('/admin/lotes/:id', async (c) => {
   const id = v.inteiro(c.req.param('id'), 'Lote', 1, 1_000_000_000);
   const atual = await db.prepare('SELECT * FROM lotes WHERE id = ?1').bind(id).first();
   if (!atual) throw new HttpError(404, 'Lote não encontrado.');
+  await exigirEditavel(db, atual.evento_id);
   const nome = 'nome' in b ? v.texto(b.nome, 'Nome do lote', 1, 60) : atual.nome;
   const valor = 'valor_centavos' in b ? v.inteiro(b.valor_centavos, 'Valor (centavos)', 0, 10_000_000) : atual.valor_centavos;
   const quantidade = 'quantidade' in b ? v.inteiro(b.quantidade, 'Quantidade', 0, 100_000) : atual.quantidade;
@@ -222,7 +247,7 @@ r.put('/admin/lotes/:id', async (c) => {
     if (/CHECK/i.test(String(e.message))) throw new HttpError(409, 'Quantidade menor que os ingressos já vendidos ou reservados.');
     throw e;
   }
-  await auditar(db, c.get('usuario').id, 'lote_alterado', `${id}: ${Object.keys(b).join(',')}`);
+  await auditar(db, c.get('usuario').id, 'lote_alterado', `${id}: ${Object.keys(b).join(',')}`, atual.evento_id);
   return c.json({ ok: true });
 });
 
@@ -245,8 +270,7 @@ const resp = (c, nome, texto) =>
 
 // Lista para a porta: sem CPF nem telefone.
 r.get('/admin/export/convidados.csv', async (c) => {
-  const ev = await c.env.DB.prepare('SELECT id, nome, data_evento FROM eventos WHERE ativo = 1 LIMIT 1').first();
-  if (!ev) throw new HttpError(404, 'Nenhum evento ativo.');
+  const ev = await eventoConsulta(c.env.DB, c.req.query('evento_id'));
   const { results } = await c.env.DB.prepare(
     `SELECT i.id, COALESCE(i.nome_avulso, u.nome || ' ' || u.sobrenome) AS nome, i.tipo, i.motivo, i.status, i.usado_em
        FROM ingressos i JOIN usuarios u ON u.id = i.dono_id
@@ -254,7 +278,7 @@ r.get('/admin/export/convidados.csv', async (c) => {
   )
     .bind(ev.id)
     .all();
-  await auditar(c.env.DB, c.get('usuario').id, 'export_convidados', String(results.length));
+  await auditar(c.env.DB, c.get('usuario').id, 'export_convidados', String(results.length), ev.id);
   const linhas = [['Ingresso', 'Nome', 'Tipo', 'Motivo (cortesia)', 'Situação', 'Entrou às', 'Presente']];
   for (const i of results) linhas.push([`#${i.id}`, i.nome, i.tipo, i.motivo, i.status, fmtData(i.usado_em), '']);
   return resp(c, `convidados-${ev.data_evento}.csv`, csv(linhas));
@@ -262,8 +286,7 @@ r.get('/admin/export/convidados.csv', async (c) => {
 
 // Vendas do evento ativo (conferência do Pix e fechamento).
 r.get('/admin/export/vendas.csv', async (c) => {
-  const ev = await c.env.DB.prepare('SELECT id, data_evento FROM eventos WHERE ativo = 1 LIMIT 1').first();
-  if (!ev) throw new HttpError(404, 'Nenhum evento ativo.');
+  const ev = await eventoConsulta(c.env.DB, c.req.query('evento_id'));
   const { results } = await c.env.DB.prepare(
     `SELECT p.codigo, p.status, p.quantidade, p.subtotal_centavos, p.taxa_centavos, p.total_centavos, p.nome_pagador, p.canal, p.forma_pagamento, p.cupom_codigo, p.desconto_centavos,
             p.criado_em, p.pago_em, u.nome || ' ' || u.sobrenome AS comprador, u.email, u.telefone, l.nome AS lote,
@@ -273,7 +296,7 @@ r.get('/admin/export/vendas.csv', async (c) => {
   )
     .bind(ev.id)
     .all();
-  await auditar(c.env.DB, c.get('usuario').id, 'export_vendas', String(results.length));
+  await auditar(c.env.DB, c.get('usuario').id, 'export_vendas', String(results.length), ev.id);
   const reais = (n) => (n / 100).toFixed(2).replace('.', ',');
   const linhas = [['Pedido', 'Situação', 'Lote', 'Qtd', 'Ingressos (R$)', 'Desconto (R$)', 'Cupom', 'Taxa (R$)', 'Total (R$)', 'Comprador', 'Pagador (Pix)', 'Canal', 'Forma', 'E-mail', 'Celular', 'Criado em', 'Pago em', 'Celular do convidado (porta)']];
   for (const p of results) linhas.push([p.codigo, p.status, p.lote, p.quantidade, reais(p.subtotal_centavos), reais(p.desconto_centavos || 0), p.cupom_codigo || '', reais(p.taxa_centavos), reais(p.total_centavos), p.comprador, p.nome_pagador, p.canal === 'porta' ? 'porta' : 'online', ({ dinheiro: 'dinheiro', cartao: 'cartão (maquininha)', cupom: 'cupom', mercadopago: 'mercado pago' })[p.forma_pagamento] || 'pix', p.email, p.telefone, fmtData(p.criado_em), fmtData(p.pago_em), p.celulares_porta || '']);
@@ -311,6 +334,7 @@ r.post('/admin/pedidos/:id/confirmar', async (c) => {
   const antes = await buscarPedido(db, { id });
   if (!antes) throw new HttpError(404, 'Pedido não encontrado.');
   if (antes.status === 'cancelado') throw new HttpError(409, 'Este pedido foi cancelado.');
+  await exigirEditavel(db, antes.evento_id);
   const b = await corpo(c).catch(() => ({}));
   const forma = ['pix_chave', 'dinheiro'].includes(b.forma) ? b.forma : null;
   await confirmarPedido(db, id, admin.id, forma);
@@ -321,7 +345,7 @@ r.post('/admin/pedidos/:id/confirmar', async (c) => {
       'O prazo da reserva venceu e o lote não tem mais ingressos. Devolva o Pix ao comprador.',
     );
   }
-  if (antes.status !== 'pago') await auditar(db, admin.id, 'pedido_confirmado', depois.codigo);
+  if (antes.status !== 'pago') await auditar(db, admin.id, 'pedido_confirmado', depois.codigo, antes.evento_id);
   return c.json({ ok: true, status: depois.status });
 });
 
@@ -340,11 +364,11 @@ r.post('/admin/pedidos/:id/cancelar', async (c) => {
     if (depois.status !== 'cancelado') {
       throw new HttpError(409, 'Não dá para estornar: algum ingresso deste pedido já foi usado na portaria.');
     }
-    await auditar(db, admin.id, 'pedido_estornado', pedido.codigo);
+    await auditar(db, admin.id, 'pedido_estornado', pedido.codigo, pedido.evento_id);
     return c.json({ ok: true, status: 'cancelado', lembrete: 'Devolva o Pix ao comprador manualmente.' });
   }
   await cancelarNaoPago(db, id);
-  await auditar(db, admin.id, 'pedido_cancelado_admin', pedido.codigo);
+  await auditar(db, admin.id, 'pedido_cancelado_admin', pedido.codigo, pedido.evento_id);
   return c.json({ ok: true, status: 'cancelado' });
 });
 
@@ -465,13 +489,14 @@ r.post('/admin/cupons', async (c) => {
   if (!(await db.prepare('SELECT 1 FROM eventos WHERE id = ?1').bind(eventoId).first())) {
     throw new HttpError(404, 'Evento não encontrado.');
   }
+  await exigirEditavel(db, eventoId);
   const d = lerCupom(b);
   try {
     const res = await db
       .prepare('INSERT INTO cupons (evento_id, codigo, tipo, percentual, limite, ativo, criado_em) VALUES (?1,?2,?3,?4,?5,?6,?7)')
       .bind(eventoId, d.codigo, d.tipo, d.percentual, d.limite, d.ativo, agora())
       .run();
-    await auditar(db, c.get('usuario').id, 'cupom_criado', `${d.codigo} ${d.tipo}`);
+    await auditar(db, c.get('usuario').id, 'cupom_criado', `${d.codigo} ${d.tipo}`, eventoId);
     return c.json({ ok: true, id: res.meta.last_row_id }, 201);
   } catch (e) {
     if (/UNIQUE/i.test(String(e.message))) throw new HttpError(409, 'Já existe um cupom com essa palavra-chave neste evento.');
@@ -486,6 +511,7 @@ r.put('/admin/cupons/:id', async (c) => {
   const id = v.inteiro(c.req.param('id'), 'Cupom', 1, 1_000_000_000);
   const atual = await db.prepare('SELECT * FROM cupons WHERE id = ?1').bind(id).first();
   if (!atual) throw new HttpError(404, 'Cupom não encontrado.');
+  await exigirEditavel(db, atual.evento_id);
   const d = lerCupom(b, atual);
   try {
     await db
@@ -496,7 +522,7 @@ r.put('/admin/cupons/:id', async (c) => {
     if (/UNIQUE/i.test(String(e.message))) throw new HttpError(409, 'Já existe um cupom com essa palavra-chave neste evento.');
     throw e;
   }
-  await auditar(db, c.get('usuario').id, 'cupom_editado', `${d.codigo} ${d.tipo}`);
+  await auditar(db, c.get('usuario').id, 'cupom_editado', `${d.codigo} ${d.tipo}`, atual.evento_id);
   return c.json({ ok: true });
 });
 
@@ -507,7 +533,7 @@ r.get('/admin/financeiro', async (c) => {
   const t = agora();
   const eventoId = c.req.query('evento_id')
     ? Number(c.req.query('evento_id'))
-    : (await db.prepare('SELECT id FROM eventos WHERE ativo = 1 ORDER BY data_evento LIMIT 1').first())?.id;
+    : (await db.prepare('SELECT id FROM eventos ORDER BY ativo DESC, data_evento DESC LIMIT 1').first())?.id;
   if (!eventoId) return c.json({ evento: null });
   const evento = await db.prepare('SELECT id, nome, data_evento FROM eventos WHERE id = ?1').bind(eventoId).first();
   if (!evento) throw new HttpError(404, 'Evento não encontrado.');
@@ -783,8 +809,11 @@ r.post('/admin/convites', async (c) => {
   const d = lerConvite(b);
   if (d.categoria === 'aniversariante' && !d.nascimento) throw new HttpError(400, 'Informe a data de nascimento do aniversariante.');
   if (d.categoria !== 'aniversariante') d.nascimento = null;
-  const ev = await db.prepare('SELECT id FROM eventos WHERE ativo = 1 ORDER BY data_evento LIMIT 1').first();
+  const ev = b.evento_id
+    ? await db.prepare('SELECT id FROM eventos WHERE id = ?1').bind(v.inteiro(b.evento_id, 'Evento', 1, 1_000_000_000)).first()
+    : await db.prepare('SELECT id FROM eventos WHERE ativo = 1 ORDER BY data_evento LIMIT 1').first();
   if (!ev) throw new HttpError(409, 'Nenhum evento ativo.');
+  await exigirEditavel(db, ev.id);
   const dup = await db
     .prepare(`SELECT nome FROM convites WHERE evento_id = ?1 AND telefone = ?2 AND categoria = ?3 AND status <> 'cancelado'`)
     .bind(ev.id, d.telefone, d.categoria)
@@ -798,7 +827,7 @@ r.post('/admin/convites', async (c) => {
     )
     .bind(ev.id, d.categoria, d.nome, d.telefone, d.email, d.nascimento, d.quantidade, token, c.get('usuario').id, agora())
     .run();
-  await auditar(db, c.get('usuario').id, 'convite_criado', `${d.categoria} ${d.nome} x${d.quantidade}`);
+  await auditar(db, c.get('usuario').id, 'convite_criado', `${d.categoria} ${d.nome} x${d.quantidade}`, ev.id);
   // Se a pessoa já tem conta com esse telefone/e-mail, o ingresso aparece na hora.
   const conta = await db
     .prepare(`SELECT id, telefone, email FROM usuarios WHERE ativo = 1 AND (telefone = ?1 OR (?2 IS NOT NULL AND lower(email) = ?2)) LIMIT 1`)
@@ -810,16 +839,18 @@ r.post('/admin/convites', async (c) => {
 });
 
 r.get('/admin/convites', async (c) => {
+  const evento = await eventoConsulta(c.env.DB, c.req.query('evento_id'));
   const { results } = await c.env.DB.prepare(
     `SELECT c.id, c.categoria, c.nome, c.telefone, c.email, c.nascimento, c.quantidade, c.token, c.status, c.criado_em, c.resgatado_em,
             COALESCE(u.nome || ' ' || u.sobrenome, CASE WHEN c.status = 'resgatado' THEN 'baixa na portaria' END) AS conta,
             (SELECT COUNT(*) FROM ingressos i WHERE i.convite_id = c.id AND i.status = 'usado') AS entraram,
             (SELECT COUNT(*) FROM ingressos i WHERE i.convite_id = c.id AND i.status = 'valido') AS validos
        FROM convites c LEFT JOIN usuarios u ON u.id = c.usuario_id
-      WHERE c.evento_id = (SELECT id FROM eventos WHERE ativo = 1 ORDER BY data_evento LIMIT 1) AND c.excluido_em IS NULL
+      WHERE c.evento_id = ?1 AND c.excluido_em IS NULL
       ORDER BY c.id DESC LIMIT 300`,
-  ).all();
-  const evento = await c.env.DB.prepare('SELECT nome, data_evento FROM eventos WHERE ativo = 1 ORDER BY data_evento LIMIT 1').first();
+  )
+    .bind(evento.id)
+    .all();
   return c.json({ convites: results, evento });
 });
 
@@ -831,6 +862,7 @@ r.put('/admin/convites/:id', async (c) => {
   const db = c.env.DB;
   const atual = await db.prepare('SELECT * FROM convites WHERE id = ?1').bind(id).first();
   if (!atual) throw new HttpError(404, 'Convite não encontrado.');
+  await exigirEditavel(db, atual.evento_id);
   if (atual.status === 'cancelado') throw new HttpError(409, 'Convite cancelado não pode ser editado. Cadastre outro.');
   const b = await corpo(c);
   const d = lerConvite(b, { parcial: true });
@@ -856,7 +888,7 @@ r.put('/admin/convites/:id', async (c) => {
         db.prepare(`UPDATE ingressos SET status = 'cancelado' WHERE convite_id = ?1 AND status = 'valido'`).bind(id),
         db.prepare(`UPDATE convites SET ${campos}, status = 'pendente', usuario_id = NULL, resgatado_em = NULL WHERE id = ?1 AND status = 'resgatado'`).bind(...vals),
       ]);
-      await auditar(db, c.get('usuario').id, 'convite_contato_trocado', `${novo.nome} (#${id})`);
+      await auditar(db, c.get('usuario').id, 'convite_contato_trocado', `${novo.nome} (#${id})`, atual.evento_id);
       // segue para a liberação automática abaixo
     } else {
       const diff = novo.quantidade - (usados + validos);
@@ -882,12 +914,12 @@ r.put('/admin/convites/:id', async (c) => {
         ops.push(db.prepare(`UPDATE ingressos SET motivo = ?2, categoria = ?3 WHERE convite_id = ?1 AND status = 'valido'`).bind(id, ROTULO_CATEGORIA[novo.categoria], novo.categoria));
       }
       await db.batch(ops);
-      await auditar(db, c.get('usuario').id, 'convite_editado', `${novo.nome} (#${id}, resgatado, ${diff >= 0 ? '+' : ''}${diff} ingresso(s))`);
+      await auditar(db, c.get('usuario').id, 'convite_editado', `${novo.nome} (#${id}, resgatado, ${diff >= 0 ? '+' : ''}${diff} ingresso(s))`, atual.evento_id);
       return c.json({ ok: true, resgatado: true, ajustado: true });
     }
   } else {
     await db.prepare(`UPDATE convites SET ${campos} WHERE id = ?1 AND status = 'pendente'`).bind(...vals).run();
-    await auditar(db, c.get('usuario').id, 'convite_editado', `${novo.nome} (#${id})`);
+    await auditar(db, c.get('usuario').id, 'convite_editado', `${novo.nome} (#${id})`, atual.evento_id);
   }
   const conta = await db
     .prepare(`SELECT id, telefone, email FROM usuarios WHERE ativo = 1 AND (telefone = ?1 OR (?2 IS NOT NULL AND lower(email) = ?2)) LIMIT 1`)
@@ -902,14 +934,15 @@ r.put('/admin/convites/:id', async (c) => {
 r.post('/admin/convites/:id/cancelar', async (c) => {
   const id = v.inteiro(c.req.param('id'), 'Convite', 1, 1_000_000_000);
   const db = c.env.DB;
-  const cv = await db.prepare('SELECT status, nome FROM convites WHERE id = ?1').bind(id).first();
+  const cv = await db.prepare('SELECT status, nome, evento_id FROM convites WHERE id = ?1').bind(id).first();
   if (!cv) throw new HttpError(404, 'Convite não encontrado.');
+  await exigirEditavel(db, cv.evento_id);
   if (cv.status === 'cancelado') throw new HttpError(409, 'Este convite já está cancelado.');
   await db.batch([
     db.prepare(`UPDATE convites SET status = 'cancelado' WHERE id = ?1`).bind(id),
     db.prepare(`UPDATE ingressos SET status = 'cancelado' WHERE convite_id = ?1 AND status = 'valido'`).bind(id),
   ]);
-  await auditar(db, c.get('usuario').id, 'convite_cancelado', `${cv.nome} (#${id})`);
+  await auditar(db, c.get('usuario').id, 'convite_cancelado', `${cv.nome} (#${id})`, cv.evento_id);
   return c.json({ ok: true });
 });
 
@@ -919,8 +952,9 @@ r.post('/admin/convites/:id/cancelar', async (c) => {
 r.delete('/admin/convites/:id', async (c) => {
   const id = v.inteiro(c.req.param('id'), 'Convite', 1, 1_000_000_000);
   const db = c.env.DB;
-  const cv = await db.prepare('SELECT id, nome, status FROM convites WHERE id = ?1 AND excluido_em IS NULL').bind(id).first();
+  const cv = await db.prepare('SELECT id, nome, status, evento_id FROM convites WHERE id = ?1 AND excluido_em IS NULL').bind(id).first();
   if (!cv) throw new HttpError(404, 'Convite não encontrado.');
+  await exigirEditavel(db, cv.evento_id);
   const barrado = new HttpError(409, 'Esta cortesia já entrou na festa e não pode ser excluída.');
   const afetados = await db.prepare(`SELECT COUNT(*) AS n FROM ingressos WHERE convite_id = ?1 AND status = 'valido'`).bind(id).first();
   // A própria condição do UPDATE confere de novo (atômico): se alguém entrou agora há pouco, não exclui.
@@ -933,19 +967,22 @@ r.delete('/admin/convites/:id', async (c) => {
     .run();
   if (res.meta.changes !== 1) throw barrado;
   await db.prepare(`UPDATE ingressos SET status = 'cancelado' WHERE convite_id = ?1 AND status = 'valido'`).bind(id).run();
-  await auditar(db, c.get('usuario').id, 'convite_excluido', `${cv.nome} (${afetados?.n ?? 0} ingresso(s) cancelado(s))`);
+  await auditar(db, c.get('usuario').id, 'convite_excluido', `${cv.nome} (${afetados?.n ?? 0} ingresso(s) cancelado(s))`, cv.evento_id);
   return c.json({ ok: true });
 });
 
 r.post('/admin/cortesias/:id/cancelar', async (c) => {
   const id = v.inteiro(c.req.param('id'), 'Ingresso', 1, 1_000_000_000);
+  const ing = await c.env.DB.prepare('SELECT evento_id FROM ingressos WHERE id = ?1').bind(id).first();
+  if (!ing) throw new HttpError(404, 'Ingresso não encontrado.');
+  await exigirEditavel(c.env.DB, ing.evento_id);
   const res = await c.env.DB.prepare(
     `UPDATE ingressos SET status = 'cancelado' WHERE id = ?1 AND tipo = 'cortesia' AND status = 'valido'`,
   )
     .bind(id)
     .run();
   if (res.meta.changes !== 1) throw new HttpError(409, 'Só cortesias ainda válidas podem ser canceladas.');
-  await auditar(c.env.DB, c.get('usuario').id, 'cortesia_cancelada', String(id));
+  await auditar(c.env.DB, c.get('usuario').id, 'cortesia_cancelada', String(id), ing.evento_id);
   return c.json({ ok: true });
 });
 
@@ -954,14 +991,15 @@ r.post('/admin/cortesias/:id/cancelar', async (c) => {
 r.get('/admin/auditoria', async (c) => {
   const papel = ['admin', 'hostess'].includes(c.req.query('papel')) ? c.req.query('papel') : '';
   const antes = Math.max(0, Number.parseInt(c.req.query('antes') ?? '0', 10) || 0);
+  const evento = await eventoConsulta(c.env.DB, c.req.query('evento_id'));
   const LIM = 100;
   const { results } = await c.env.DB.prepare(
     `SELECT a.id, a.acao, a.detalhe, a.criado_em, u.nome, u.sobrenome, u.papel
        FROM auditoria a JOIN usuarios u ON u.id = a.usuario_id
-      WHERE u.papel IN ('admin', 'hostess') AND (?1 = '' OR u.papel = ?1) AND (?2 = 0 OR a.id < ?2)
+      WHERE u.papel IN ('admin', 'hostess') AND (?1 = '' OR u.papel = ?1) AND (?2 = 0 OR a.id < ?2) AND a.evento_id = ?4
       ORDER BY a.id DESC LIMIT ?3`,
   )
-    .bind(papel, antes, LIM + 1)
+    .bind(papel, antes, LIM + 1, evento.id)
     .all();
   const mais = results.length > LIM;
   const itens = results.slice(0, LIM);

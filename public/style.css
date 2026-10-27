@@ -160,3 +160,6 @@ details.kpi-det{cursor:pointer}details.kpi-det>summary{list-style:none;display:f
 .aviso-item{font-size:.85rem}.aviso-item .peq{font-size:.72rem}
 #nav .sino svg{width:18px;height:18px}
 details.item[hidden]{display:none}
+
+.aviso-leitura{border-color:var(--cor2);margin:.4rem 0 .8rem}
+.leitura .mais,.leitura form button,.leitura [data-conf],.leitura [data-exclui],.leitura [data-cancela],.leitura [data-ativar]{display:none}
