@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Aceitar ingresso</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#FF6BE6}a:hover{color:#FFA3F0}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; position: relative; overflow: hidden; background: #05060F; color: #F2F6FF; font-family: 'Space Grotesk', sans-serif; padding: 28px 24px 28px 24px; display: flex; flex-direction: column; gap: 24px">
+  <img src="../assets/logo-full.png" alt="FastPass: menos filas, mais vibe" width="132" height="129" style="display: block">
+
+  <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px">
+    <span style="align-self: flex-start; padding: 6px 12px; border-radius: 999px; background: #161B33; border: 1px solid #232A4A; font-size: 13px; color: #7FEFFF"><strong style="color: #F2F6FF">[NOME]</strong> te mandou um ingresso</span>
+    <h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 800; font-size: 40px; line-height: 1.02; text-transform: uppercase">Você tá na <span style="color: #FF2BD6; text-shadow: 0 0 22px rgba(255,43,214,0.6)">lista.</span></h1>
+  </div>
+
+  <div style="border-radius: 24px; background: linear-gradient(100deg, #FF2BD6, #28E0FF); color: #05060F; padding: 20px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 0 40px rgba(255,43,214,0.35)">
+    <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; letter-spacing: 0.14em"><span>INGRESSO</span><span>1 PESSOA</span></div>
+    <span style="font-family: 'Unbounded', sans-serif; font-weight: 800; font-size: 26px; line-height: 1.1; text-transform: uppercase">After D'Adega</span>
+    <div style="display: grid; grid-template-columns: 64px minmax(0, 1fr); row-gap: 8px; font-size: 15px; font-weight: 700">
+      <span style="font-weight: 500">Quando</span><span>[DATA] · [HORÁRIO]</span>
+      <span style="font-weight: 500">Onde</span><span>Os Brothers Adega</span>
+    </div>
+  </div>
+
+  <p style="margin: 0; font-size: 14px; line-height: 1.45; color: #9AA6C9">Ao aceitar, o QR passa a ser só seu. <strong style="color: #F2F6FF">[NOME]</strong> deixa de ter acesso a esse ingresso.</p>
+
+  <div style="flex: 1"></div>
+
+  <div style="display: flex; flex-direction: column; gap: 12px">
+    <a href="Cadastro.dc.html" style="display: flex; align-items: center; justify-content: center; height: 58px; border-radius: 16px; background: #FF2BD6; color: #05060F; font-weight: 700; font-size: 18px; text-decoration: none; box-shadow: 0 0 24px rgba(255,43,214,0.45)">Aceitar ingresso</a>
+    <span style="font-size: 12px; text-align: center; color: #9AA6C9">Já tem conta? <a href="Entrar.dc.html">Entrar</a></span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

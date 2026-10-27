@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Transferir ingresso</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#FF6BE6}a:hover{color:#FFA3F0}
+input::placeholder{color:#8590B5}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; position: relative; overflow: hidden; background: #05060F; color: #F2F6FF; font-family: 'Space Grotesk', sans-serif; padding: 16px 20px 28px 12px; display: flex; flex-direction: column">
+  <a href="Ingresso.dc.html" aria-label="Voltar" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: #F2F6FF">
+    <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"></path><path d="M11 6l-6 6 6 6"></path></svg>
+  </a>
+
+  <div style="padding: 8px 8px 0 8px; display: flex; flex-direction: column; gap: 22px; flex: 1">
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 800; font-size: 28px; line-height: 1.05; text-transform: uppercase">Passar ingresso</h1>
+      <p style="margin: 0; font-size: 15px; line-height: 1.45; color: #9AA6C9">Ingresso <strong style="color: #F2F6FF">2 de 2</strong>. Depois que o amigo aceitar, o QR sai do seu celular e vai pro dele.</p>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 16px; background: #0D1020; border: 1px solid #232A4A">
+      <button aria-pressed="{{isLink}}" onClick="{{goLink}}" style="height: 44px; border-radius: 12px; border: none; font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer; background: {{linkBg}}; color: {{linkFg}}">Por link</button>
+      <button aria-pressed="{{isEmail}}" onClick="{{goEmail}}" style="height: 44px; border-radius: 12px; border: none; font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer; background: {{emailBg}}; color: {{emailFg}}">Por e-mail</button>
+    </div>
+
+    <sc-if value="{{isLink}}" hint-placeholder-val="{{ true }}">
+      <div style="display: flex; flex-direction: column; gap: 14px">
+        <div style="padding: 14px 16px; border-radius: 14px; background: #0D1020; border: 1.5px dashed #28E0FF; font-size: 14px; color: #7FEFFF; word-break: break-all">[dominio]/aceitar/[CÓDIGO-ÚNICO]</div>
+        <button style="height: 56px; border-radius: 16px; border: none; background: #FF2BD6; color: #05060F; font-family: inherit; font-size: 17px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer; box-shadow: 0 0 24px rgba(255,43,214,0.45)">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"></path><path d="M7 8l5-5 5 5"></path><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"></path></svg>
+          Compartilhar no WhatsApp
+        </button>
+      </div>
+    </sc-if>
+    <sc-if value="{{isEmail}}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="emailamigo" style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: #9AA6C9">E-MAIL DO AMIGO</label>
+          <input id="emailamigo" type="email" placeholder="amigo@email.com" style="height: 56px; box-sizing: border-box; padding: 0 16px; border-radius: 14px; border: 1.5px solid #28E0FF; background: #0D1020; color: #F2F6FF; font-family: inherit; font-size: 16px">
+        </div>
+        <button style="height: 56px; border-radius: 16px; border: none; background: #FF2BD6; color: #05060F; font-family: inherit; font-size: 17px; font-weight: 700; cursor: pointer; box-shadow: 0 0 24px rgba(255,43,214,0.45)">Enviar ingresso</button>
+      </div>
+    </sc-if>
+
+    <div style="display: flex; gap: 12px; padding: 14px 16px; border-radius: 16px; background: #0D1020; border: 1px solid #232A4A">
+      <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFC933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 1px"><path d="M12 3l9.5 17h-19z"></path><path d="M12 10v4"></path><path d="M12 17.5v.01"></path></svg>
+      <span style="font-size: 13px; line-height: 1.45; color: #9AA6C9">O link vale pra <strong style="color: #F2F6FF">uma pessoa só</strong>. Quem aceitar primeiro fica com o ingresso. Não mande em grupo.</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const link = (this.state || {}).via !== 'email';
+    return {
+      isLink: link,
+      isEmail: !link,
+      linkBg: link ? '#F2F6FF' : 'transparent',
+      linkFg: link ? '#05060F' : '#9AA6C9',
+      emailBg: link ? 'transparent' : '#F2F6FF',
+      emailFg: link ? '#9AA6C9' : '#05060F',
+      goLink: () => this.setState({ via: 'link' }),
+      goEmail: () => this.setState({ via: 'email' })
+    };
+  }
+}
+</script>
+</body>
+</html>

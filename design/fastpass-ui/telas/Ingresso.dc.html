@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Meus ingressos</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#FF6BE6}a:hover{color:#FFA3F0}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; position: relative; overflow: hidden; background: #05060F; color: #F2F6FF; font-family: 'Space Grotesk', sans-serif; display: flex; flex-direction: column; gap: 16px; padding: 20px 20px 0 20px">
+  <div style="display: flex; align-items: center; justify-content: space-between">
+    <h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 800; font-size: 22px; text-transform: uppercase">Ingressos</h1>
+    <div style="display: flex; align-items: center; gap: 8px">
+      <span style="display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; border: 1px solid #232A4A; font-size: 12px; color: #9AA6C9">
+        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3DFFA2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>
+        Offline ok
+      </span>
+      <a href="Conta.dc.html" aria-label="Conta e reembolso" style="width: 44px; height: 44px; border-radius: 14px; border: 1px solid #232A4A; display: flex; align-items: center; justify-content: center; color: #F2F6FF">
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21a8 8 0 0 1 16 0"></path></svg>
+      </a>
+    </div>
+  </div>
+
+  <div style="border-radius: 24px; background: linear-gradient(100deg, #FF2BD6, #28E0FF); color: #05060F; overflow: hidden; box-shadow: 0 0 40px rgba(255,43,214,0.35)">
+    <div style="padding: 18px 20px 14px 20px; display: flex; flex-direction: column; gap: 6px">
+      <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; letter-spacing: 0.14em">
+        <span>AFTER D'ADEGA</span><span>1 / 2</span>
+      </div>
+      <span style="font-family: 'Unbounded', sans-serif; font-weight: 800; font-size: 24px; line-height: 1.1; text-transform: uppercase">[SEU NOME]</span>
+      <span style="font-size: 14px; font-weight: 700">[DATA] · Os Brothers Adega</span>
+    </div>
+    <div style="position: relative; height: 24px">
+      <span style="position: absolute; left: -12px; top: 0; width: 24px; height: 24px; border-radius: 12px; background: #05060F"></span>
+      <span style="position: absolute; right: -12px; top: 0; width: 24px; height: 24px; border-radius: 12px; background: #05060F"></span>
+      <span style="position: absolute; left: 20px; right: 20px; top: 11px; border-top: 2px dashed rgba(5,6,15,0.45)"></span>
+    </div>
+    <a href="QR.dc.html" aria-label="Abrir QR em tela cheia" style="padding: 10px 20px 18px 20px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-decoration: none; color: #05060F">
+      <div style="width: 180px; height: 180px; box-sizing: border-box; padding: 12px; border-radius: 14px; background: #FFFFFF">
+        <svg role="img" aria-label="QR code do ingresso" width="156" height="156" viewBox="0 0 21 21" shape-rendering="crispEdges" fill="#05060F">
+          <path d="M0 0h7v7h-7z M1 1v5h5v-5z M2 2h3v3h-3z" fill-rule="evenodd"></path>
+          <path d="M14 0h7v7h-7z M15 1v5h5v-5z M16 2h3v3h-3z" fill-rule="evenodd"></path>
+          <path d="M0 14h7v7h-7z M1 15v5h5v-5z M2 16h3v3h-3z" fill-rule="evenodd"></path>
+          <path d="M8 0h1v1h-1z M10 0h1v1h-1z M12 0h1v1h-1z M9 1h1v1h-1z M11 1h1v1h-1z M8 2h1v1h-1z M12 2h1v1h-1z M10 3h1v1h-1z M9 4h1v1h-1z M11 4h1v1h-1z M8 5h1v1h-1z M12 5h1v1h-1z M10 6h1v1h-1z M0 8h1v1h-1z M2 8h1v1h-1z M4 8h1v1h-1z M6 8h1v1h-1z M9 8h2v1h-2z M13 8h1v1h-1z M15 8h1v1h-1z M17 8h1v1h-1z M19 8h2v1h-2z M1 9h1v1h-1z M3 9h1v1h-1z M5 9h1v1h-1z M8 9h1v1h-1z M11 9h2v1h-2z M14 9h1v1h-1z M16 9h1v1h-1z M18 9h1v1h-1z M0 10h1v1h-1z M4 10h1v1h-1z M6 10h1v1h-1z M9 10h2v1h-2z M13 10h1v1h-1z M15 10h1v1h-1z M19 10h2v1h-2z M2 11h2v1h-2z M5 11h1v1h-1z M8 11h1v1h-1z M12 11h1v1h-1z M14 11h1v1h-1z M16 11h2v1h-2z M19 11h1v1h-1z M0 12h2v1h-2z M4 12h1v1h-1z M6 12h1v1h-1z M10 12h2v1h-2z M13 12h1v1h-1z M15 12h1v1h-1z M18 12h1v1h-1z M20 12h1v1h-1z M9 13h1v1h-1z M12 13h1v1h-1z M16 13h1v1h-1z M19 13h1v1h-1z M8 14h2v1h-2z M11 14h1v1h-1z M13 14h2v1h-2z M16 14h1v1h-1z M18 14h1v1h-1z M20 14h1v1h-1z M9 15h2v1h-2z M12 15h1v1h-1z M15 15h1v1h-1z M17 15h1v1h-1z M19 15h1v1h-1z M8 16h1v1h-1z M11 16h1v1h-1z M13 16h2v1h-2z M16 16h2v1h-2z M20 16h1v1h-1z M10 17h1v1h-1z M12 17h1v1h-1z M15 17h1v1h-1z M18 17h2v1h-2z M8 18h2v1h-2z M11 18h1v1h-1z M14 18h1v1h-1z M16 18h1v1h-1z M20 18h1v1h-1z M10 19h1v1h-1z M12 19h2v1h-2z M15 19h1v1h-1z M17 19h2v1h-2z M8 20h1v1h-1z M11 20h1v1h-1z M14 20h1v1h-1z M16 20h1v1h-1z M19 20h2v1h-2z"></path>
+        </svg>
+      </div>
+      <span style="font-size: 13px; font-weight: 700">Toque para abrir em tela cheia</span>
+    </a>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <span style="font-size: 11px; letter-spacing: 0.14em; font-weight: 700; color: #9AA6C9">A TURMA</span>
+    <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: #0D1020; border: 1px solid #232A4A">
+      <span style="width: 36px; height: 36px; border-radius: 12px; background: #161B33; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: #7FEFFF">2</span>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+        <span style="font-size: 15px; font-weight: 700">Ainda com você</span>
+        <span style="font-size: 12px; color: #9AA6C9">Passe pelo app ou por link</span>
+      </div>
+      <a href="Transferir.dc.html" style="display: flex; align-items: center; height: 44px; padding: 0 16px; border-radius: 14px; border: 1.5px solid #FF2BD6; color: #FF6BE6; font-size: 14px; font-weight: 700; text-decoration: none">Passar</a>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

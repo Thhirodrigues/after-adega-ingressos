@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Lotes e preços</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#FF6BE6}a:hover{color:#FFA3F0}
+input::placeholder{color:#8590B5}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; position: relative; overflow: hidden; background: #05060F; color: #F2F6FF; font-family: 'Space Grotesk', sans-serif; padding: 16px 20px 28px 12px; display: flex; flex-direction: column">
+  <a href="Painel.dc.html" aria-label="Voltar" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: #F2F6FF">
+    <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"></path><path d="M11 6l-6 6 6 6"></path></svg>
+  </a>
+
+  <div style="padding: 8px 8px 0 8px; display: flex; flex-direction: column; gap: 16px; flex: 1">
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 800; font-size: 28px; line-height: 1.05; text-transform: uppercase">Lotes e preços</h1>
+      <p style="margin: 0; font-size: 14px; line-height: 1.45; color: #9AA6C9">Taxa de serviço de <strong style="color: #F2F6FF">10%</strong>, igual para Pix e cartão.</p>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 20px; background: #0D1020; border: 1.5px solid #FF2BD6">
+      <div style="display: flex; justify-content: space-between; align-items: center">
+        <span style="font-size: 16px; font-weight: 700">Lote 1</span>
+        <span style="padding: 4px 10px; border-radius: 999px; background: #0E3A27; color: #3DFFA2; font-size: 12px; font-weight: 700">Ativo</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="l1p" style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: #9AA6C9">PREÇO (R$)</label>
+          <input id="l1p" type="text" inputmode="decimal" placeholder="35,00" style="height: 52px; box-sizing: border-box; padding: 0 14px; border-radius: 12px; border: 1.5px solid #232A4A; background: #05060F; color: #F2F6FF; font-family: inherit; font-size: 16px; width: 100%">
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="l1q" style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: #9AA6C9">QUANTIDADE</label>
+          <input id="l1q" type="text" inputmode="numeric" placeholder="[N]" style="height: 52px; box-sizing: border-box; padding: 0 14px; border-radius: 12px; border: 1.5px solid #232A4A; background: #05060F; color: #F2F6FF; font-family: inherit; font-size: 16px; width: 100%">
+        </div>
+      </div>
+      <span style="font-size: 12px; color: #9AA6C9">Troca pro lote 2 quando esgotar</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 20px; background: #0D1020; border: 1px solid #232A4A">
+      <div style="display: flex; justify-content: space-between; align-items: center">
+        <span style="font-size: 16px; font-weight: 700">Lote 2</span>
+        <span style="padding: 4px 10px; border-radius: 999px; background: #161B33; color: #7FEFFF; font-size: 12px; font-weight: 700">Na fila</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="l2p" style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: #9AA6C9">PREÇO (R$)</label>
+          <input id="l2p" type="text" inputmode="decimal" placeholder="[PREÇO]" style="height: 52px; box-sizing: border-box; padding: 0 14px; border-radius: 12px; border: 1.5px solid #232A4A; background: #05060F; color: #F2F6FF; font-family: inherit; font-size: 16px; width: 100%">
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="l2q" style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: #9AA6C9">QUANTIDADE</label>
+          <input id="l2q" type="text" inputmode="numeric" placeholder="[N]" style="height: 52px; box-sizing: border-box; padding: 0 14px; border-radius: 12px; border: 1.5px solid #232A4A; background: #05060F; color: #F2F6FF; font-family: inherit; font-size: 16px; width: 100%">
+        </div>
+      </div>
+    </div>
+
+    <button style="height: 52px; border-radius: 14px; border: 1.5px dashed #28E0FF; background: transparent; color: #7FEFFF; font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer">+ Adicionar lote</button>
+
+    <div style="flex: 1"></div>
+
+    <a href="Painel.dc.html" style="display: flex; align-items: center; justify-content: center; height: 58px; border-radius: 16px; background: #FF2BD6; color: #05060F; font-weight: 700; font-size: 18px; text-decoration: none; box-shadow: 0 0 24px rgba(255,43,214,0.45)">Salvar lotes</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

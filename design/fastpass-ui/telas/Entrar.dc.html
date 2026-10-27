@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Entrar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#FF6BE6}a:hover{color:#FFA3F0}
+input::placeholder{color:#8590B5}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; position: relative; overflow: hidden; background: #05060F; color: #F2F6FF; font-family: 'Space Grotesk', sans-serif; padding: 16px 20px 28px 12px; display: flex; flex-direction: column">
+  <a href="Main.dc.html" aria-label="Voltar" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: #F2F6FF">
+    <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"></path><path d="M11 6l-6 6 6 6"></path></svg>
+  </a>
+
+  <div style="padding: 24px 8px 0 8px; display: flex; flex-direction: column; gap: 28px; flex: 1">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <img src="../assets/logo-icon.png" alt="FastPass" width="64" height="51" style="display: block">
+      <h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 800; font-size: 34px; line-height: 1.05; text-transform: uppercase">{{titulo}}</h1>
+      <p style="margin: 0; font-size: 15px; line-height: 1.45; color: #9AA6C9">{{sub}}</p>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 16px; background: #0D1020; border: 1px solid #232A4A">
+      <button aria-pressed="{{isNovo}}" onClick="{{goNovo}}" style="height: 44px; border-radius: 12px; border: none; font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer; background: {{novoBg}}; color: {{novoFg}}">Criar conta</button>
+      <button aria-pressed="{{isEntrar}}" onClick="{{goEntrar}}" style="height: 44px; border-radius: 12px; border: none; font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer; background: {{entrarBg}}; color: {{entrarFg}}">Já tenho conta</button>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 16px">
+      <sc-if value="{{isNovo}}" hint-placeholder-val="{{ true }}">
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="nome" style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: #9AA6C9">NOME COMPLETO</label>
+          <input id="nome" type="text" placeholder="Como está no documento" style="height: 56px; box-sizing: border-box; padding: 0 16px; border-radius: 14px; border: 1.5px solid #232A4A; background: #0D1020; color: #F2F6FF; font-family: inherit; font-size: 16px">
+        </div>
+      </sc-if>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <label for="email" style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: #9AA6C9">E-MAIL</label>
+        <input id="email" type="email" placeholder="voce@email.com" style="height: 56px; box-sizing: border-box; padding: 0 16px; border-radius: 14px; border: 1.5px solid #232A4A; background: #0D1020; color: #F2F6FF; font-family: inherit; font-size: 16px">
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <label for="senha" style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: #9AA6C9">SENHA</label>
+        <input id="senha" type="password" placeholder="Mínimo 8 caracteres" style="height: 56px; box-sizing: border-box; padding: 0 16px; border-radius: 14px; border: 1.5px solid #28E0FF; background: #0D1020; color: #F2F6FF; font-family: inherit; font-size: 16px">
+      </div>
+    </div>
+
+    <div style="flex: 1"></div>
+
+    <div style="display: flex; flex-direction: column; gap: 14px; align-items: center">
+      <a href="Checkout.dc.html" style="width: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; height: 58px; border-radius: 16px; background: #FF2BD6; color: #05060F; font-weight: 700; font-size: 18px; text-decoration: none; box-shadow: 0 0 24px rgba(255,43,214,0.45)">{{cta}}</a>
+      <span style="font-size: 12px; line-height: 1.4; color: #9AA6C9; text-align: center">Ao continuar, você concorda com a política de troca e reembolso da festa.</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const novo = (this.state || {}).modo !== 'entrar';
+    return {
+      isNovo: novo,
+      isEntrar: !novo,
+      titulo: novo ? 'Cria sua conta' : 'Bem-vindo de volta',
+      sub: novo ? 'É rápido. A conta guarda seus ingressos e deixa você passar pros amigos.' : 'Entre pra ver seus ingressos.',
+      cta: novo ? 'Criar conta e continuar' : 'Entrar',
+      novoBg: novo ? '#F2F6FF' : 'transparent',
+      novoFg: novo ? '#05060F' : '#9AA6C9',
+      entrarBg: novo ? 'transparent' : '#F2F6FF',
+      entrarFg: novo ? '#9AA6C9' : '#05060F',
+      goNovo: () => this.setState({ modo: 'novo' }),
+      goEntrar: () => this.setState({ modo: 'entrar' })
+    };
+  }
+}
+</script>
+</body>
+</html>

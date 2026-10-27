@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Compradores e reembolsos</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#FF6BE6}a:hover{color:#FFA3F0}
+input::placeholder{color:#8590B5}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; position: relative; overflow: hidden; background: #05060F; color: #F2F6FF; font-family: 'Space Grotesk', sans-serif; padding: 16px 20px 24px 12px; display: flex; flex-direction: column">
+  <a href="Painel.dc.html" aria-label="Voltar" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: #F2F6FF">
+    <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"></path><path d="M11 6l-6 6 6 6"></path></svg>
+  </a>
+
+  <div style="padding: 8px 8px 0 8px; display: flex; flex-direction: column; gap: 14px; flex: 1">
+    <h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 800; font-size: 26px; line-height: 1.05; text-transform: uppercase">Compradores</h1>
+
+    <div style="position: relative">
+      <label for="bc" style="position: absolute; left: -9999px">Buscar comprador</label>
+      <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9AA6C9" stroke-width="2" stroke-linecap="round" style="position: absolute; left: 16px; top: 18px"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+      <input id="bc" type="search" placeholder="Nome, e-mail ou pedido" style="width: 100%; height: 56px; box-sizing: border-box; padding: 0 16px 0 46px; border-radius: 14px; border: 1.5px solid #28E0FF; background: #0D1020; color: #F2F6FF; font-family: inherit; font-size: 16px">
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 16px; background: #0D1020; border: 1px solid #232A4A">
+      <button aria-pressed="true" style="height: 40px; border-radius: 12px; border: none; background: #F2F6FF; color: #05060F; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer">Todos</button>
+      <button aria-pressed="false" style="height: 40px; border-radius: 12px; border: none; background: transparent; color: #9AA6C9; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer">Pagos</button>
+      <button aria-pressed="false" style="height: 40px; border-radius: 12px; border: none; background: transparent; color: #9AA6C9; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer">Reembolso</button>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: #0D1020; border: 1px solid #232A4A">
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 16px; font-weight: 700">[NOME DO COMPRADOR]</span>
+          <span style="font-size: 12px; color: #9AA6C9">#[0000] · 3 ingressos · R$ 115,50 · Pix</span>
+        </div>
+        <span style="padding: 4px 10px; border-radius: 999px; background: #0E3A27; color: #3DFFA2; font-size: 12px; font-weight: 700">Pago</span>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: #0D1020; border: 1px solid #232A4A">
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 16px; font-weight: 700">[NOME DO COMPRADOR]</span>
+          <span style="font-size: 12px; color: #9AA6C9">#[0000] · 2 ingressos · R$ 77,00 · Cartão</span>
+        </div>
+        <span style="padding: 4px 10px; border-radius: 999px; background: #0E3A27; color: #3DFFA2; font-size: 12px; font-weight: 700">Pago</span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px; padding: 12px 14px; border-radius: 16px; background: #0D1020; border: 1.5px solid #FFC933">
+        <div style="display: flex; align-items: center; gap: 12px">
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <span style="font-size: 16px; font-weight: 700">[NOME DO COMPRADOR]</span>
+            <span style="font-size: 12px; color: #9AA6C9">#[0000] · 1 ingresso · R$ 38,50 · Pix</span>
+          </div>
+          <span style="padding: 4px 10px; border-radius: 999px; background: #3D3000; color: #FFC933; font-size: 12px; font-weight: 700">Pediu reembolso</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+          <button style="height: 44px; border-radius: 12px; border: 1.5px solid #232A4A; background: transparent; color: #7FEFFF; font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer">Recusar</button>
+          <button style="height: 44px; border-radius: 12px; border: none; background: #FFC933; color: #05060F; font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer">Aprovar</button>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: #0D1020; border: 1px solid #232A4A">
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 16px; font-weight: 700">[NOME DO COMPRADOR]</span>
+          <span style="font-size: 12px; color: #9AA6C9">#[0000] · 2 ingressos · R$ 77,00 · Pix</span>
+        </div>
+        <span style="padding: 4px 10px; border-radius: 999px; background: #161B33; color: #7FEFFF; font-size: 12px; font-weight: 700">Reembolsado</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

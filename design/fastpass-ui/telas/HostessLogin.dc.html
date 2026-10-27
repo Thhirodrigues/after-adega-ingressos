@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Login da hostess</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#FF6BE6}a:hover{color:#FFA3F0}
+input::placeholder{color:#8590B5}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; position: relative; overflow: hidden; background: #05060F; color: #F2F6FF; font-family: 'Space Grotesk', sans-serif; padding: 72px 24px 28px 24px; display: flex; flex-direction: column; gap: 28px">
+  <div style="display: flex; flex-direction: column; gap: 12px">
+    <span style="align-self: flex-start; padding: 6px 12px; border-radius: 8px; background: #28E0FF; color: #05060F; font-size: 12px; font-weight: 700; letter-spacing: 0.14em">PORTARIA</span>
+    <h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 800; font-size: 36px; line-height: 1.02; text-transform: uppercase">Hora de abrir a porta</h1>
+    <p style="margin: 0; font-size: 15px; line-height: 1.45; color: #9AA6C9">Entre com o acesso que o admin criou pra você. Depois do login, o scanner funciona mesmo sem internet.</p>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <label for="he" style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: #9AA6C9">E-MAIL</label>
+      <input id="he" type="email" placeholder="hostess@email.com" style="height: 56px; box-sizing: border-box; padding: 0 16px; border-radius: 14px; border: 1.5px solid #232A4A; background: #0D1020; color: #F2F6FF; font-family: inherit; font-size: 16px">
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <label for="hs" style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: #9AA6C9">SENHA</label>
+      <input id="hs" type="password" placeholder="Sua senha" style="height: 56px; box-sizing: border-box; padding: 0 16px; border-radius: 14px; border: 1.5px solid #28E0FF; background: #0D1020; color: #F2F6FF; font-family: inherit; font-size: 16px">
+    </div>
+  </div>
+
+  <div style="flex: 1"></div>
+
+  <div style="display: flex; flex-direction: column; gap: 12px">
+    <a href="Hostess.dc.html" style="display: flex; align-items: center; justify-content: center; height: 58px; border-radius: 16px; background: #FF2BD6; color: #05060F; font-weight: 700; font-size: 18px; text-decoration: none; box-shadow: 0 0 24px rgba(255,43,214,0.45)">Abrir portaria</a>
+    <span style="font-size: 12px; text-align: center; color: #9AA6C9">Baixando a lista de ingressos pro aparelho…</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,289 @@
+{
+ "v": 3,
+ "createdOnFiles": {
+  "v": 1,
+  "at": "2026-10-27T18:20:00Z"
+ },
+ "title": "FastPass",
+ "launch": {
+  "view": "canvas",
+  "page": "comprador"
+ },
+ "pages": [
+  {
+   "id": "comprador",
+   "name": "Comprador"
+  },
+  {
+   "id": "amigo",
+   "name": "Amigo que recebe"
+  },
+  {
+   "id": "hostess",
+   "name": "Hostess"
+  },
+  {
+   "id": "admin",
+   "name": "Admin"
+  }
+ ],
+ "boards": {
+  "telas/Main.dc.html": {
+   "x": 0,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "C1 · Página da festa",
+   "page": "comprador",
+   "is_interactive": true
+  },
+  "telas/Entrar.dc.html": {
+   "x": 470,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "C2 · Entrar",
+   "page": "comprador",
+   "is_interactive": true
+  },
+  "telas/Checkout.dc.html": {
+   "x": 940,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "C3 · Checkout",
+   "page": "comprador",
+   "is_interactive": true
+  },
+  "telas/Pix.dc.html": {
+   "x": 1410,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "C4 · Pagamento Pix",
+   "page": "comprador",
+   "is_interactive": true
+  },
+  "telas/Confirmado.dc.html": {
+   "x": 1880,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "C5 · Compra confirmada",
+   "page": "comprador",
+   "is_interactive": true
+  },
+  "telas/Ingresso.dc.html": {
+   "x": 2350,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "C6 · Meus ingressos",
+   "page": "comprador",
+   "is_interactive": true
+  },
+  "telas/QR.dc.html": {
+   "x": 2820,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "C7 · QR em tela cheia",
+   "page": "comprador",
+   "is_interactive": true
+  },
+  "telas/Transferir.dc.html": {
+   "x": 3290,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "C8 · Transferir",
+   "page": "comprador",
+   "is_interactive": true
+  },
+  "telas/Conta.dc.html": {
+   "x": 3760,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "C9 · Conta e reembolso",
+   "page": "comprador",
+   "is_interactive": true
+  },
+  "telas/Aceitar.dc.html": {
+   "x": 0,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "A1 · Aceitar ingresso",
+   "page": "amigo",
+   "is_interactive": true
+  },
+  "telas/Cadastro.dc.html": {
+   "x": 470,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "A2 · Cadastro rápido",
+   "page": "amigo",
+   "is_interactive": true
+  },
+  "telas/HostessLogin.dc.html": {
+   "x": 0,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "H1 · Login hostess",
+   "page": "hostess",
+   "is_interactive": true
+  },
+  "telas/Hostess.dc.html": {
+   "x": 470,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "H2 · Scanner",
+   "page": "hostess",
+   "is_interactive": true
+  },
+  "telas/Lista.dc.html": {
+   "x": 940,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "H3 · Lista de convidados",
+   "page": "hostess",
+   "is_interactive": true
+  },
+  "telas/Sync.dc.html": {
+   "x": 1410,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "H4 · Sincronização",
+   "page": "hostess",
+   "is_interactive": true
+  },
+  "telas/Painel.dc.html": {
+   "x": 0,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "D1 · Painel",
+   "page": "admin",
+   "is_interactive": true
+  },
+  "telas/Festa.dc.html": {
+   "x": 470,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "D2 · Criar / editar festa",
+   "page": "admin",
+   "is_interactive": true
+  },
+  "telas/Lotes.dc.html": {
+   "x": 940,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "D3 · Lotes e preços",
+   "page": "admin",
+   "is_interactive": true
+  },
+  "telas/Cortesias.dc.html": {
+   "x": 1410,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "D4 · Cortesias do DJ",
+   "page": "admin",
+   "is_interactive": true
+  },
+  "telas/Compradores.dc.html": {
+   "x": 1880,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "D5 · Compradores e reembolsos",
+   "page": "admin",
+   "is_interactive": true
+  },
+  "telas/Equipe.dc.html": {
+   "x": 2350,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "D6 · Equipe",
+   "page": "admin",
+   "is_interactive": true
+  },
+  "telas/MercadoPago.dc.html": {
+   "x": 2820,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "D7 · Mercado Pago",
+   "page": "admin",
+   "is_interactive": true
+  }
+ },
+ "order": [
+  "telas/Main.dc.html",
+  "telas/Entrar.dc.html",
+  "telas/Checkout.dc.html",
+  "telas/Pix.dc.html",
+  "telas/Confirmado.dc.html",
+  "telas/Ingresso.dc.html",
+  "telas/QR.dc.html",
+  "telas/Transferir.dc.html",
+  "telas/Conta.dc.html",
+  "telas/Aceitar.dc.html",
+  "telas/Cadastro.dc.html",
+  "telas/HostessLogin.dc.html",
+  "telas/Hostess.dc.html",
+  "telas/Lista.dc.html",
+  "telas/Sync.dc.html",
+  "telas/Painel.dc.html",
+  "telas/Festa.dc.html",
+  "telas/Lotes.dc.html",
+  "telas/Cortesias.dc.html",
+  "telas/Compradores.dc.html",
+  "telas/Equipe.dc.html",
+  "telas/MercadoPago.dc.html"
+ ],
+ "notes": {
+  "t_comprador": {
+   "x": 0,
+   "y": -300,
+   "text": "Comprador",
+   "kind": "title1",
+   "maxW": 4150,
+   "page": "comprador"
+  },
+  "t_amigo": {
+   "x": 0,
+   "y": -300,
+   "text": "Amigo que recebe",
+   "kind": "title1",
+   "maxW": 860,
+   "page": "amigo"
+  },
+  "t_hostess": {
+   "x": 0,
+   "y": -300,
+   "text": "Hostess · portaria",
+   "kind": "title1",
+   "maxW": 1800,
+   "page": "hostess"
+  },
+  "t_admin": {
+   "x": 0,
+   "y": -300,
+   "text": "Admin",
+   "kind": "title1",
+   "maxW": 3210,
+   "page": "admin"
+  }
+ },
+ "designSystems": []
+}

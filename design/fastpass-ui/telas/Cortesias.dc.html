@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Cortesias do DJ</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#FF6BE6}a:hover{color:#FFA3F0}
+input::placeholder{color:#8590B5}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; position: relative; overflow: hidden; background: #05060F; color: #F2F6FF; font-family: 'Space Grotesk', sans-serif; padding: 16px 20px 28px 12px; display: flex; flex-direction: column">
+  <a href="Painel.dc.html" aria-label="Voltar" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: #F2F6FF">
+    <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"></path><path d="M11 6l-6 6 6 6"></path></svg>
+  </a>
+
+  <div style="padding: 8px 8px 0 8px; display: flex; flex-direction: column; gap: 18px; flex: 1">
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 800; font-size: 28px; line-height: 1.05; text-transform: uppercase">Cortesias</h1>
+      <p style="margin: 0; font-size: 14px; line-height: 1.45; color: #9AA6C9">Só pro DJ e um acompanhante. O DJ passa os e-mails e você emite direto, sem pagamento.</p>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 20px; background: #0D1020; border: 1.5px solid #28E0FF">
+      <span style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: #9AA6C9">EMITIR CORTESIA</span>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <label for="cn" style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: #9AA6C9">NOME</label>
+        <input id="cn" type="text" placeholder="Nome de quem entra" style="height: 52px; box-sizing: border-box; padding: 0 14px; border-radius: 12px; border: 1.5px solid #232A4A; background: #05060F; color: #F2F6FF; font-family: inherit; font-size: 16px">
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <label for="ce" style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: #9AA6C9">E-MAIL</label>
+        <input id="ce" type="email" placeholder="email@exemplo.com" style="height: 52px; box-sizing: border-box; padding: 0 14px; border-radius: 12px; border: 1.5px solid #232A4A; background: #05060F; color: #F2F6FF; font-family: inherit; font-size: 16px">
+      </div>
+      <button style="height: 52px; border-radius: 14px; border: none; background: #FF2BD6; color: #05060F; font-family: inherit; font-size: 16px; font-weight: 700; cursor: pointer; box-shadow: 0 0 20px rgba(255,43,214,0.4)">Emitir e enviar</button>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div style="display: flex; justify-content: space-between; align-items: baseline">
+        <span style="font-size: 11px; letter-spacing: 0.14em; font-weight: 700; color: #9AA6C9">EMITIDAS</span>
+        <span style="font-size: 13px; color: #9AA6C9">2 de 2</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: #0D1020; border: 1px solid #232A4A">
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 16px; font-weight: 700">[NOME DO DJ]</span>
+          <span style="font-size: 12px; color: #9AA6C9">[email@dj.com]</span>
+        </div>
+        <span style="padding: 4px 10px; border-radius: 999px; background: #161B33; color: #7FEFFF; font-size: 12px; font-weight: 700">DJ</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: #0D1020; border: 1px solid #232A4A">
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 16px; font-weight: 700">[NOME DO ACOMPANHANTE]</span>
+          <span style="font-size: 12px; color: #9AA6C9">[email@acompanhante.com]</span>
+        </div>
+        <span style="padding: 4px 10px; border-radius: 999px; background: #161B33; color: #7FEFFF; font-size: 12px; font-weight: 700">+1</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Scanner da portaria</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#FF6BE6}a:hover{color:#FFA3F0}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; position: relative; overflow: hidden; background: #05060F; color: #F2F6FF; font-family: 'Space Grotesk', sans-serif; display: flex; flex-direction: column; gap: 14px; padding: 18px 20px 24px 20px">
+  <div style="display: flex; align-items: center; justify-content: space-between">
+    <h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 800; font-size: 22px; text-transform: uppercase">Portaria</h1>
+    <a href="Sync.dc.html" style="display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 12px; border-radius: 999px; border: 1px solid #232A4A; font-size: 12px; color: #9AA6C9; text-decoration: none">
+      <span style="width: 8px; height: 8px; border-radius: 4px; background: #FFC933"></span>
+      Offline
+    </a>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+    <div style="padding: 12px 14px; border-radius: 16px; background: #0D1020; border: 1px solid #232A4A; display: flex; flex-direction: column; gap: 2px">
+      <span style="font-family: 'Unbounded', sans-serif; font-size: 24px; font-weight: 800; color: #3DFFA2">[N]</span>
+      <span style="font-size: 12px; color: #9AA6C9">já entraram</span>
+    </div>
+    <div style="padding: 12px 14px; border-radius: 16px; background: #0D1020; border: 1px solid #232A4A; display: flex; flex-direction: column; gap: 2px">
+      <span style="font-family: 'Unbounded', sans-serif; font-size: 24px; font-weight: 800">[N]</span>
+      <span style="font-size: 12px; color: #9AA6C9">ainda vão chegar</span>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 16px; background: #0D1020; border: 1px solid #232A4A">
+    <button aria-pressed="true" style="height: 44px; border-radius: 12px; border: none; background: #F2F6FF; color: #05060F; font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer">Escanear</button>
+    <a href="Lista.dc.html" style="height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #9AA6C9; font-size: 15px; font-weight: 700; text-decoration: none">Lista</a>
+  </div>
+
+  <div style="position: relative; height: 230px; border-radius: 24px; background: #000000; border: 1px solid #232A4A; display: flex; align-items: center; justify-content: center">
+    <svg aria-hidden="true" width="170" height="170" viewBox="0 0 190 190" fill="none" stroke="#FF2BD6" stroke-width="5" stroke-linecap="round">
+      <path d="M3 40V12a9 9 0 0 1 9-9h28"></path>
+      <path d="M150 3h28a9 9 0 0 1 9 9v28"></path>
+      <path d="M187 150v28a9 9 0 0 1-9 9h-28"></path>
+      <path d="M40 187H12a9 9 0 0 1-9-9v-28"></path>
+    </svg>
+    <span style="position: absolute; bottom: 12px; font-size: 13px; color: #9AA6C9">Aponte para o QR do ingresso</span>
+  </div>
+
+  <sc-if value="{{ok}}" hint-placeholder-val="{{ true }}">
+    <div style="flex: 1; border-radius: 24px; background: #3DFFA2; color: #05060F; padding: 18px 20px; display: flex; flex-direction: column; justify-content: center; gap: 4px">
+      <div style="display: flex; align-items: center; gap: 12px">
+        <svg aria-hidden="true" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>
+        <span style="font-family: 'Unbounded', sans-serif; font-size: 30px; font-weight: 800; line-height: 1">LIBERADO</span>
+      </div>
+      <span style="font-size: 20px; font-weight: 700">[NOME DO CONVIDADO]</span>
+      <span style="font-size: 14px; font-weight: 700">Ingresso 2 de 3 · turma de [COMPRADOR]</span>
+    </div>
+  </sc-if>
+  <sc-if value="{{used}}" hint-placeholder-val="{{ false }}">
+    <div style="flex: 1; border-radius: 24px; background: #FFC933; color: #05060F; padding: 18px 20px; display: flex; flex-direction: column; justify-content: center; gap: 4px">
+      <div style="display: flex; align-items: center; gap: 12px">
+        <svg aria-hidden="true" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+        <span style="font-family: 'Unbounded', sans-serif; font-size: 30px; font-weight: 800; line-height: 1">JÁ ENTROU</span>
+      </div>
+      <span style="font-size: 20px; font-weight: 700">[NOME DO CONVIDADO]</span>
+      <span style="font-size: 14px; font-weight: 700">Usado às [HORÁRIO]</span>
+    </div>
+  </sc-if>
+  <sc-if value="{{bad}}" hint-placeholder-val="{{ false }}">
+    <div style="flex: 1; border-radius: 24px; background: #B3123F; color: #FFFFFF; padding: 18px 20px; display: flex; flex-direction: column; justify-content: center; gap: 4px">
+      <div style="display: flex; align-items: center; gap: 12px">
+        <svg aria-hidden="true" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
+        <span style="font-family: 'Unbounded', sans-serif; font-size: 30px; font-weight: 800; line-height: 1">INVÁLIDO</span>
+      </div>
+      <span style="font-size: 18px; font-weight: 700">QR não reconhecido</span>
+      <span style="font-size: 14px; font-weight: 500">Peça pra abrir o ingresso no app, ou confira na lista.</span>
+    </div>
+  </sc-if>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+    <button onClick="{{showOk}}" style="height: 44px; border-radius: 12px; border: 1px dashed #232A4A; background: transparent; color: #9AA6C9; font-family: inherit; font-size: 12px; font-weight: 500; cursor: pointer">Simular liberado</button>
+    <button onClick="{{showUsed}}" style="height: 44px; border-radius: 12px; border: 1px dashed #232A4A; background: transparent; color: #9AA6C9; font-family: inherit; font-size: 12px; font-weight: 500; cursor: pointer">Simular já entrou</button>
+    <button onClick="{{showBad}}" style="height: 44px; border-radius: 12px; border: 1px dashed #232A4A; background: transparent; color: #9AA6C9; font-family: inherit; font-size: 12px; font-weight: 500; cursor: pointer">Simular inválido</button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const r = (this.state || {}).r || 'ok';
+    return {
+      ok: r === 'ok',
+      used: r === 'used',
+      bad: r === 'bad',
+      showOk: () => this.setState({ r: 'ok' }),
+      showUsed: () => this.setState({ r: 'used' }),
+      showBad: () => this.setState({ r: 'bad' })
+    };
+  }
+}
+</script>
+</body>
+</html>
