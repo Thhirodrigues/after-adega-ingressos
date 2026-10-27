@@ -964,6 +964,7 @@ const ABAS = [
   ['cortesias', 'Cortesias'],
   ['usuarios', 'Usuários'],
   ['avisos', 'Avisos'],
+  ['auditoria', 'Auditoria'],
   ['config', 'Configurações'],
 ];
 function layoutAdmin(ativa, html) {
@@ -1533,7 +1534,20 @@ const contagemLocal = () => ({
 });
 
 async function atualizarLista() {
-  const d = await api('GET', '/portaria/lista');
+  let d;
+  try {
+    d = await api('GET', '/portaria/lista');
+  } catch (e) {
+    // 409 = nenhum evento aberto (encerrado): não deixa a lista de convidados guardada no aparelho.
+    if (e.status === 409) {
+      P.lista = [];
+      P.pendentes = [];
+      P.evento = null;
+      P.gerado_em = 0;
+      salvarP();
+    }
+    throw e;
+  }
   const pend = new Set(P.fila.map((f) => f.h).filter(Boolean));
   const pendIds = new Set(P.fila.map((f) => f.ingresso_id).filter(Boolean));
   P.lista = d.ingressos.map((i) => (i.status === 'valido' && (pend.has(i.h) || pendIds.has(i.id)) ? { ...i, status: 'usado', usado_em: i.usado_em || Math.floor(Date.now() / 1000) } : i));
@@ -1656,6 +1670,7 @@ rota('/portaria', async () => {
     if (r.nome) linhas.push(`<div class="nome">${esc(r.nome)}</div>`);
     if (r.tipo === 'cortesia') linhas.push(`<div>Cortesia${r.motivo ? ` · ${esc(r.motivo)}` : ''}</div>`);
     if (r.resultado === 'usado') linhas.push(`<div>Já entrou às ${horaCurta(r.usado_em)}</div>${r.usado_por ? `<div class="peq-ov">Portaria: ${esc(r.usado_por)}</div>` : ''}`);
+    if (r.resultado === 'cancelado') linhas.push('<div class="ov-chame">Não libere a entrada.<br>Chame a produção.</div>');
     if (r.resultado === 'invalido') linhas.push('<div>Código não reconhecido. Peça para atualizar a tela do ingresso.</div>');
     if (r.offline) linhas.push('<div class="peq-ov">conferido sem internet</div>');
     ov.className = `overlay ${cls}`;
@@ -2135,6 +2150,102 @@ function zapConvite(cv, evento) {
   return `https://wa.me/${cv.telefone}?text=${encodeURIComponent(msg)}`;
 }
 
+// ---------- auditoria ----------
+const ACOES_AUD = {
+  setup_admin: 'Administrador criado',
+  config_alterada: 'Configurações alteradas',
+  evento_criado: 'Evento criado',
+  evento_alterado: 'Evento alterado',
+  lote_criado: 'Lote criado',
+  lote_alterado: 'Lote alterado',
+  cupom_criado: 'Cupom criado',
+  cupom_editado: 'Cupom editado',
+  export_convidados: 'Exportou convidados',
+  export_vendas: 'Exportou vendas',
+  pedido_confirmado: 'Pagamento confirmado à mão',
+  pedido_estornado: 'Pedido estornado',
+  pedido_cancelado_admin: 'Pedido cancelado',
+  usuario_criado: 'Usuário criado',
+  usuario_papel: 'Papel de usuário alterado',
+  usuario_ativo: 'Usuário ativado/desativado',
+  senha_provisoria: 'Senha provisória gerada',
+  pin_definido: 'Senha da recepção definida',
+  flyer_trocado: 'Flyer trocado',
+  flyer_padrao: 'Flyer voltou ao padrão',
+  convite_criado: 'Cortesia criada',
+  convite_editado: 'Cortesia editada',
+  convite_contato_trocado: 'Contato da cortesia trocado',
+  convite_cancelado: 'Cortesia cancelada',
+  convite_excluido: 'Cortesia excluída',
+  cortesia_cancelada: 'Ingresso de cortesia cancelado',
+  venda_presencial: 'Venda na porta',
+  entrada_qr: 'Entrada pelo QR',
+  entrada_manual: 'Entrada pela lista',
+  entrada_convite: 'Entrada de cortesia sem conta',
+  entrada_desfeita: 'Entrada desfeita',
+  entrada_recusada: 'Entrada recusada',
+  confirmacao_errada: '4 últimos números errados',
+  portaria_sincronizou: 'Portaria sincronizou entradas',
+  pedido_criado: 'Pedido feito',
+  pedido_cancelado_comprador: 'Pedido cancelado pelo comprador',
+  transferencia_criada: 'Transferência criada',
+  transferencia_aceita: 'Transferência aceita',
+  senha_recuperada_resposta: 'Senha recuperada',
+  resposta_definida: 'Resposta secreta definida',
+};
+const ACOES_ALERTA = new Set(['entrada_desfeita', 'entrada_recusada', 'confirmacao_errada', 'convite_excluido', 'convite_cancelado', 'cortesia_cancelada', 'pedido_estornado', 'pedido_cancelado_admin']);
+
+rota('/admin/auditoria', async () => {
+  if (!exigirAdmin()) return;
+  let filtro = '';
+  let itens = [];
+  let proximo = null;
+  layoutAdmin(
+    'auditoria',
+    `<p class="mudo">O que cada administrador e cada pessoa da portaria fez. Só leitura.</p>
+    <div class="abas" id="aud-filtro" style="grid-template-columns:repeat(3,1fr)">
+      <a href="#" data-papel="" class="on">Todos</a><a href="#" data-papel="admin">Admin</a><a href="#" data-papel="hostess">Portaria</a>
+    </div>
+    <input id="aud-busca" placeholder="Buscar por nome, ação ou detalhe…" autocomplete="off">
+    <div id="aud-lista"></div>
+    <button class="bt sec bloco" id="aud-mais" hidden>Carregar mais</button>`,
+  );
+  const lista = document.getElementById('aud-lista');
+  const busca = document.getElementById('aud-busca');
+  const maisBt = document.getElementById('aud-mais');
+  const desenhar = () => {
+    const q = semAcento(busca.value.trim());
+    const vis = itens.filter((x) => !q || semAcento(`${x.nome} ${x.sobrenome} ${ACOES_AUD[x.acao] || x.acao} ${x.detalhe}`).includes(q));
+    lista.innerHTML = vis.length
+      ? vis
+          .map(
+            (x) => `<div class="card aud-item"><div class="linha"><b>${esc(ACOES_AUD[x.acao] || x.acao)}</b><span class="tag ${ACOES_ALERTA.has(x.acao) ? 'cancelado' : 'valido'}">${esc(x.papel === 'admin' ? 'admin' : 'portaria')}</span></div>
+            ${x.detalhe ? `<div class="aud-det">${esc(x.detalhe)}</div>` : ''}
+            <div class="peq">${esc(x.nome)} ${esc(x.sobrenome)} · ${hora(x.criado_em)}</div></div>`,
+          )
+          .join('')
+      : '<p class="mudo">Nenhum registro.</p>';
+    maisBt.hidden = !proximo;
+  };
+  const carregar = async (limpa) => {
+    const d = await api('GET', `/admin/auditoria?papel=${filtro}${limpa || !proximo ? '' : `&antes=${proximo}`}`);
+    itens = limpa ? d.itens : itens.concat(d.itens);
+    proximo = d.proximo;
+    desenhar();
+  };
+  document.querySelectorAll('#aud-filtro [data-papel]').forEach((a) =>
+    a.addEventListener('click', async (e) => {
+      e.preventDefault();
+      filtro = a.dataset.papel;
+      document.querySelectorAll('#aud-filtro [data-papel]').forEach((x) => x.classList.toggle('on', x === a));
+      await carregar(true);
+    }),
+  );
+  busca.addEventListener('input', desenhar);
+  maisBt.addEventListener('click', () => comEspera(maisBt, () => carregar(false)));
+  await carregar(true);
+});
+
 rota('/admin/cortesias', async () => {
   if (!exigirAdmin()) return;
   const lista = await api('GET', '/admin/convites');
@@ -2174,11 +2285,11 @@ rota('/admin/cortesias', async () => {
           <div class="acoes" style="margin-top:.75rem">
             <button class="bt peq">Salvar</button>
             <button type="button" class="bt sec peq" data-zap="${esc(zapConvite(x, evento))}">Enviar pelo WhatsApp</button>
-            <button type="button" class="bt perigo peq" data-exclui="${x.id}" data-nome="${esc(x.nome)}">Excluir cortesia</button>
-          </div><div class="erro-conv"></div></form></details>`;
+            ${x.entraram > 0 ? '' : `<button type="button" class="bt perigo peq" data-exclui="${x.id}" data-nome="${esc(x.nome)}">Excluir cortesia</button>`}
+          </div>${x.entraram > 0 ? '<p class="peq">Já entrou na festa: não pode ser excluída. Para excluir, desfaça a entrada na Portaria (pede a senha de desbloqueio).</p>' : ''}<div class="erro-conv"></div></form></details>`;
       }
       return `<details class="item">${cab}<div class="card"><p class="peq" style="margin:0">Celular: ${esc(x.telefone)}${x.email ? `<br>E-mail: ${esc(x.email)}` : ''}${x.nascimento ? `<br>Nascimento: ${dataBR(x.nascimento)}` : ''}</p>
-        <div class="acoes" style="margin-top:.75rem"><button type="button" class="bt perigo peq" data-exclui="${x.id}" data-nome="${esc(x.nome)}">Excluir da lista</button></div></div></details>`;
+        ${x.entraram > 0 ? '<p class="peq">Já entrou na festa: não pode ser excluída.</p>' : `<div class="acoes" style="margin-top:.75rem"><button type="button" class="bt perigo peq" data-exclui="${x.id}" data-nome="${esc(x.nome)}">Excluir da lista</button></div>`}</div></details>`;
     })
     .join('');
   layoutAdmin(
@@ -2243,7 +2354,7 @@ rota('/admin/cortesias', async () => {
   );
   app.querySelectorAll('[data-exclui]').forEach((b) =>
     b.addEventListener('click', () => {
-      if (!confirm(`Excluir a cortesia de ${b.dataset.nome}?\n\nOs ingressos dela deixam de valer e de contar. Se a pessoa já entrou na festa, a entrada também deixa de contar.`)) return;
+      if (!confirm(`Excluir a cortesia de ${b.dataset.nome}?\n\nOs ingressos dela deixam de valer e de contar. Quem tirou print do QR será barrado na portaria.`)) return;
       comEspera(b, async () => {
         await api('DELETE', `/admin/convites/${b.dataset.exclui}`);
         aviso('Cortesia excluída.');
@@ -2266,6 +2377,10 @@ rota('/admin/cortesias', async () => {
 rota('/convite/([0-9a-f]{32})', async (token) => {
   const info = await api('GET', `/convites/${token}`);
   const cab = `<h1>Sua cortesia</h1>`;
+  if (info.estado === 'encerrado') {
+    app.innerHTML = `${cab}<div class="card">Este evento já foi encerrado.</div><a class="bt sec" href="#/">Início</a>`;
+    return;
+  }
   if (info.estado === 'cancelado') {
     app.innerHTML = `${cab}<div class="card">Este convite foi cancelado. Fale com a organização.</div><a class="bt sec" href="#/">Início</a>`;
     return;

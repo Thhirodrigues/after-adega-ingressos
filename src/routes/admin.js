@@ -101,6 +101,7 @@ r.post('/admin/eventos', async (c) => {
       ),
   );
   const res = await db.batch(stmts);
+  await auditar(db, c.get('usuario').id, 'evento_criado', `${v.texto(b.nome, 'Nome', 2, 80)} ${b.data_evento}${ativo ? ' (ativo)' : ''}`);
   return c.json({ ok: true, id: res[res.length - 1].meta.last_row_id }, 201);
 });
 
@@ -124,6 +125,7 @@ r.put('/admin/eventos/:id', async (c) => {
       .bind(id, nome, data, local, descricao, ativo, hora),
   );
   await db.batch(stmts);
+  await auditar(db, c.get('usuario').id, 'evento_alterado', `${nome} ${data}${ativo ? ' (ativo)' : ' (inativo)'}`);
   return c.json({ ok: true });
 });
 
@@ -828,7 +830,7 @@ r.put('/admin/convites/:id', async (c) => {
         db.prepare(`UPDATE ingressos SET status = 'cancelado' WHERE convite_id = ?1 AND status = 'valido'`).bind(id),
         db.prepare(`UPDATE convites SET ${campos}, status = 'pendente', usuario_id = NULL, resgatado_em = NULL WHERE id = ?1 AND status = 'resgatado'`).bind(...vals),
       ]);
-      await auditar(db, c.get('usuario').id, 'convite_contato_trocado', String(id));
+      await auditar(db, c.get('usuario').id, 'convite_contato_trocado', `${novo.nome} (#${id})`);
       // segue para a liberação automática abaixo
     } else {
       const diff = novo.quantidade - (usados + validos);
@@ -854,12 +856,12 @@ r.put('/admin/convites/:id', async (c) => {
         ops.push(db.prepare(`UPDATE ingressos SET motivo = ?2, categoria = ?3 WHERE convite_id = ?1 AND status = 'valido'`).bind(id, ROTULO_CATEGORIA[novo.categoria], novo.categoria));
       }
       await db.batch(ops);
-      await auditar(db, c.get('usuario').id, 'convite_editado', `${id} (resgatado, ${diff >= 0 ? '+' : ''}${diff} ingresso(s))`);
+      await auditar(db, c.get('usuario').id, 'convite_editado', `${novo.nome} (#${id}, resgatado, ${diff >= 0 ? '+' : ''}${diff} ingresso(s))`);
       return c.json({ ok: true, resgatado: true, ajustado: true });
     }
   } else {
     await db.prepare(`UPDATE convites SET ${campos} WHERE id = ?1 AND status = 'pendente'`).bind(...vals).run();
-    await auditar(db, c.get('usuario').id, 'convite_editado', String(id));
+    await auditar(db, c.get('usuario').id, 'convite_editado', `${novo.nome} (#${id})`);
   }
   const conta = await db
     .prepare(`SELECT id, telefone, email FROM usuarios WHERE ativo = 1 AND (telefone = ?1 OR (?2 IS NOT NULL AND lower(email) = ?2)) LIMIT 1`)
@@ -874,30 +876,38 @@ r.put('/admin/convites/:id', async (c) => {
 r.post('/admin/convites/:id/cancelar', async (c) => {
   const id = v.inteiro(c.req.param('id'), 'Convite', 1, 1_000_000_000);
   const db = c.env.DB;
-  const cv = await db.prepare('SELECT status FROM convites WHERE id = ?1').bind(id).first();
+  const cv = await db.prepare('SELECT status, nome FROM convites WHERE id = ?1').bind(id).first();
   if (!cv) throw new HttpError(404, 'Convite não encontrado.');
   if (cv.status === 'cancelado') throw new HttpError(409, 'Este convite já está cancelado.');
   await db.batch([
     db.prepare(`UPDATE convites SET status = 'cancelado' WHERE id = ?1`).bind(id),
     db.prepare(`UPDATE ingressos SET status = 'cancelado' WHERE convite_id = ?1 AND status = 'valido'`).bind(id),
   ]);
-  await auditar(db, c.get('usuario').id, 'convite_cancelado', String(id));
+  await auditar(db, c.get('usuario').id, 'convite_cancelado', `${cv.nome} (#${id})`);
   return c.json({ ok: true });
 });
 
-// Exclui a cortesia: some da lista, os ingressos (inclusive já usados) deixam de valer e de contar.
+// Exclui a cortesia: some da lista e os ingressos ainda não usados deixam de valer. Quem já entrou na festa
+// não pode ser apagado (é presença real): para isso, a portaria precisa desfazer a entrada antes.
 // O registro fica no banco e a ação fica na auditoria.
 r.delete('/admin/convites/:id', async (c) => {
   const id = v.inteiro(c.req.param('id'), 'Convite', 1, 1_000_000_000);
   const db = c.env.DB;
   const cv = await db.prepare('SELECT id, nome, status FROM convites WHERE id = ?1 AND excluido_em IS NULL').bind(id).first();
   if (!cv) throw new HttpError(404, 'Convite não encontrado.');
-  const afetados = await db.prepare(`SELECT COUNT(*) AS n FROM ingressos WHERE convite_id = ?1 AND status IN ('valido', 'usado')`).bind(id).first();
-  await db.batch([
-    db.prepare(`UPDATE convites SET status = 'cancelado', excluido_em = ?2 WHERE id = ?1`).bind(id, agora()),
-    db.prepare(`UPDATE ingressos SET status = 'cancelado' WHERE convite_id = ?1 AND status IN ('valido', 'usado')`).bind(id),
-  ]);
-  await auditar(db, c.get('usuario').id, 'convite_excluido', `${id} ${cv.nome} (${afetados?.n ?? 0} ingresso(s))`);
+  const barrado = new HttpError(409, 'Esta cortesia já entrou na festa e não pode ser excluída.');
+  const afetados = await db.prepare(`SELECT COUNT(*) AS n FROM ingressos WHERE convite_id = ?1 AND status = 'valido'`).bind(id).first();
+  // A própria condição do UPDATE confere de novo (atômico): se alguém entrou agora há pouco, não exclui.
+  const res = await db
+    .prepare(
+      `UPDATE convites SET status = 'cancelado', excluido_em = ?2
+        WHERE id = ?1 AND excluido_em IS NULL AND NOT EXISTS (SELECT 1 FROM ingressos WHERE convite_id = ?1 AND status = 'usado')`,
+    )
+    .bind(id, agora())
+    .run();
+  if (res.meta.changes !== 1) throw barrado;
+  await db.prepare(`UPDATE ingressos SET status = 'cancelado' WHERE convite_id = ?1 AND status = 'valido'`).bind(id).run();
+  await auditar(db, c.get('usuario').id, 'convite_excluido', `${cv.nome} (${afetados?.n ?? 0} ingresso(s) cancelado(s))`);
   return c.json({ ok: true });
 });
 
@@ -911,6 +921,25 @@ r.post('/admin/cortesias/:id/cancelar', async (c) => {
   if (res.meta.changes !== 1) throw new HttpError(409, 'Só cortesias ainda válidas podem ser canceladas.');
   await auditar(c.env.DB, c.get('usuario').id, 'cortesia_cancelada', String(id));
   return c.json({ ok: true });
+});
+
+// Auditoria: o que cada administrador e cada pessoa da portaria fez, do mais recente para o mais antigo.
+// Só leitura. Paginada: "antes" é o id do último item já carregado.
+r.get('/admin/auditoria', async (c) => {
+  const papel = ['admin', 'hostess'].includes(c.req.query('papel')) ? c.req.query('papel') : '';
+  const antes = Math.max(0, Number.parseInt(c.req.query('antes') ?? '0', 10) || 0);
+  const LIM = 100;
+  const { results } = await c.env.DB.prepare(
+    `SELECT a.id, a.acao, a.detalhe, a.criado_em, u.nome, u.sobrenome, u.papel
+       FROM auditoria a JOIN usuarios u ON u.id = a.usuario_id
+      WHERE u.papel IN ('admin', 'hostess') AND (?1 = '' OR u.papel = ?1) AND (?2 = 0 OR a.id < ?2)
+      ORDER BY a.id DESC LIMIT ?3`,
+  )
+    .bind(papel, antes, LIM + 1)
+    .all();
+  const mais = results.length > LIM;
+  const itens = results.slice(0, LIM);
+  return c.json({ itens, mais, proximo: mais ? itens[itens.length - 1].id : null });
 });
 
 export default r;

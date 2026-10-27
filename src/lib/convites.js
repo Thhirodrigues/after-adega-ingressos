@@ -1,4 +1,5 @@
 import { HttpError, agora } from './http.js';
+import { eventoAberto } from './evento.js';
 
 export const ROTULO_CATEGORIA = { dj: 'DJ', aniversariante: 'Aniversariante', convidado: 'Amigo/parceiro' };
 
@@ -43,7 +44,8 @@ export async function resgatarPendentes(db, usuario) {
   const { results } = await db
     .prepare(
       `SELECT * FROM convites
-        WHERE status = 'pendente' AND (telefone = ?1 OR (email IS NOT NULL AND email = lower(?2)))`,
+        WHERE status = 'pendente' AND evento_id IN (SELECT e.id FROM eventos e WHERE ${eventoAberto('e')})
+          AND (telefone = ?1 OR (email IS NOT NULL AND email = lower(?2)))`,
     )
     .bind(usuario.telefone, usuario.email ?? '')
     .all();

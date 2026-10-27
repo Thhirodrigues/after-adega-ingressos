@@ -7,6 +7,7 @@ import * as v from '../lib/validar.js';
 import { buscarPedido, cancelarNaoPago, concluirPedidoGratis, criarPedido, liberarExpirados, visaoPedido } from '../lib/pedidos.js';
 import { alertar, avisarPedidoEmPagamento } from '../lib/alertas.js';
 import { TERMOS_VERSAO } from '../lib/termos.js';
+import { eventoAberto } from '../lib/evento.js';
 
 const r = new Hono();
 
@@ -58,6 +59,10 @@ r.get('/pedidos/:codigo', exigir(), async (c) => {
   if (!pedido || (pedido.comprador_id !== usuario.id && usuario.papel !== 'admin')) {
     throw new HttpError(404, 'Pedido não encontrado.');
   }
+  if (usuario.papel !== 'admin') {
+    const aberto = await c.env.DB.prepare(`SELECT 1 AS ok FROM eventos e WHERE e.id = ?1 AND ${eventoAberto('e')}`).bind(pedido.evento_id).first();
+    if (!aberto) throw new HttpError(404, 'Pedido não encontrado.');
+  }
   return c.json({ ...(await visaoPedido(c.env.DB, pedido)), mp_disponivel: !!c.env.MP_ACCESS_TOKEN });
 });
 
@@ -77,8 +82,11 @@ r.post('/pedidos/:codigo/cancelar', exigir(), async (c) => {
 r.get('/meus-pedidos', exigir(), async (c) => {
   const db = c.env.DB;
   const { results } = await db
-    .prepare(`SELECT id FROM pedidos WHERE comprador_id = ?1 AND canal = 'online' ORDER BY id DESC LIMIT 50`)
-    .bind(c.get('usuario').id)
+    .prepare(
+      `SELECT p.id FROM pedidos p JOIN eventos e ON e.id = p.evento_id
+        WHERE p.comprador_id = ?1 AND p.canal = 'online' AND (?2 = 1 OR ${eventoAberto('e')}) ORDER BY p.id DESC LIMIT 50`,
+    )
+    .bind(c.get('usuario').id, c.get('usuario').papel === 'admin' ? 1 : 0)
     .all();
   const pedidos = [];
   for (const { id } of results) pedidos.push(await visaoPedido(db, await buscarPedido(db, { id })));
@@ -93,9 +101,9 @@ r.get('/meus-ingressos', exigir(), async (c) => {
        FROM ingressos i
        JOIN eventos e ON e.id = i.evento_id
        LEFT JOIN lotes l ON l.id = i.lote_id
-      WHERE i.dono_id = ?1 AND i.nome_avulso IS NULL ORDER BY i.id`,
+      WHERE i.dono_id = ?1 AND i.nome_avulso IS NULL AND (?3 = 1 OR ${eventoAberto('e')}) ORDER BY i.id`,
   )
-    .bind(c.get('usuario').id, agora())
+    .bind(c.get('usuario').id, agora(), c.get('usuario').papel === 'admin' ? 1 : 0)
     .all();
   const cfg = await configuracoes(c.env.DB);
   const ingressos = [];

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { agora, configuracoes } from '../lib/http.js';
 import { calcularValores } from '../lib/pedidos.js';
 import { TERMOS_VERSAO } from '../lib/termos.js';
+import { eventoAberto } from '../lib/evento.js';
 
 const r = new Hono();
 
@@ -10,7 +11,7 @@ const r = new Hono();
 r.get('/evento', async (c) => {
   const db = c.env.DB;
   const evento = await db
-    .prepare(`SELECT id, nome, data_evento, local, descricao FROM eventos WHERE ativo = 1 ORDER BY data_evento LIMIT 1`)
+    .prepare(`SELECT e.id, e.nome, e.data_evento, e.local, e.descricao FROM eventos e WHERE ${eventoAberto('e')} ORDER BY data_evento LIMIT 1`)
     .first();
   if (!evento) return c.json({ evento: null, lotes: [] });
 

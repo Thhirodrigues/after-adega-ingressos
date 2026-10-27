@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { HttpError } from '../lib/http.js';
 import { exigir } from '../lib/auth.js';
 import { confere, resgatar, ROTULO_CATEGORIA } from '../lib/convites.js';
+import { eventoAberto } from '../lib/evento.js';
 
 const r = new Hono();
 const TOKEN = /^[0-9a-f]{32}$/;
@@ -9,7 +10,7 @@ const TOKEN = /^[0-9a-f]{32}$/;
 async function achar(db, token) {
   if (!TOKEN.test(token)) throw new HttpError(404, 'Convite não encontrado.');
   const cv = await db
-    .prepare(`SELECT c.*, e.nome AS evento_nome, e.data_evento FROM convites c JOIN eventos e ON e.id = c.evento_id WHERE c.token = ?1`)
+    .prepare(`SELECT c.*, e.nome AS evento_nome, e.data_evento, ${eventoAberto('e')} AS evento_aberto FROM convites c JOIN eventos e ON e.id = c.evento_id WHERE c.token = ?1`)
     .bind(token)
     .first();
   if (!cv) throw new HttpError(404, 'Convite não encontrado.');
@@ -19,6 +20,8 @@ async function achar(db, token) {
 // Página do link: não revela nome nem contato, só o evento e a situação.
 r.get('/convites/:token', async (c) => {
   const cv = await achar(c.env.DB, c.req.param('token'));
+  // Evento encerrado: o link não mostra mais nada da festa.
+  if (!cv.evento_aberto) return c.json({ estado: 'encerrado' });
   return c.json({ estado: cv.status, evento: cv.evento_nome, data_evento: cv.data_evento, categoria: ROTULO_CATEGORIA[cv.categoria] });
 });
 
@@ -26,6 +29,7 @@ r.get('/convites/:token', async (c) => {
 r.post('/convites/:token/resgatar', exigir(), async (c) => {
   const u = c.get('usuario');
   const cv = await achar(c.env.DB, c.req.param('token'));
+  if (!cv.evento_aberto) throw new HttpError(409, 'Este evento já foi encerrado.');
   if (cv.status === 'resgatado') {
     if (cv.usuario_id === u.id) return c.json({ ok: true, ja: true, quantidade: cv.quantidade });
     throw new HttpError(409, 'Este convite já foi resgatado.');

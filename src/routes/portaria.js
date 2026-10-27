@@ -7,13 +7,15 @@ import * as v from '../lib/validar.js';
 import { lerQr, registrarEntrada } from '../lib/portaria.js';
 import { ROTULO_CATEGORIA, telefoneTitular } from '../lib/convites.js';
 import { venderPresencial } from '../lib/pedidos.js';
+import { eventoAberto } from '../lib/evento.js';
+import { formatarSP } from '../lib/prazo.js';
 
 const r = new Hono();
 r.use('/portaria/*', exigir('hostess', 'admin'));
 
 async function eventoAtivo(db) {
   const ev = await db
-    .prepare(`SELECT id, nome, data_evento FROM eventos WHERE ativo = 1 ORDER BY data_evento LIMIT 1`)
+    .prepare(`SELECT e.id, e.nome, e.data_evento FROM eventos e WHERE ${eventoAberto('e')} ORDER BY e.data_evento LIMIT 1`)
     .first();
   if (!ev) throw new HttpError(409, 'Nenhum evento ativo.');
   return ev;
@@ -78,9 +80,14 @@ r.post('/portaria/validar', async (c) => {
   const b = await corpo(c);
   const db = c.env.DB;
   const ev = await eventoAtivo(db);
+  const u = c.get('usuario');
   const lido = await lerQr(c.env, b.qr);
-  if (!lido) return c.json({ resultado: 'invalido' });
-  const res = await registrarEntrada(db, { ...lido, eventoId: ev.id, quando: agora(), porId: c.get('usuario').id });
+  if (!lido) {
+    await auditar(db, u.id, 'entrada_recusada', 'QR inválido');
+    return c.json({ resultado: 'invalido' });
+  }
+  const res = await registrarEntrada(db, { ...lido, eventoId: ev.id, quando: agora(), porId: u.id });
+  await auditar(db, u.id, res.resultado === 'ok' ? 'entrada_qr' : 'entrada_recusada', `${res.nome ?? '—'} (#${lido.id})${res.resultado === 'ok' ? '' : `: ${res.resultado}`}`);
   return c.json({ ...res, ...(await contagem(db, ev.id)) });
 });
 
@@ -117,14 +124,14 @@ r.post('/portaria/entrada-manual', async (c) => {
         )
         .bind(chave, t, t + 900)
         .run();
-      await auditar(db, u.id, 'confirmacao_errada', String(id));
+      await auditar(db, u.id, 'confirmacao_errada', `${ing.nome} (#${id})`);
       await alertar(c, 'confirmacao_errada', `Na portaria, ${u.nome} ${u.sobrenome} informou 4 últimos números que não conferem com ${ing.nome} (ingresso #${id}). Entrada não liberada.`);
       throw new HttpError(403, 'Os 4 últimos números não conferem. Entrada não liberada: sem a confirmação, a pessoa precisa pagar o ingresso da porta.');
     }
     await db.prepare('DELETE FROM tentativas_login WHERE cpf = ?1').bind(chave).run();
   }
   const res = await registrarEntrada(db, { id, eventoId: ev.id, quando: agora(), porId: u.id });
-  if (res.resultado === 'ok') await auditar(db, u.id, 'entrada_manual', String(id));
+  await auditar(db, u.id, res.resultado === 'ok' ? 'entrada_manual' : 'entrada_recusada', `${res.nome ?? ing.nome} (#${id})${res.resultado === 'ok' ? '' : `: ${res.resultado}`}`);
   return c.json({ ...res, ...(await contagem(db, ev.id)) });
 });
 
@@ -159,7 +166,7 @@ r.post('/portaria/entrada-convite', async (c) => {
       )
       .bind(chave, t, t + 900)
       .run();
-    await auditar(db, u.id, 'confirmacao_errada', `convite ${id}`);
+    await auditar(db, u.id, 'confirmacao_errada', `${cv.nome} (cortesia sem conta)`);
     await alertar(c, 'confirmacao_errada', `Na portaria, ${u.nome} ${u.sobrenome} informou 4 últimos números que não conferem com ${cv.nome} (cortesia pendente). Entrada não liberada.`);
     throw new HttpError(403, 'Os 4 últimos números não conferem. Entrada não liberada.');
   }
@@ -179,7 +186,7 @@ r.post('/portaria/entrada-convite', async (c) => {
   if (quantas >= restantes) {
     await db.prepare(`UPDATE convites SET status = 'resgatado', resgatado_em = ?2 WHERE id = ?1 AND status = 'pendente'`).bind(id, t).run();
   }
-  await auditar(db, u.id, 'entrada_convite', `${id} (${quantas})`);
+  await auditar(db, u.id, 'entrada_convite', `${cv.nome} (${quantas} pessoa(s))`);
   return c.json({ resultado: 'ok', nome: cv.nome, tipo: 'cortesia', motivo: rotulo, usado_em: t, quantas, restantes: restantes - quantas, ...(await contagem(db, ev.id)) });
 });
 
@@ -203,6 +210,7 @@ r.post('/portaria/sincronizar', async (c) => {
       res = { resultado: 'invalido' };
     }
     resultados.push({ chave: u.qr ?? `m${u.ingresso_id}`, ...res });
+    await auditar(db, c.get('usuario').id, res.resultado === 'ok' ? 'entrada_qr' : 'entrada_recusada', `${res.nome ?? '—'}${res.ingresso_id ? ` (#${res.ingresso_id})` : ''} · sem internet, às ${formatarSP(quando)}${res.resultado === 'ok' ? '' : `: ${res.resultado}`}`);
   }
   const conflitos = resultados.filter((x) => x.resultado !== 'ok').length;
   if (usos.length) await auditar(db, c.get('usuario').id, 'portaria_sincronizou', `${usos.length} itens, ${conflitos} conflitos`);
@@ -253,7 +261,7 @@ r.post('/portaria/desfazer', async (c) => {
     .prepare(`SELECT i.desfeitos, COALESCE(i.nome_avulso, u.nome || ' ' || u.sobrenome) AS nome FROM ingressos i JOIN usuarios u ON u.id = i.dono_id WHERE i.id = ?1`)
     .bind(id)
     .first();
-  await auditar(db, u.id, 'entrada_desfeita', String(id));
+  await auditar(db, u.id, 'entrada_desfeita', `${ing.nome} (#${id})`);
   if (u.papel !== 'admin') {
     await alertar(c, 'entrada_desfeita', `${u.nome} ${u.sobrenome} desfez a entrada de ${ing.nome} (ingresso #${id}). Total de desfeitos neste ingresso: ${ing.desfeitos}.`);
   }

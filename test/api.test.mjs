@@ -1031,17 +1031,80 @@ test('cortesias: excluir (válida, já usada na portaria e pendente) some da lis
   assert.equal((await c.get('/api/meus-ingressos')).json.ingressos.filter((i) => i.status === 'valido').length, 0);
   assert.equal((await admin.req('DELETE', `/api/admin/convites/${cv.json.id}`, {})).status, 404); // já excluída
 
-  // cortesia pendente de teste, que entrou pela portaria: excluir também tira a entrada da contagem
+  // cortesia que já entrou pela portaria NÃO pode ser excluída (presença real); continua contando
   const tel2 = telUnico();
   const cv2 = await admin.post('/api/admin/convites', { categoria: 'convidado', nome: 'Teste Meu', telefone: tel2, quantidade: 1 });
   const antes = (await fin()).entraram;
   assert.equal((await hostess.post('/api/portaria/entrada-convite', { convite_id: cv2.json.id, ultimos4: tel2.slice(-4) })).status, 200);
   assert.equal((await fin()).entraram, antes + 1);
-  assert.equal((await admin.req('DELETE', `/api/admin/convites/${cv2.json.id}`, {})).status, 200);
-  assert.equal((await fin()).entraram, antes);
+  assert.equal((await admin.req('DELETE', `/api/admin/convites/${cv2.json.id}`, {})).status, 409);
+  assert.equal((await fin()).entraram, antes + 1);
+  assert.ok((await admin.get('/api/admin/convites')).json.convites.some((x) => x.id === cv2.json.id));
 
   // pendente nunca resgatada
   const cv3 = await admin.post('/api/admin/convites', { categoria: 'convidado', nome: 'Pendente Excluida', telefone: telUnico(), quantidade: 1 });
   assert.equal((await admin.req('DELETE', `/api/admin/convites/${cv3.json.id}`, {})).status, 200);
   assert.ok(!(await hostess.get('/api/portaria/lista')).json.pendentes.some((x) => x.id === cv3.json.id));
+});
+
+test('cortesia excluída: QR (print) lido na porta vira "cancelado" e fica na auditoria', async () => {
+  const tel = telUnico();
+  const c = new Cliente();
+  assert.equal((await c.post('/api/auth/cadastro', dados({ telefone: tel }))).status, 201);
+  const cv = await admin.post('/api/admin/convites', { categoria: 'dj', nome: 'DJ Print', telefone: tel, quantidade: 1 });
+  const qr = (await c.get('/api/meus-ingressos')).json.ingressos.find((i) => i.status === 'valido').qr;
+  assert.ok(qr);
+  assert.equal((await admin.req('DELETE', `/api/admin/convites/${cv.json.id}`, {})).status, 200);
+  const r = (await hostess.post('/api/portaria/validar', { qr })).json;
+  assert.equal(r.resultado, 'cancelado');
+  assert.equal(r.nome, 'Fulano Teste');
+});
+
+test('auditoria: admin vê ações de admin e portaria; hostess e comprador não acessam', async () => {
+  const { c } = await novoComprador();
+  assert.equal((await c.get('/api/admin/auditoria')).status, 403);
+  assert.equal((await hostess.get('/api/admin/auditoria')).status, 403);
+  const tudo = (await admin.get('/api/admin/auditoria')).json;
+  assert.ok(tudo.itens.length > 0);
+  const acoes = new Set(tudo.itens.map((x) => x.acao));
+  assert.ok(acoes.has('entrada_qr') && acoes.has('convite_excluido') && acoes.has('entrada_recusada'));
+  assert.ok(tudo.itens.every((x) => ['admin', 'hostess'].includes(x.papel)));
+  const port = (await admin.get('/api/admin/auditoria?papel=hostess')).json;
+  assert.ok(port.itens.length > 0 && port.itens.every((x) => x.papel === 'hostess'));
+  const adm = (await admin.get('/api/admin/auditoria?papel=admin')).json;
+  assert.ok(adm.itens.every((x) => x.papel === 'admin'));
+  // paginação: com limite de 100, "antes" devolve só itens mais antigos
+  const ids = tudo.itens.map((x) => x.id);
+  const pag = (await admin.get(`/api/admin/auditoria?antes=${ids[ids.length - 1]}`)).json;
+  assert.ok(pag.itens.every((x) => x.id < ids[ids.length - 1]));
+});
+
+test('evento encerrado: só o admin continua vendo; comprador, portaria e link somem', async () => {
+  const { c, ingressos } = await comprarEConfirmar(1);
+  assert.equal(ingressos.length, 1);
+  const tel = telUnico();
+  const cvp = await admin.post('/api/admin/convites', { categoria: 'convidado', nome: 'Link Encerrado', telefone: tel, quantidade: 1 });
+  const token = cvp.json.token;
+  const original = (await admin.get('/api/admin/eventos')).json.eventos.find((e) => e.id === eventoId);
+  const passado = new Date(Date.now() - 4 * 86400e3).toISOString().slice(0, 10);
+  try {
+    assert.equal((await admin.put(`/api/admin/eventos/${eventoId}`, { data_evento: passado })).status, 200);
+    assert.equal((await c.get('/api/meus-ingressos')).json.ingressos.length, 0);
+    assert.equal((await c.get('/api/meus-pedidos')).json.pedidos.length, 0);
+    assert.equal((await c.get('/api/evento')).json.evento, null);
+    assert.equal((await hostess.get('/api/portaria/lista')).status, 409);
+    assert.equal((await hostess.post('/api/portaria/validar', { qr: ingressos[0].qr ?? 'x' })).status, 409);
+    assert.equal((await c.post('/api/pedidos', { aceito_termos: true, lote_id: loteId, quantidade: 1, nome_pagador: 'Tarde Demais' })).status, 404);
+    assert.equal((await c.get(`/api/convites/${token}`)).json.estado, 'encerrado');
+    assert.equal((await c.post(`/api/convites/${token}/resgatar`, {})).status, 409);
+    // o admin continua enxergando o evento e os números
+    assert.equal((await admin.get('/api/admin/financeiro')).status, 200);
+    assert.ok((await admin.get('/api/admin/auditoria')).json.itens.some((x) => x.acao === 'evento_alterado'));
+  } finally {
+    await admin.put(`/api/admin/eventos/${eventoId}`, { data_evento: original.data_evento, ativo: 1 });
+  }
+  // reaberto: tudo volta
+  assert.equal((await c.get('/api/meus-ingressos')).json.ingressos.length, 1);
+  assert.ok((await c.get('/api/evento')).json.evento);
+  assert.equal((await hostess.get('/api/portaria/lista')).status, 200);
 });

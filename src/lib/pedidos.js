@@ -2,6 +2,7 @@ import { HttpError, agora, configuracoes } from './http.js';
 import { codigoCurto } from './crypto.js';
 import { pixCopiaECola } from './pix.js';
 import { buscarCupomParaCompra, calcularValores } from './cupons.js';
+import { eventoAberto } from './evento.js';
 
 export { calcularValores };
 
@@ -55,7 +56,7 @@ export async function criarPedido(env, usuario, { loteId, quantidade, nomePagado
 
   const lote = await db
     .prepare(
-      `SELECT l.id, l.evento_id, l.valor_centavos, l.ativo, l.canal, e.ativo AS evento_ativo
+      `SELECT l.id, l.evento_id, l.valor_centavos, l.ativo, l.canal, ${eventoAberto('e')} AS evento_ativo
          FROM lotes l JOIN eventos e ON e.id = l.evento_id WHERE l.id = ?1`,
     )
     .bind(loteId)
@@ -283,7 +284,7 @@ export async function venderPresencial(db, vendedor, { loteId, quantidade, nomes
   await liberarExpirados(db);
   const lote = await db
     .prepare(
-      `SELECT l.id, l.ativo, l.canal, e.ativo AS evento_ativo
+      `SELECT l.id, l.ativo, l.canal, ${eventoAberto('e')} AS evento_ativo
          FROM lotes l JOIN eventos e ON e.id = l.evento_id WHERE l.id = ?1`,
     )
     .bind(loteId)

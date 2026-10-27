@@ -79,6 +79,9 @@ th{color:var(--mudo);font-weight:600;font-size:.78rem;text-transform:uppercase;l
 .ov-titulo{font-size:2rem;font-weight:900;line-height:1.15;margin-bottom:1rem}
 .ov-corpo .nome{font-size:1.6rem;font-weight:800;margin:.5rem 0}
 .peq-ov{opacity:.85;font-size:.9rem;margin-top:.5rem}
+.ov-chame{font-size:1.5rem;font-weight:800;line-height:1.25;margin-top:1rem}
+.aud-item{padding:.7rem .9rem;margin:.5rem 0}
+.aud-det{margin:.3rem 0;word-break:break-word}
 .overlay .bt{background:rgba(0,0,0,.35);margin-top:1.75rem}
 
 .badge{display:inline-block;background:var(--erro);color:#fff;border-radius:999px;font-size:.7rem;font-weight:700;padding:0 .45rem;margin-left:.2rem;box-shadow:0 0 6px rgba(244,63,94,.9),0 0 16px rgba(244,63,94,.5)}
