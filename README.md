@@ -82,6 +82,6 @@ Valores em centavos; taxa de serviço 10% (configurável); reserva de 60 min; es
 
 ## Vários eventos
 
-- No topo das abas Financeiro, Pedidos, Lotes e cupons, Cortesias e Auditoria há o seletor **Evento**: ele escolhe qual evento as abas mostram (lembrado na sessão; padrão = o ativo). Não muda o evento ativo, que continua sendo só o do botão "Tornar ativo" na aba Eventos (é o que a venda e a portaria usam).
+- No topo das abas Financeiro, Pedidos, Lotes e cupons, Cortesias e Auditoria há o seletor **Evento**: ele escolhe qual evento as abas mostram (lembrado na sessão; padrão = o ativo). Não muda o evento ativo, que continua sendo só o do botão "Tornar ativo" do menu Evento (é o que a venda e a portaria usam).
 - **Evento encerrado** (término passou) é **só leitura** no admin: formulários desligados e o servidor recusa lote, cupom, cortesia e confirmação de pagamento (409). Continuam liberados: consultar, exportar CSV e estornar/cancelar pedido. Para reabrir, ajuste o término em Eventos.
 - **Auditoria por evento**: cada registro guarda `evento_id` (o evento da ação; nas ações gerais, o ativo na hora). Registros anteriores à migração `0014` ficaram no evento ativo da época. Só admin e portaria aparecem; ações de comprador (pedido, cancelamento, transferência) já ficam nas tabelas de pedidos e transferências.

@@ -1179,3 +1179,20 @@ test('vários eventos: consulta por evento, auditoria separada por evento e even
   // o evento ativo continua editável
   assert.equal((await admin.get(`/api/admin/convites?evento_id=${eventoId}`)).status, 200);
 });
+
+test('auditoria: filtro por usuário (admins e portaria cadastrados, com contagem no evento)', async () => {
+  const r = (await admin.get(`/api/admin/auditoria?evento_id=${eventoId}`)).json;
+  assert.ok(Array.isArray(r.usuarios) && r.usuarios.length >= 2);
+  assert.ok(r.usuarios.every((u) => ['admin', 'hostess'].includes(u.papel)));
+  const eu = r.usuarios.find((u) => u.papel === 'hostess' && u.acoes > 0);
+  assert.ok(eu, 'deve haver pessoa da portaria com ações no evento');
+  const so = (await admin.get(`/api/admin/auditoria?evento_id=${eventoId}&usuario_id=${eu.id}`)).json;
+  assert.ok(so.itens.length > 0);
+  assert.ok(so.itens.every((x) => x.nome === eu.nome && x.sobrenome === eu.sobrenome && x.papel === 'hostess'));
+  assert.equal(so.itens.length, Math.min(100, eu.acoes));
+  // evento sem ações da pessoa: lista vazia, mas ela continua no filtro
+  const outro = (await admin.get('/api/admin/eventos')).json.eventos.find((e) => e.id !== eventoId);
+  const vazio = (await admin.get(`/api/admin/auditoria?evento_id=${outro.id}&usuario_id=${eu.id}`)).json;
+  assert.equal(vazio.itens.length, 0);
+  assert.ok(vazio.usuarios.some((u) => u.id === eu.id && u.acoes === 0));
+});

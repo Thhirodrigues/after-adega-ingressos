@@ -86,7 +86,7 @@ r.get('/admin/eventos', async (c) => {
 async function exigirEditavel(db, eventoId) {
   const e = await db.prepare(`SELECT ${eventoEncerrado('e')} AS enc FROM eventos e WHERE e.id = ?1`).bind(eventoId).first();
   if (!e) throw new HttpError(404, 'Evento não encontrado.');
-  if (e.enc) throw new HttpError(409, 'Este evento já foi encerrado: só leitura. Para reabrir, ajuste o término na aba Eventos.');
+  if (e.enc) throw new HttpError(409, 'Este evento já foi encerrado: só leitura. Para reabrir, ajuste o término no menu Evento.');
 }
 
 // Evento que as telas do admin estão consultando: o pedido na URL; senão o ativo; senão o mais recente.
@@ -991,19 +991,28 @@ r.post('/admin/cortesias/:id/cancelar', async (c) => {
 r.get('/admin/auditoria', async (c) => {
   const papel = ['admin', 'hostess'].includes(c.req.query('papel')) ? c.req.query('papel') : '';
   const antes = Math.max(0, Number.parseInt(c.req.query('antes') ?? '0', 10) || 0);
+  const quem = Math.max(0, Number.parseInt(c.req.query('usuario_id') ?? '0', 10) || 0);
   const evento = await eventoConsulta(c.env.DB, c.req.query('evento_id'));
   const LIM = 100;
   const { results } = await c.env.DB.prepare(
     `SELECT a.id, a.acao, a.detalhe, a.criado_em, u.nome, u.sobrenome, u.papel
        FROM auditoria a JOIN usuarios u ON u.id = a.usuario_id
-      WHERE u.papel IN ('admin', 'hostess') AND (?1 = '' OR u.papel = ?1) AND (?2 = 0 OR a.id < ?2) AND a.evento_id = ?4
+      WHERE u.papel IN ('admin', 'hostess') AND (?1 = '' OR u.papel = ?1) AND (?2 = 0 OR a.id < ?2) AND a.evento_id = ?4 AND (?5 = 0 OR a.usuario_id = ?5)
       ORDER BY a.id DESC LIMIT ?3`,
   )
-    .bind(papel, antes, LIM + 1, evento.id)
+    .bind(papel, antes, LIM + 1, evento.id, quem)
     .all();
   const mais = results.length > LIM;
   const itens = results.slice(0, LIM);
-  return c.json({ itens, mais, proximo: mais ? itens[itens.length - 1].id : null });
+  // Quem pode ser filtrado: todos os admins e pessoas da portaria cadastrados, com quantas ações fizeram neste evento.
+  const { results: usuarios } = await c.env.DB.prepare(
+    `SELECT u.id, u.nome, u.sobrenome, u.papel, u.ativo,
+            (SELECT COUNT(*) FROM auditoria a WHERE a.usuario_id = u.id AND a.evento_id = ?1) AS acoes
+       FROM usuarios u WHERE u.papel IN ('admin', 'hostess') ORDER BY u.papel, u.nome, u.id`,
+  )
+    .bind(evento.id)
+    .all();
+  return c.json({ itens, mais, proximo: mais ? itens[itens.length - 1].id : null, usuarios });
 });
 
 export default r;

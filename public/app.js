@@ -155,6 +155,7 @@ async function carregarEu() {
   } catch {
     estado.eu = null;
   }
+  if (estado.eu?.papel === 'admin' && !estado.eventos) { try { await eventoSel(); } catch {} }
   desenharNav();
   atualizarBadgeAvisos();
   verificarPush();
@@ -183,10 +184,13 @@ function desenharNav() {
   else {
     if (eu.papel === 'admin') h += `<a href="#/admin">Admin${eu.nao_lidos ? ` <span class="badge">${eu.nao_lidos}</span>` : ''}</a>`;
     if (eu.papel === 'admin' || eu.papel === 'hostess') h += '<a href="#/portaria">Portaria</a>';
-    h += '<a href="#/meus">Meus ingressos</a><a href="#/conta">Conta</a><span class="sair-sino"><button id="sair">Sair</button>' + (eu.papel === 'admin' ? htmlSino() : '') + '</span>';
+    h += '<a href="#/meus">Meus ingressos</a><a href="#/conta">Conta</a>';
+    if (eu.papel === 'admin') h += `<button type="button" id="nav-evento" class="nav-ev" title="Eventos">${estado.evSel ? `Evento: ${esc(estado.evSel.nome)}` : 'Evento'} ▾</button>`;
+    h += '<span class="sair-sino"><button id="sair">Sair</button>' + (eu.papel === 'admin' ? htmlSino() : '') + '</span>';
   }
   nav.innerHTML = h;
   ligarSino();
+  document.getElementById('nav-evento')?.addEventListener('click', abrirEventos);
   document.getElementById('sair')?.addEventListener('click', async () => {
     try { await api('POST', '/auth/logout', {}); } catch {}
     estado.eu = null;
@@ -959,7 +963,6 @@ function ligarCsv() {
 const ABAS = [
   ['financeiro', 'Financeiro'],
   ['pedidos', 'Pedidos'],
-  ['eventos', 'Eventos'],
   ['lotes', 'Lotes e cupons'],
   ['cortesias', 'Cortesias'],
   ['usuarios', 'Usuários'],
@@ -974,8 +977,99 @@ async function eventoSel() {
   let guardado = 0;
   try { guardado = Number(sessionStorage.getItem('evsel')) || 0; } catch {}
   estado.evSel = estado.eventos.find((e) => e.id === guardado) || estado.eventos.find((e) => e.ativo && !e.encerrado) || estado.eventos[0] || null;
+  desenharNav();
   return estado.evSel;
 }
+// ---------- menu "Evento" (topo, só admin): escolher, criar, editar e ativar eventos ----------
+const camposEvento = (e = {}) => `<label>Nome</label><input name="nome" value="${esc(e.nome || '')}" placeholder="Festa dos amigos" required>
+  <div class="grade"><div><label>Data de início</label><input name="data_evento" type="date" value="${esc(e.data_evento || '')}" required></div>
+  <div><label>Horário de início</label><input name="hora_inicio" type="time" value="${esc(e.hora_inicio || '22:00')}" required></div></div>
+  <div class="grade"><div><label>Data de término</label><input name="data_fim" type="date" value="${esc(e.data_fim || '')}" required></div>
+  <div><label>Horário de término</label><input name="hora_fim" type="time" value="${esc(e.hora_fim || '06:00')}" required></div></div>
+  <p class="peq">Depois do término, o evento some para compradores e portaria (só o admin continua vendo).</p>
+  <label>Local</label><input name="local" value="${esc(e.local || '')}">
+  <label>Descrição (line-up, avisos…)</label><textarea name="descricao" rows="6">${esc(e.descricao || '')}</textarea>
+  <p class="peq">A descrição aparece na página de venda exatamente como você digitar, com as mesmas quebras de linha.</p>`;
+
+function abrirEventos() {
+  document.getElementById('painel-eventos')?.remove();
+  const ov = document.createElement('div');
+  ov.id = 'painel-eventos';
+  ov.className = 'overlay modal rolavel';
+  document.body.appendChild(ov);
+  const fecha = () => ov.remove();
+  ov.addEventListener('click', (e) => { if (e.target === ov) fecha(); });
+  const naAbaAdmin = () => /^#\/admin\//.test(location.hash);
+  const escolher = (id) => {
+    try { sessionStorage.setItem('evsel', String(id)); } catch {}
+    fecha();
+    if (naAbaAdmin()) navegar();
+    else eventoSel().catch(() => {});
+  };
+  const lista = async () => {
+    await eventoSel();
+    const itens = estado.eventos
+      .map(
+        (e) => `<div class="ev-item${e.id === estado.evSel?.id ? ' on' : ''}">
+          <button type="button" class="ev-linha" data-sel="${e.id}"><b>${esc(e.nome)}</b>
+            <span class="peq">${e.encerrado ? '<span class="tag cancelado">Encerrado</span> ' : e.ativo ? '<span class="tag valido">À venda</span> ' : ''}${dataBR(e.data_evento)} ${esc(e.hora_inicio || '22:00')} → ${e.data_fim && e.data_fim !== e.data_evento ? `${dataBR(e.data_fim)} ` : ''}${esc(e.hora_fim || '06:00')}${e.id === estado.evSel?.id ? ' · em consulta' : ''}</span></button>
+          <div class="acoes"><button type="button" class="bt sec peq" data-edita="${e.id}">Editar</button>${e.ativo || e.encerrado ? '' : `<button type="button" class="bt sec peq" data-ativar="${e.id}">Tornar ativo</button>`}</div>
+          ${e.encerrado ? '<p class="peq" style="margin:.4rem 0 0">Encerrado. Para reabrir, edite e ajuste o término.</p>' : ''}</div>`,
+      )
+      .join('');
+    ov.innerHTML = `<div class="card ov-corpo"><div class="linha"><h2 style="margin:0">Eventos</h2><button type="button" class="bt sec peq" id="ev-fecha">Fechar</button></div>
+      <p class="peq">Toque num evento para ver os dados dele nas abas do admin. Só <b>um evento fica ativo</b> por vez: é o que está à venda e o que a portaria usa. Os ingressos de festas anteriores continuam salvos.</p>
+      ${itens || '<p class="mudo">Nenhum evento ainda.</p>'}
+      <button type="button" class="bt bloco" id="ev-novo">+ Novo evento</button></div>`;
+    ov.querySelector('#ev-fecha').addEventListener('click', fecha);
+    ov.querySelector('#ev-novo').addEventListener('click', () => form(null));
+    ov.querySelectorAll('[data-sel]').forEach((b) => b.addEventListener('click', () => escolher(b.dataset.sel)));
+    ov.querySelectorAll('[data-edita]').forEach((b) => b.addEventListener('click', () => form(estado.eventos.find((e) => e.id === Number(b.dataset.edita)))));
+    ov.querySelectorAll('[data-ativar]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (!confirm('Tornar este o evento ativo? A venda e a portaria passam a usar ele.')) return;
+        comEspera(b, async () => {
+          await api('PUT', `/admin/eventos/${b.dataset.ativar}`, { ativo: true });
+          estado.evento = null;
+          aviso('Evento ativado.');
+          await lista();
+          if (naAbaAdmin()) navegar();
+        });
+      }),
+    );
+  };
+  const form = (e) => {
+    ov.innerHTML = `<form class="card ov-corpo"><h2 style="margin-top:0">${e ? 'Editar evento' : 'Novo evento'}</h2>${camposEvento(e || {})}
+      ${e ? '' : `<label class="check"><input type="checkbox" name="ativo"> Já deixar este evento ativo (à venda agora)</label>
+      <p class="peq">Depois de criar, vá em <b>Lotes e cupons</b> para cadastrar valor e quantidade.</p>`}
+      <div class="acoes" style="margin-top:1rem"><button class="bt">${e ? 'Salvar evento' : 'Criar evento'}</button><button type="button" class="bt sec" id="ev-volta">Voltar</button></div></form>`;
+    const f = ov.querySelector('form');
+    ov.querySelector('#ev-volta').addEventListener('click', lista);
+    f.data_evento.addEventListener('change', () => {
+      if (!f.data_evento.value || (f.data_fim.value && f.data_fim.value >= f.data_evento.value)) return;
+      const d = new Date(`${f.data_evento.value}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + 1);
+      f.data_fim.value = d.toISOString().slice(0, 10);
+    });
+    f.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      comEspera(f.querySelector('button'), async () => {
+        const corpo = { nome: f.nome.value, data_evento: f.data_evento.value, hora_inicio: f.hora_inicio.value, data_fim: f.data_fim.value, hora_fim: f.hora_fim.value, local: f.local.value, descricao: f.descricao.value };
+        if (e) await api('PUT', `/admin/eventos/${e.id}`, corpo);
+        else {
+          const r = await api('POST', '/admin/eventos', { ...corpo, ativo: f.ativo.checked });
+          try { sessionStorage.setItem('evsel', String(r.id)); } catch {}
+        }
+        estado.evento = null;
+        aviso(e ? 'Evento salvo.' : 'Evento criado.');
+        await lista();
+        if (naAbaAdmin()) navegar();
+      });
+    });
+  };
+  lista().catch((e) => { fecha(); aviso(e.message, 'erro'); });
+}
+
 const ABAS_POR_EVENTO = new Set(['financeiro', 'pedidos', 'lotes', 'cortesias', 'auditoria']);
 const situacaoEvento = (e) => (e.encerrado ? 'Encerrado' : e.ativo ? 'À venda' : 'Inativo');
 function layoutAdmin(ativa, html) {
@@ -983,15 +1077,10 @@ function layoutAdmin(ativa, html) {
   const leitura = porEvento && estado.evSel?.encerrado;
   app.innerHTML = `
     <h1>Administração</h1>
-    ${porEvento ? `<label for="ev-sel" class="peq" style="margin:0 0 .25rem">Evento</label>
-    <select id="ev-sel" style="margin-bottom:.6rem">${estado.eventos.map((e) => `<option value="${e.id}"${e.id === estado.evSel?.id ? ' selected' : ''}>${esc(e.nome)} · ${situacaoEvento(e)}</option>`).join('')}</select>
-    ${leitura ? '<div class="card aviso-leitura"><b>Evento encerrado: somente leitura.</b> Você pode consultar, exportar CSV e estornar pedidos. Para alterar algo, reabra o evento ajustando o término na aba Eventos.</div>' : ''}` : ''}
+    ${porEvento ? `<p class="peq" style="margin:0 0 .5rem">Evento: <b>${esc(estado.evSel?.nome || '')}</b> · ${situacaoEvento(estado.evSel || {})}</p>
+    ${leitura ? '<div class="card aviso-leitura"><b>Evento encerrado: somente leitura.</b> Você pode consultar, exportar CSV e estornar pedidos. Para alterar algo, reabra o evento ajustando o término no menu Evento (topo).</div>' : ''}` : ''}
     <div class="abas">${ABAS.map(([k, n]) => `<a href="#/admin/${k}" class="${k === ativa ? 'on' : ''}">${n}${k === 'avisos' ? `<span class="badge" data-badge-avisos${estado.eu?.nao_lidos ? '' : ' hidden'}>${estado.eu?.nao_lidos || ''}</span>` : ''}</a>`).join('')}</div>
     <div id="admin-corpo"${leitura ? ' class="leitura"' : ''}>${html}</div>`;
-  document.getElementById('ev-sel')?.addEventListener('change', (e) => {
-    try { sessionStorage.setItem('evsel', e.target.value); } catch {}
-    navegar();
-  });
   if (leitura) {
     // Evento encerrado: formulários só para ler (o servidor também recusa qualquer alteração).
     app.querySelectorAll('#admin-corpo form input, #admin-corpo form select, #admin-corpo form textarea').forEach((el) => { el.disabled = true; });
@@ -1135,79 +1224,8 @@ async function irParaLista(seletor) {
   document.querySelector(seletor)?.scrollIntoView({ block: 'start' });
 }
 
-rota('/admin/eventos', async () => {
-  if (!exigirAdmin()) return;
-  const ev = await api('GET', '/admin/eventos');
-  const camposEvento = (e = {}) => `<label>Nome</label><input name="nome" value="${esc(e.nome || '')}" placeholder="Festa dos amigos" required>
-      <div class="grade"><div><label>Data de início</label><input name="data_evento" type="date" value="${esc(e.data_evento || '')}" required></div>
-      <div><label>Horário de início</label><input name="hora_inicio" type="time" value="${esc(e.hora_inicio || '22:00')}" required></div></div>
-      <div class="grade"><div><label>Data de término</label><input name="data_fim" type="date" value="${esc(e.data_fim || '')}" required></div>
-      <div><label>Horário de término</label><input name="hora_fim" type="time" value="${esc(e.hora_fim || '06:00')}" required></div></div>
-      <p class="peq">Depois do término, o evento some para compradores e portaria (só o admin continua vendo).</p>
-      <label>Local</label><input name="local" value="${esc(e.local || '')}">
-      <label>Descrição (line-up, avisos…)</label><textarea name="descricao" rows="8">${esc(e.descricao || '')}</textarea>
-      <p class="peq">A descrição aparece na página de venda exatamente como você digitar, com as mesmas quebras de linha.</p>`;
-  const ordenados = [...ev.eventos].sort((x, y) => Number(y.ativo) - Number(x.ativo));
-  const itens = ordenados
-    .map(
-      (e) => `<details class="item"><summary><b>${esc(e.nome)}</b><span class="peq">${e.encerrado ? '<span class="tag cancelado">Encerrado</span> ' : e.ativo ? '<span class="tag valido">À venda</span> ' : ''}${dataBR(e.data_evento)} ${esc(e.hora_inicio || '22:00')} → ${e.data_fim && e.data_fim !== e.data_evento ? `${dataBR(e.data_fim)} ` : ''}${esc(e.hora_fim || '06:00')}${e.local ? ` · ${esc(e.local)}` : ''}</span></summary>
-      <form class="card" data-evento="${e.id}">${camposEvento(e)}
-      <div class="linha"><button class="bt peq">Salvar evento</button>${e.ativo || e.encerrado ? '' : `<button type="button" class="bt sec peq" data-ativar="${e.id}">Tornar ativo</button>`}</div>${e.encerrado ? '<p class="peq">Evento encerrado. Para reabrir, ajuste a data e o horário de término.</p>' : ''}</form></details>`,
-    )
-    .join('');
-  layoutAdmin(
-    'eventos',
-    `<p class="peq">Só <b>um evento fica ativo</b> por vez: é o que aparece para venda e o que a portaria usa. Troque o ativo só depois que a portaria da festa anterior encerrar. Os ingressos de festas anteriores continuam salvos.</p>
-    <h2 id="lista-eventos" class="h-mais">Eventos <button type="button" class="mais" data-abre="fnovo" aria-label="Novo evento" title="Novo evento">+</button></h2>${itens || '<p class="mudo">Nenhum evento ainda.</p>'}
-    <form class="card" id="fnovo" hidden><b>Novo evento</b>${camposEvento()}
-      <label><input type="checkbox" name="ativo" style="width:auto"> Já deixar este evento ativo (à venda agora)</label>
-      <p class="peq">Depois de criar, vá em <b>Lotes</b> para cadastrar valor e quantidade (com o evento ativo).</p>
-      <div class="linha"><button class="bt peq">Criar evento</button><button type="button" class="bt sec peq" data-fecha="fnovo">Cancelar</button></div></form>`,
-  );
-  ligarMais();
-  // Ao escolher o início, sugere o término no dia seguinte (festa de madrugada) se ainda não houver um válido.
-  app.querySelectorAll('input[name="data_evento"]').forEach((ini) =>
-    ini.addEventListener('change', () => {
-      const f = ini.form;
-      if (!ini.value || (f.data_fim.value && f.data_fim.value >= ini.value)) return;
-      const d = new Date(`${ini.value}T00:00:00Z`);
-      d.setUTCDate(d.getUTCDate() + 1);
-      f.data_fim.value = d.toISOString().slice(0, 10);
-    }),
-  );
-  app.querySelectorAll('form[data-evento]').forEach((f) =>
-    f.addEventListener('submit', (e) => {
-      e.preventDefault();
-      comEspera(f.querySelector('button'), async () => {
-        await api('PUT', `/admin/eventos/${f.dataset.evento}`, { nome: f.nome.value, data_evento: f.data_evento.value, hora_inicio: f.hora_inicio.value, data_fim: f.data_fim.value, hora_fim: f.hora_fim.value, local: f.local.value, descricao: f.descricao.value });
-        estado.evento = null;
-        aviso('Evento salvo.');
-        await irParaLista('#lista-eventos');
-      });
-    }),
-  );
-  app.querySelectorAll('[data-ativar]').forEach((b) =>
-    b.addEventListener('click', () => {
-      if (!confirm('Tornar este o evento ativo? A venda e a portaria passam a usar ele.')) return;
-      comEspera(b, async () => {
-        await api('PUT', `/admin/eventos/${b.dataset.ativar}`, { ativo: true });
-        estado.evento = null;
-        aviso('Evento ativado.');
-        await irParaLista('#lista-eventos');
-      });
-    }),
-  );
-  document.getElementById('fnovo').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const f = e.target;
-    comEspera(f.querySelector('button'), async () => {
-      await api('POST', '/admin/eventos', { nome: f.nome.value, data_evento: f.data_evento.value, hora_inicio: f.hora_inicio.value, data_fim: f.data_fim.value, hora_fim: f.hora_fim.value, local: f.local.value, descricao: f.descricao.value, ativo: f.ativo.checked });
-      estado.evento = null;
-      aviso('Evento criado.');
-      await irParaLista('#lista-eventos');
-    });
-  });
-});
+// A gestão de eventos agora fica no menu "Evento" do topo.
+rota('/admin/eventos', async () => { location.hash = '#/admin/financeiro'; });
 
 rota('/admin/lotes', async () => {
   if (!exigirAdmin()) return;
@@ -1249,7 +1267,7 @@ rota('/admin/lotes', async () => {
     .join('');
   layoutAdmin(
     'lotes',
-`${evAtivo ? `<p class="peq">Evento: <b>${esc(evAtivo.nome)}</b> · ${dataBR(evAtivo.data_evento)}. Para editar nome, data, local ou descrição, use a aba <a href="#/admin/eventos">Eventos</a>.</p>` : ''}
+`${evAtivo ? `<p class="peq">Evento: <b>${esc(evAtivo.nome)}</b> · ${dataBR(evAtivo.data_evento)}. Para editar nome, data, local ou descrição, use o menu <b>Evento</b> (topo).</p>` : ''}
     <h2 id="lista-lotes" class="h-mais">Lotes <button type="button" class="mais" data-abre="fnovo" aria-label="Novo lote" title="Novo lote">+</button></h2>${cards || '<p class="mudo">Nenhum lote ainda.</p>'}
     <form class="card" id="fnovo" hidden>
       <b>Novo lote</b>
@@ -2245,14 +2263,15 @@ rota('/admin/auditoria', async () => {
   layoutAdmin(
     'auditoria',
     `<p class="mudo">O que cada administrador e cada pessoa da portaria fez neste evento. Só leitura.</p>
-    <div class="abas" id="aud-filtro" style="grid-template-columns:repeat(3,1fr)">
-      <a href="#" data-papel="" class="on">Todos</a><a href="#" data-papel="admin">Admin</a><a href="#" data-papel="hostess">Portaria</a>
-    </div>
+    <label for="aud-quem" class="peq" style="margin:0 0 .25rem">Quem</label>
+    <select id="aud-quem"><option value="">Todos</option></select>
     <input id="aud-busca" placeholder="Buscar por nome, ação ou detalhe…" autocomplete="off">
     <div id="aud-lista"></div>
     <button class="bt sec bloco" id="aud-mais" hidden>Carregar mais</button>`,
   );
   const lista = document.getElementById('aud-lista');
+  const quemSel = document.getElementById('aud-quem');
+  let quemMontado = false;
   const busca = document.getElementById('aud-busca');
   const maisBt = document.getElementById('aud-mais');
   const desenhar = () => {
@@ -2270,19 +2289,22 @@ rota('/admin/auditoria', async () => {
     maisBt.hidden = !proximo;
   };
   const carregar = async (limpa) => {
-    const d = await api('GET', `/admin/auditoria?evento_id=${evA.id}&papel=${filtro}${limpa || !proximo ? '' : `&antes=${proximo}`}`);
+    const alvo = filtro.startsWith('papel:') ? `&papel=${filtro.slice(6)}` : filtro ? `&usuario_id=${filtro}` : '';
+    const d = await api('GET', `/admin/auditoria?evento_id=${evA.id}${alvo}${limpa || !proximo ? '' : `&antes=${proximo}`}`);
     itens = limpa ? d.itens : itens.concat(d.itens);
     proximo = d.proximo;
+    if (!quemMontado) {
+      quemMontado = true;
+      const op = (u) => `<option value="${u.id}">${esc(u.nome)} ${esc(u.sobrenome)}${u.ativo ? '' : ' (inativo)'} · ${u.acoes} ${u.acoes === 1 ? 'ação' : 'ações'}</option>`;
+      const adms = d.usuarios.filter((u) => u.papel === 'admin');
+      const port = d.usuarios.filter((u) => u.papel === 'hostess');
+      quemSel.innerHTML = `<option value="">Todos</option><option value="papel:admin">Todos os admins (${adms.length})</option><option value="papel:hostess">Toda a portaria (${port.length})</option>
+        ${adms.length ? `<optgroup label="Admins">${adms.map(op).join('')}</optgroup>` : ''}${port.length ? `<optgroup label="Portaria">${port.map(op).join('')}</optgroup>` : ''}`;
+      quemSel.value = filtro;
+    }
     desenhar();
   };
-  document.querySelectorAll('#aud-filtro [data-papel]').forEach((a) =>
-    a.addEventListener('click', async (e) => {
-      e.preventDefault();
-      filtro = a.dataset.papel;
-      document.querySelectorAll('#aud-filtro [data-papel]').forEach((x) => x.classList.toggle('on', x === a));
-      await carregar(true);
-    }),
-  );
+  quemSel.addEventListener('change', () => { filtro = quemSel.value; carregar(true); });
   busca.addEventListener('input', desenhar);
   maisBt.addEventListener('click', () => comEspera(maisBt, () => carregar(false)));
   await carregar(true);

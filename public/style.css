@@ -163,3 +163,13 @@ details.item[hidden]{display:none}
 
 .aviso-leitura{border-color:var(--cor2);margin:.4rem 0 .8rem}
 .leitura .mais,.leitura form button,.leitura [data-conf],.leitura [data-exclui],.leitura [data-cancela],.leitura [data-ativar]{display:none}
+
+#nav .nav-ev{max-width:12rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#nav .sair-sino{margin-left:auto}
+.overlay.modal.rolavel{align-items:flex-start;overflow-y:auto}
+.overlay.modal.rolavel .ov-corpo{margin:auto 0}
+.ev-item{padding:.7rem 0;border-top:1px solid rgba(255,255,255,.1)}
+.ev-item.on .ev-linha b{color:var(--cor2)}
+.ev-linha{display:block;width:100%;text-align:left;background:none;border:0;color:inherit;font:inherit;padding:0 0 .4rem;cursor:pointer}
+.ev-linha .peq{display:block;margin-top:.15rem}
+#aud-mais[hidden]{display:none}
