@@ -1111,15 +1111,18 @@ rota('/admin/eventos', async () => {
   if (!exigirAdmin()) return;
   const ev = await api('GET', '/admin/eventos');
   const camposEvento = (e = {}) => `<label>Nome</label><input name="nome" value="${esc(e.nome || '')}" placeholder="Festa dos amigos" required>
-      <div class="grade"><div><label>Data</label><input name="data_evento" type="date" value="${esc(e.data_evento || '')}" required></div>
+      <div class="grade"><div><label>Data de início</label><input name="data_evento" type="date" value="${esc(e.data_evento || '')}" required></div>
       <div><label>Horário de início</label><input name="hora_inicio" type="time" value="${esc(e.hora_inicio || '22:00')}" required></div></div>
+      <div class="grade"><div><label>Data de término</label><input name="data_fim" type="date" value="${esc(e.data_fim || '')}" required></div>
+      <div><label>Horário de término</label><input name="hora_fim" type="time" value="${esc(e.hora_fim || '06:00')}" required></div></div>
+      <p class="peq">Depois do término, o evento some para compradores e portaria (só o admin continua vendo).</p>
       <label>Local</label><input name="local" value="${esc(e.local || '')}">
       <label>Descrição (line-up, avisos…)</label><textarea name="descricao" rows="8">${esc(e.descricao || '')}</textarea>
       <p class="peq">A descrição aparece na página de venda exatamente como você digitar, com as mesmas quebras de linha.</p>`;
   const ordenados = [...ev.eventos].sort((x, y) => Number(y.ativo) - Number(x.ativo));
   const itens = ordenados
     .map(
-      (e) => `<details class="item"><summary><b>${esc(e.nome)}</b><span class="peq">${e.ativo ? '<span class="tag valido">À venda</span> ' : ''}${dataBR(e.data_evento)} · ${esc(e.hora_inicio || '22:00')}${e.local ? ` · ${esc(e.local)}` : ''}</span></summary>
+      (e) => `<details class="item"><summary><b>${esc(e.nome)}</b><span class="peq">${e.ativo ? '<span class="tag valido">À venda</span> ' : ''}${dataBR(e.data_evento)} ${esc(e.hora_inicio || '22:00')} → ${e.data_fim && e.data_fim !== e.data_evento ? `${dataBR(e.data_fim)} ` : ''}${esc(e.hora_fim || '06:00')}${e.local ? ` · ${esc(e.local)}` : ''}</span></summary>
       <form class="card" data-evento="${e.id}">${camposEvento(e)}
       <div class="linha"><button class="bt peq">Salvar evento</button>${e.ativo ? '' : `<button type="button" class="bt sec peq" data-ativar="${e.id}">Tornar ativo</button>`}</div></form></details>`,
     )
@@ -1134,11 +1137,21 @@ rota('/admin/eventos', async () => {
       <div class="linha"><button class="bt peq">Criar evento</button><button type="button" class="bt sec peq" data-fecha="fnovo">Cancelar</button></div></form>`,
   );
   ligarMais();
+  // Ao escolher o início, sugere o término no dia seguinte (festa de madrugada) se ainda não houver um válido.
+  app.querySelectorAll('input[name="data_evento"]').forEach((ini) =>
+    ini.addEventListener('change', () => {
+      const f = ini.form;
+      if (!ini.value || (f.data_fim.value && f.data_fim.value >= ini.value)) return;
+      const d = new Date(`${ini.value}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + 1);
+      f.data_fim.value = d.toISOString().slice(0, 10);
+    }),
+  );
   app.querySelectorAll('form[data-evento]').forEach((f) =>
     f.addEventListener('submit', (e) => {
       e.preventDefault();
       comEspera(f.querySelector('button'), async () => {
-        await api('PUT', `/admin/eventos/${f.dataset.evento}`, { nome: f.nome.value, data_evento: f.data_evento.value, hora_inicio: f.hora_inicio.value, local: f.local.value, descricao: f.descricao.value });
+        await api('PUT', `/admin/eventos/${f.dataset.evento}`, { nome: f.nome.value, data_evento: f.data_evento.value, hora_inicio: f.hora_inicio.value, data_fim: f.data_fim.value, hora_fim: f.hora_fim.value, local: f.local.value, descricao: f.descricao.value });
         estado.evento = null;
         aviso('Evento salvo.');
         await irParaLista('#lista-eventos');
@@ -1160,7 +1173,7 @@ rota('/admin/eventos', async () => {
     e.preventDefault();
     const f = e.target;
     comEspera(f.querySelector('button'), async () => {
-      await api('POST', '/admin/eventos', { nome: f.nome.value, data_evento: f.data_evento.value, hora_inicio: f.hora_inicio.value, local: f.local.value, descricao: f.descricao.value, ativo: f.ativo.checked });
+      await api('POST', '/admin/eventos', { nome: f.nome.value, data_evento: f.data_evento.value, hora_inicio: f.hora_inicio.value, data_fim: f.data_fim.value, hora_fim: f.hora_fim.value, local: f.local.value, descricao: f.descricao.value, ativo: f.ativo.checked });
       estado.evento = null;
       aviso('Evento criado.');
       await irParaLista('#lista-eventos');

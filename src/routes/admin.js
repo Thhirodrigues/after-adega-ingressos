@@ -11,6 +11,7 @@ import {
 import { inserirUsuario, lerDadosUsuario } from './auth.js';
 import { alertar } from '../lib/alertas.js';
 import { chavesVapid, enviarPush } from '../lib/push.js';
+import { inicioDoEvento } from '../lib/prazo.js';
 import { aleatorioHex, hmacHex } from '../lib/crypto.js';
 import { ROTULO_CATEGORIA, resgatarPendentes } from '../lib/convites.js';
 import { SQL_USADOS, TIPOS_CUPOM, normalizarCupom } from '../lib/cupons.js';
@@ -79,25 +80,41 @@ r.get('/admin/eventos', async (c) => {
   return c.json({ eventos: results });
 });
 
+// Término do evento: precisa ser depois do início (e no máximo 3 dias depois, para pegar erro de digitação).
+function conferirTermino(dataIni, horaIni, dataFim, horaFim) {
+  const ini = inicioDoEvento(dataIni, horaIni);
+  const fim = inicioDoEvento(dataFim, horaFim);
+  if (fim <= ini) throw new HttpError(400, 'O término precisa ser depois do início do evento.');
+  if (fim - ini > 3 * 86400) throw new HttpError(400, 'O término está a mais de 3 dias do início. Confira a data.');
+}
+
 r.post('/admin/eventos', async (c) => {
   const b = await corpo(c);
   const db = c.env.DB;
   const ativo = bool(b.ativo);
+  const dataIni = v.dataISO(b.data_evento);
+  const horaIni = 'hora_inicio' in b ? v.horaHM(b.hora_inicio, 'Horário de início') : '22:00';
+  // Sem término informado: dia seguinte às 06:00 (festa de madrugada).
+  const dataFim = b.data_fim ? v.dataISO(b.data_fim) : new Date(Date.parse(`${dataIni}T00:00:00Z`) + 86400e3).toISOString().slice(0, 10);
+  const horaFim = 'hora_fim' in b ? v.horaHM(b.hora_fim, 'Horário de término') : '06:00';
+  conferirTermino(dataIni, horaIni, dataFim, horaFim);
   const stmts = [];
   if (ativo) stmts.push(db.prepare('UPDATE eventos SET ativo = 0'));
   stmts.push(
     db
       .prepare(
-        'INSERT INTO eventos (nome, data_evento, local, descricao, ativo, criado_em, hora_inicio) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)',
+        'INSERT INTO eventos (nome, data_evento, local, descricao, ativo, criado_em, hora_inicio, data_fim, hora_fim) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)',
       )
       .bind(
         v.texto(b.nome, 'Nome', 2, 80),
-        v.dataISO(b.data_evento),
+        dataIni,
         String(b.local ?? '').trim().slice(0, 120),
         String(b.descricao ?? '').trim().slice(0, 1000),
         ativo,
         agora(),
-        'hora_inicio' in b ? v.horaHM(b.hora_inicio, 'Horário de início') : '22:00',
+        horaIni,
+        dataFim,
+        horaFim,
       ),
   );
   const res = await db.batch(stmts);
@@ -117,12 +134,21 @@ r.put('/admin/eventos/:id', async (c) => {
   const descricao = 'descricao' in b ? String(b.descricao ?? '').trim().slice(0, 1000) : atual.descricao;
   const ativo = 'ativo' in b ? bool(b.ativo) : atual.ativo;
   const hora = 'hora_inicio' in b ? v.horaHM(b.hora_inicio, 'Horário de início') : atual.hora_inicio;
+  // Mudou só a data de início? O término acompanha, mantendo a mesma duração da festa.
+  const duracaoDias = Math.round((Date.parse(`${atual.data_fim ?? atual.data_evento}T00:00:00Z`) - Date.parse(`${atual.data_evento}T00:00:00Z`)) / 86400e3);
+  const dataFim = b.data_fim
+    ? v.dataISO(b.data_fim)
+    : 'data_evento' in b && data !== atual.data_evento
+      ? new Date(Date.parse(`${data}T00:00:00Z`) + duracaoDias * 86400e3).toISOString().slice(0, 10)
+      : atual.data_fim ?? new Date(Date.parse(`${data}T00:00:00Z`) + 86400e3).toISOString().slice(0, 10);
+  const horaFim = 'hora_fim' in b ? v.horaHM(b.hora_fim, 'Horário de término') : atual.hora_fim;
+  conferirTermino(data, hora, dataFim, horaFim);
   const stmts = [];
   if (ativo) stmts.push(db.prepare('UPDATE eventos SET ativo = 0 WHERE id <> ?1').bind(id));
   stmts.push(
     db
-      .prepare('UPDATE eventos SET nome=?2, data_evento=?3, local=?4, descricao=?5, ativo=?6, hora_inicio=?7 WHERE id=?1')
-      .bind(id, nome, data, local, descricao, ativo, hora),
+      .prepare('UPDATE eventos SET nome=?2, data_evento=?3, local=?4, descricao=?5, ativo=?6, hora_inicio=?7, data_fim=?8, hora_fim=?9 WHERE id=?1')
+      .bind(id, nome, data, local, descricao, ativo, hora, dataFim, horaFim),
   );
   await db.batch(stmts);
   await auditar(db, c.get('usuario').id, 'evento_alterado', `${nome} ${data}${ativo ? ' (ativo)' : ' (inativo)'}`);

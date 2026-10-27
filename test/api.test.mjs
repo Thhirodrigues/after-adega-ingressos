@@ -1108,3 +1108,38 @@ test('evento encerrado: só o admin continua vendo; comprador, portaria e link s
   assert.ok((await c.get('/api/evento')).json.evento);
   assert.equal((await hostess.get('/api/portaria/lista')).status, 200);
 });
+
+test('evento: início e término (data e hora) validados; o término manda no encerramento', async () => {
+  const hoje = Date.now();
+  const dia = (n) => new Date(hoje + n * 86400e3).toISOString().slice(0, 10);
+  const base = { nome: 'Festa Janela', local: '', descricao: '' };
+  // término antes do início, ou a mais de 3 dias: recusa
+  assert.equal((await admin.post('/api/admin/eventos', { ...base, data_evento: dia(40), hora_inicio: '22:00', data_fim: dia(40), hora_fim: '21:00' })).status, 400);
+  assert.equal((await admin.post('/api/admin/eventos', { ...base, data_evento: dia(40), hora_inicio: '22:00', data_fim: dia(45), hora_fim: '06:00' })).status, 400);
+  // sem término informado: dia seguinte às 06:00
+  const ok = await admin.post('/api/admin/eventos', { ...base, data_evento: dia(40), hora_inicio: '22:00' });
+  assert.equal(ok.status, 201);
+  let ev = (await admin.get('/api/admin/eventos')).json.eventos.find((e) => e.id === ok.json.id);
+  assert.equal(ev.data_fim, dia(41));
+  assert.equal(ev.hora_fim, '06:00');
+  // mudar só a data de início leva o término junto (mesma duração)
+  assert.equal((await admin.put(`/api/admin/eventos/${ok.json.id}`, { data_evento: dia(50) })).status, 200);
+  ev = (await admin.get('/api/admin/eventos')).json.eventos.find((e) => e.id === ok.json.id);
+  assert.equal(ev.data_fim, dia(51));
+  // editar o término para antes do início: recusa
+  assert.equal((await admin.put(`/api/admin/eventos/${ok.json.id}`, { data_fim: dia(49) })).status, 400);
+  assert.equal((await admin.put(`/api/admin/eventos/${ok.json.id}`, { hora_fim: '25:99' })).status, 400);
+
+  // o término decide: evento ativo cujo término já passou some para o comprador; ajustado para o futuro, volta
+  const original = (await admin.get('/api/admin/eventos')).json.eventos.find((e) => e.id === eventoId);
+  const { c } = await novoComprador();
+  try {
+    assert.equal((await admin.put(`/api/admin/eventos/${eventoId}`, { data_evento: dia(-2), data_fim: dia(-1), hora_fim: '06:00' })).status, 200);
+    assert.equal((await c.get('/api/evento')).json.evento, null);
+    assert.equal((await admin.put(`/api/admin/eventos/${eventoId}`, { data_fim: dia(-1), hora_fim: '06:00' })).status, 200);
+    assert.equal((await admin.put(`/api/admin/eventos/${eventoId}`, { data_evento: dia(-1), hora_inicio: '22:00', data_fim: dia(1), hora_fim: '06:00' })).status, 200);
+    assert.ok((await c.get('/api/evento')).json.evento);
+  } finally {
+    await admin.put(`/api/admin/eventos/${eventoId}`, { data_evento: original.data_evento, hora_inicio: original.hora_inicio, data_fim: original.data_fim, hora_fim: original.hora_fim, ativo: 1 });
+  }
+});
