@@ -245,10 +245,10 @@ rota('/', async () => {
         .map((l) => {
           const max = Math.max(1, Math.min(d.max_ingressos_por_pedido, l.disponiveis));
           return `
-    <div class="card ${l.atual ? 'atual' : ''}" data-card="${l.id}">
+    <div class="card lote ${l.atual ? 'atual' : ''}" data-card="${l.id}">
       <div class="linha">
         <div><b>${esc(l.nome)}</b>
-          <div class="peq" style="margin-top:.2rem">${l.esgotado ? 'Esgotado' : l.atual ? '<span class="tag valido">Disponível</span>' : ''}</div></div>
+          <div class="peq" style="margin-top:.2rem">${l.esgotado ? 'Esgotado' : l.atual ? '<span class="tag valido">Disponível agora</span>' : ''}</div></div>
         <div style="text-align:right">
           <div class="preco">${brl(l.valor_centavos)}</div>
           <div class="peq">cada ingresso</div>
@@ -268,11 +268,21 @@ rota('/', async () => {
         })
         .join('')
     : '<p class="mudo">Ingressos ainda não disponíveis.</p>';
+  const pal = String(ev.nome).trim().split(/\s+/);
+  const ult = pal.length > 1 ? pal.pop() : '';
+  const tituloHero = ult ? `${esc(pal.join(' '))} <span class="neon">${esc(ult)}</span>` : `<span class="neon">${esc(ev.nome)}</span>`;
+  const barras = d.lotes.map((l) => `<i class="${l.esgotado ? 'fim' : l.atual ? 'on' : ''}"></i>`).join('');
   app.innerHTML = `
-    <h1>${esc(ev.nome)}</h1>
-    <p><b>${dataBR(ev.data_evento)}</b>${ev.local ? ` · ${esc(ev.local)}` : ''}</p>
+    <span class="fp-chip"><i class="dot"></i>Ingressos abertos</span>
+    <span class="fp-eyebrow">FastPass · festa</span>
+    <h1 class="hero">${tituloHero}</h1>
+    <dl class="fp-info">
+      <dt>QUANDO</dt><dd>${dataBR(ev.data_evento)}</dd>
+      ${ev.local ? `<dt>ONDE</dt><dd>${esc(ev.local)}</dd>` : ''}
+    </dl>
     ${ev.descricao ? `<p class="mudo descricao">${esc(ev.descricao)}</p>` : ''}
-    <h2>Ingressos</h2>${lotesHtml}
+    <div class="fp-sec"><span>LOTES</span><span class="peq">${d.lotes.length} ${d.lotes.length === 1 ? 'lote' : 'lotes'}</span></div>
+    <div class="fp-barras">${barras}</div>${lotesHtml}
     <p class="peq">O comprador é responsável pelos ingressos do seu pedido.</p>
     <p class="peq"><a href="#/regras">Termos e regras</a> · <a href="#/privacidade">Privacidade</a></p>`;
   ligarSteppers(app);
@@ -318,27 +328,29 @@ rota('/comprar/(\\d+)', async (id) => {
     return;
   }
   const max = Math.min(d.max_ingressos_por_pedido, l.disponiveis);
+  document.body.classList.add('com-barra');
+  limpezas.push(() => document.body.classList.remove('com-barra'));
   app.innerHTML = `
-    <h1>${esc(l.nome)}</h1>
-    <p class="mudo">${esc(d.evento.nome)} · ${dataBR(d.evento.data_evento)}</p>
-    <form class="card" id="f">
-      <label>Quantidade de ingressos</label>
-      ${stepperHtml('name="quantidade"', max)}
+    <div class="fp-topo"><a class="fp-voltar" href="#/" aria-label="Voltar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></svg></a><span class="fp-eyebrow" style="margin:0">${esc(d.evento.nome)} · ${dataBR(d.evento.data_evento)}</span></div>
+    <h1 class="hero">${esc(l.nome)}</h1>
+    <form id="f">
+      <div class="fp-qtd"><span class="rot">Quantos ingressos?</span>
+      ${stepperHtml('name="quantidade"', max)}</div>
       ${d.pagamento_automatico
         ? `<input type="hidden" name="nome_pagador" value="${esc(`${estado.eu.nome} ${estado.eu.sobrenome}`)}">`
         : `<label>Nome de quem vai fazer o Pix (para conferirmos o pagamento)</label>
       <input name="nome_pagador" required minlength="3" maxlength="80" value="${esc(`${estado.eu.nome} ${estado.eu.sobrenome}`)}">`}
-      <div class="card" style="background:var(--campo);margin-top:1rem">
+      <div class="fp-resumo">
         <div class="linha"><span>Ingressos</span><b id="t_sub"></b></div>
         <div class="linha"><span>Taxa de serviço</span><b id="t_taxa"></b></div>
-        <div class="linha"><span><b>Total</b></span><b class="preco" id="t_tot"></b></div>
       </div>
       <label class="check"><input type="checkbox" name="temcupom"> <span>Tenho um cupom</span></label>
       <div id="boxcupom" hidden><label>Cupom</label>
       <input name="cupom" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="30"></div>
       <label class="check"><input type="checkbox" name="aceito" required> <span>Li e aceito as <a href="#/regras" target="_blank" rel="noopener">regras de compra</a>. Sei que ingresso é pessoal e de uso único e que <b>qualquer envio de print ou foto do QR Code é de minha inteira responsabilidade</b>, podendo resultar em entrada negada.</span></label>
       <p class="peq">${d.pagamento_automatico ? 'Na próxima tela você escolhe cartão ou Pix.' : 'Ao gerar o Pix,'} Seguramos seus ingressos por ${d.reserva_minutos || 20} minutos para você pagar.</p>
-      <button class="bt bloco" id="btpagar" disabled>${d.pagamento_automatico ? 'Ir para o pagamento' : 'Gerar Pix'}</button>
+      <div class="barra-fixa"><div class="tot"><b id="t_tot"></b><span>total</span></div>
+        <button class="bt" id="btpagar" disabled>${d.pagamento_automatico ? 'Ir para o pagamento' : 'Gerar Pix'}</button></div>
     </form>`;
   const f = document.getElementById('f');
   ligarSteppers(f);
@@ -420,9 +432,12 @@ rota('/pedido/([A-Za-z0-9]+)', async (codigo) => {
     } else {
       corpo = `<div class="card"><b>Pedido cancelado.</b><p class="mudo">Se houve pagamento, a organização fará a devolução por Pix.</p><a class="bt sec" href="#/">Voltar</a></div>`;
     }
+    const tituloPed = p.status === 'pago' ? 'Tá <span class="neon">dentro.</span>' : p.status === 'aguardando_pagamento' ? 'Pague <span class="neon">agora</span>' : `Pedido ${esc(p.codigo)}`;
     app.innerHTML = `
-      <h1>Pedido ${esc(p.codigo)}</h1> ${tag(p.status)}
-      <div class="card">
+      <div class="fp-topo"><a class="fp-voltar" href="#/" aria-label="Início"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></svg></a><span class="fp-eyebrow" style="margin:0">Pedido ${esc(p.codigo)}</span> ${tag(p.status)}</div>
+      <h1 class="hero">${tituloPed}</h1>
+      ${p.status === 'aguardando_pagamento' ? '<div class="fp-status"><span class="pulso"></span><div><b>Aguardando pagamento</b><small>Esta tela atualiza sozinha quando confirmar.</small></div></div>' : ''}
+      <div class="fp-resumo">
         <div class="linha"><span>${p.quantidade}× ${esc(p.lote)}</span><b>${brl(p.subtotal_centavos)}</b></div>
         ${p.cupom ? `<div class="linha"><span>Cupom ${esc(p.cupom)}</span><b>${p.desconto_centavos ? `− ${brl(p.desconto_centavos)}` : 'sem taxa'}</b></div>` : ''}
         <div class="linha"><span>Taxa de serviço</span><b>${brl(p.taxa_centavos)}</b></div>
@@ -550,14 +565,23 @@ rota('/meus', async () => {
       } else {
         corpo = '<div class="usado-msg">Ingresso cancelado.</div>';
       }
-      return `<div class="card ${i.status === 'valido' ? 'atual' : ''}">
+      if (i.status === 'valido' && i.qr) {
+        return `<div class="bilhete">
+        <div class="topo-b"><div class="lin-b"><span>Ingresso #${i.id}</span><span>${tag(i.status)}</span></div>
+          <span class="nome-b">${esc(i.evento)}</span>
+          <span class="data-b">${dataBR(i.data_evento)}${i.tipo === 'cortesia' ? ` · cortesia${i.motivo ? ` (${esc(i.motivo)})` : ''}` : ''}</span>
+          <span class="data-b" style="font-weight:500">${nome}</span></div>
+        <div class="furo"></div>
+        <div class="qr-b">${corpo}</div></div>`;
+      }
+      return `<div class="card">
         <div class="linha"><b>Ingresso #${i.id}</b> ${tag(i.status)}</div>
         <div class="peq">${esc(i.evento)} · ${dataBR(i.data_evento)}${i.tipo === 'cortesia' ? ` · cortesia${i.motivo ? ` (${esc(i.motivo)})` : ''}` : ''}</div>
         <div class="peq">Titular: ${nome}</div>${corpo}</div>`;
     })
     .join('');
   app.innerHTML = `
-    <h1>Meus ingressos</h1>
+    <div class="linha"><h1 class="hero" style="margin:0">Ingressos</h1>${offline ? '<span class="fp-chip">Offline ok</span>' : ''}</div>
     ${offline ? '<div class="card" style="border-color:var(--cor2)">Sem conexão: mostrando os ingressos salvos neste aparelho. Eles continuam valendo na entrada.</div>' : ''}
     <p class="mudo">${ing.ingressos.length ? 'Cada ingresso vale uma única entrada. Para um amigo entrar, transfira o ingresso pelo link: o QR muda para ele.' : 'Você ainda não tem ingressos liberados.'}</p>
     ${cards}
@@ -603,16 +627,20 @@ rota('/aceitar/([0-9a-f]{32})', async (token) => {
   }
   if (!estado.eu) {
     sessionStorage.setItem('voltar', `#/aceitar/${token}`);
-    app.innerHTML = `<h1>Você recebeu um ingresso</h1>
-      <div class="card atual"><b>${esc(info.de)}</b> quer te passar um ingresso para <b>${esc(info.evento)}</b> (${dataBR(info.data_evento)}).
+    app.innerHTML = `<span class="fp-chip"><b>${esc(info.de)}</b> te mandou um ingresso</span>
+      <h1 class="hero" style="margin-top:1rem">Você tá na <span class="neon">lista.</span></h1>
+      <div class="bilhete"><div class="topo-b"><div class="lin-b"><span>Ingresso</span><span>1 pessoa</span></div>
+        <span class="nome-b">${esc(info.evento)}</span><span class="data-b">${dataBR(info.data_evento)}</span></div></div>
       <p class="peq">Para receber, entre na sua conta ou crie uma (leva 1 minuto).</p>
-      <a class="bt bloco" href="#/entrar">Entrar</a><a class="bt sec bloco" href="#/cadastro">Criar conta</a></div>`;
+      <a class="bt bloco" href="#/entrar">Entrar</a><a class="bt sec bloco" href="#/cadastro">Criar conta</a>`;
     return;
   }
-  app.innerHTML = `<h1>Você recebeu um ingresso</h1>
-    <div class="card atual"><b>${esc(info.de)}</b> quer te passar um ingresso para <b>${esc(info.evento)}</b> (${dataBR(info.data_evento)}).
-    <p class="peq">Ao aceitar, o ingresso fica na sua conta, com um QR novo só seu.</p>
-    <button class="bt bloco" id="aceitar">Aceitar ingresso</button></div>`;
+  app.innerHTML = `<span class="fp-chip"><b>${esc(info.de)}</b> te mandou um ingresso</span>
+    <h1 class="hero" style="margin-top:1rem">Você tá na <span class="neon">lista.</span></h1>
+    <div class="bilhete"><div class="topo-b"><div class="lin-b"><span>Ingresso</span><span>1 pessoa</span></div>
+      <span class="nome-b">${esc(info.evento)}</span><span class="data-b">${dataBR(info.data_evento)}</span></div></div>
+    <p class="peq">Ao aceitar, o QR passa a ser só seu e ${esc(info.de)} deixa de ter acesso a esse ingresso.</p>
+    <button class="bt bloco" id="aceitar">Aceitar ingresso</button>`;
   document.getElementById('aceitar').addEventListener('click', (e) =>
     comEspera(e.target, async () => {
       await api('POST', `/transferencias/${token}/aceitar`, {});
@@ -655,13 +683,16 @@ async function dadosCadastro(f) {
 
 rota('/entrar', async () => {
   app.innerHTML = `
-    <h1>Entrar</h1>
-    <form class="card" id="f">
+    <img class="fp-logo" src="/logo-marca.png" alt="FastPass" width="64" height="48">
+    <h1 class="hero">Bem-vindo de <span class="neon">volta</span></h1>
+    <p class="mudo">Entre pra ver seus ingressos.</p>
+    <div class="fp-seg"><a href="#/cadastro">Criar conta</a><a href="#/entrar" aria-current="true">Já tenho conta</a></div>
+    <form class="fp-form" id="f">
       <label>CPF</label><input name="cpf" inputmode="numeric" required autocomplete="username" placeholder="000.000.000-00">
       <label>Senha</label><input name="senha" type="password" required autocomplete="current-password">
       <button class="bt bloco">Entrar</button>
     </form>
-    <p><a href="#/cadastro">Criar conta</a> · <a href="#/esqueci">Esqueci minha senha</a></p>`;
+    <p style="text-align:center"><a href="#/esqueci">Esqueci minha senha</a></p>`;
   const f = document.getElementById('f');
   mascaraCpf(f.cpf);
   f.addEventListener('submit', (e) => {
@@ -679,13 +710,16 @@ rota('/entrar', async () => {
 
 rota('/cadastro', async () => {
   app.innerHTML = `
-    <h1>Criar conta</h1>
-    <form class="card" id="f">
+    <img class="fp-logo" src="/logo-marca.png" alt="FastPass" width="64" height="48">
+    <h1 class="hero">Cria sua <span class="neon">conta</span></h1>
+    <p class="mudo">É rápido. A conta guarda seus ingressos e deixa você passar pros amigos.</p>
+    <div class="fp-seg"><a href="#/cadastro" aria-current="true">Criar conta</a><a href="#/entrar">Já tenho conta</a></div>
+    <form class="fp-form" id="f">
       ${campoUsuario(campoSenha() + campoSenha('senha2', 'Repita a senha') + campoResposta())}
       <label class="check"><input type="checkbox" name="aceito" required> <span>Li e aceito os <a href="#/regras" target="_blank" rel="noopener">termos de uso e regras de compra</a> e a <a href="#/privacidade" target="_blank" rel="noopener">política de privacidade</a>.</span></label>
       <button class="bt bloco">Criar conta</button>
     </form>
-    <p>Já tem conta? <a href="#/entrar">Entrar</a></p>`;
+    `;
   const f = document.getElementById('f');
   mascaraCpf(f.cpf);
   f.addEventListener('submit', (e) => {
@@ -703,8 +737,8 @@ rota('/cadastro', async () => {
 
 rota('/esqueci', async () => {
   app.innerHTML = `
-    <h1>Esqueci a senha</h1>
-    <form class="card" id="f">
+    <h1 class="hero">Esqueci a <span class="neon">senha</span></h1>
+    <form class="fp-form" id="f">
       <label>CPF cadastrado</label><input name="cpf" inputmode="numeric" required>
       <label>Resposta secreta</label><input name="resposta" required maxlength="12" autocomplete="off" autocapitalize="off" spellcheck="false">
       ${campoSenha('nova', 'Nova senha (mínimo 8 caracteres)')}
@@ -747,8 +781,8 @@ rota('/conta', async () => {
     return;
   }
   app.innerHTML = `
-    <h1>Minha conta</h1>
-    <p class="mudo">${esc(estado.eu.nome)} ${esc(estado.eu.sobrenome)}</p>
+    <span class="fp-eyebrow">Minha conta</span>
+    <h1 class="hero">${esc(estado.eu.nome)} <span class="neon">${esc(estado.eu.sobrenome)}</span></h1>
     <details class="item"><summary><b>Resposta secreta</b><span class="peq">${estado.eu.tem_resposta ? 'definida' : '<b style="color:var(--erro)">não definida</b>'}</span></summary>
     <form class="card" id="f">
       <p class="peq" style="margin-top:0">${estado.eu.tem_resposta ? 'Para trocar, digite a nova resposta e a senha atual.' : '<b>Você ainda não definiu uma resposta secreta</b> — sem ela, só a organização consegue refazer sua senha.'}</p>
@@ -1076,7 +1110,8 @@ function layoutAdmin(ativa, html) {
   const porEvento = ABAS_POR_EVENTO.has(ativa) && estado.eventos?.length;
   const leitura = porEvento && estado.evSel?.encerrado;
   app.innerHTML = `
-    <h1>Administração</h1>
+    <span class="fp-eyebrow">Admin</span>
+    <h1 class="hero" style="margin-top:.3rem">${ABAS.find(([k]) => k === ativa)?.[1] || 'Painel'}</h1>
     ${porEvento ? `<p class="peq" style="margin:0 0 .5rem">Evento: <b>${esc(estado.evSel?.nome || '')}</b> · ${situacaoEvento(estado.evSel || {})}</p>
     ${leitura ? '<div class="card aviso-leitura"><b>Evento encerrado: somente leitura.</b> Você pode consultar, exportar CSV e estornar pedidos. Para alterar algo, reabra o evento ajustando o término no menu Evento (topo).</div>' : ''}` : ''}
     <div class="abas">${ABAS.map(([k, n]) => `<a href="#/admin/${k}" class="${k === ativa ? 'on' : ''}">${n}${k === 'avisos' ? `<span class="badge" data-badge-avisos${estado.eu?.nao_lidos ? '' : ' hidden'}>${estado.eu?.nao_lidos || ''}</span>` : ''}</a>`).join('')}</div>
@@ -1691,10 +1726,10 @@ rota('/portaria', async () => {
   let overlayTimer;
 
   app.innerHTML = `
-    <div class="linha"><h1 style="margin:0">Portaria</h1><span id="conn" class="tag"></span></div>
-    <p class="mudo" id="resumo"></p>
+    <div class="linha"><h1 class="hero" style="margin:0">Portaria</h1><span id="conn" class="tag"></span></div>
+    <div id="resumo" class="fp-stats"></div>
     <div id="conflitos"></div>
-    <div class="abas"><a href="#" data-aba="ler" class="on">Ler QR</a><a href="#" data-aba="lista">Lista</a><a href="#" data-aba="venda">Venda</a></div>
+    <div class="abas fp-abas3"><a href="#" data-aba="ler" class="on">Ler QR</a><a href="#" data-aba="lista">Lista</a><a href="#" data-aba="venda">Venda</a></div>
     <div id="aba-ler">
       <div class="camera"><video id="video" playsinline muted></video><canvas id="cv" hidden></canvas></div>
       <div class="acoes" style="margin:.75rem 0"><button class="bt" id="btcam">Abrir câmera</button><button class="bt sec" id="btatualiza">Atualizar lista</button></div>
@@ -1714,7 +1749,8 @@ rota('/portaria', async () => {
     $('conn').textContent = on ? 'online' : 'SEM INTERNET';
     $('conn').className = `tag ${on ? 'valido' : 'aguardando_pagamento'}`;
     const n = contagemLocal();
-    $('resumo').innerHTML = `${esc(P.evento?.nome || '')} · <b>${n.entraram}</b> entraram de <b>${n.total}</b> ingressos${P.fila.length ? ` · <span style="color:var(--cor2)">${P.fila.length} a sincronizar</span>` : ''}${P.gerado_em ? ` · lista de ${horaCurta(P.gerado_em)}` : ' · lista ainda não baixada'}`;
+    $('resumo').innerHTML = `<div class="fp-stat"><b>${n.entraram}</b><span>já entraram</span></div><div class="fp-stat"><b>${Math.max(0, n.total - n.entraram)}</b><span>ainda vão chegar</span></div>
+      <p class="peq" style="grid-column:1/-1;margin:0">${esc(P.evento?.nome || '')}${P.fila.length ? ` · <span style="color:var(--cor2)">${P.fila.length} a sincronizar</span>` : ''}${P.gerado_em ? ` · lista de ${horaCurta(P.gerado_em)}` : ' · lista ainda não baixada'}</p>`;
     $('conflitos').innerHTML = P.conflitos.length
       ? `<div class="card" style="border-color:var(--erro)"><b>${P.conflitos.length} conflito(s) ao sincronizar</b> (entradas feitas sem internet que o sistema já tinha como usadas/canceladas):<ul class="peq">${P.conflitos.map((x) => `<li>${esc(x.nome)}: ${esc(x.resultado)}</li>`).join('')}</ul><button class="bt sec peq" id="okconf">Entendi</button></div>`
       : '';

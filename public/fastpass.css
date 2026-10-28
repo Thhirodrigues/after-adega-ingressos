@@ -1,0 +1,96 @@
+/* FastPass — camada de layout "neon" (carrega depois de style.css) */
+.fp-topo{display:flex;align-items:center;gap:.75rem;margin:-.25rem 0 1rem}
+.fp-voltar{width:44px;height:44px;border-radius:14px;border:1px solid var(--borda);display:flex;align-items:center;justify-content:center;color:var(--txt);text-decoration:none;background:transparent;flex:none}
+.fp-voltar svg{width:22px;height:22px}
+.fp-eyebrow{display:block;font-size:.75rem;font-weight:700;letter-spacing:.14em;color:var(--cor2);text-transform:uppercase;margin-top:1rem}
+.fp-chip{display:inline-flex;align-items:center;gap:.5rem;padding:.45rem .85rem;border-radius:999px;background:#161B33;border:1px solid var(--borda);font-size:.8rem;color:var(--txt)}
+.fp-chip .dot{width:8px;height:8px;border-radius:50%;background:#3DFFA2;box-shadow:0 0 8px #3DFFA2}
+h1.hero{font-size:clamp(1.9rem,9.5vw,2.6rem);line-height:1.02;letter-spacing:-.02em;margin:.6rem 0 1.1rem}
+h1.hero .neon{color:var(--cor);text-shadow:0 0 22px rgba(255,43,214,.6)}
+.fp-info{display:grid;grid-template-columns:5rem minmax(0,1fr);gap:.8rem .75rem;border-top:1px solid var(--borda);padding-top:1.1rem;margin:0 0 1.4rem}
+.fp-info dt{font-size:.68rem;letter-spacing:.14em;font-weight:700;color:var(--mudo);padding-top:.2rem}
+.fp-info dd{margin:0}
+.fp-sec{display:flex;justify-content:space-between;align-items:baseline;margin:1.4rem 0 .5rem}
+.fp-sec span:first-child{font-size:.7rem;letter-spacing:.14em;font-weight:700;color:var(--mudo)}
+.fp-barras{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;margin:.5rem 0 1rem}
+.fp-barras i{height:10px;border-radius:5px;background:var(--borda)}
+.fp-barras i.on{background:var(--cor);box-shadow:0 0 10px rgba(255,43,214,.5)}
+.fp-barras i.fim{background:#3a4268}
+.card.lote{border-radius:20px;padding:1.1rem 1.15rem}
+.card.lote .preco{font-family:var(--titulo);font-size:1.35rem;font-weight:800;color:#fff;text-shadow:none}
+.card.lote.atual .preco{color:#fff}
+/* botão grande magenta */
+.bt.bloco{height:56px;border-radius:16px;font-size:1.05rem}
+/* barra fixa inferior (checkout) */
+.barra-fixa{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.9rem 1.1rem calc(.9rem + env(safe-area-inset-bottom));background:var(--bg);border-top:1px solid var(--borda)}
+.barra-fixa .tot{display:flex;flex-direction:column;line-height:1.15}
+.barra-fixa .tot b{font-family:var(--titulo);font-size:1.25rem;font-weight:800}
+.barra-fixa .tot span{font-size:.72rem;color:var(--mudo)}
+.barra-fixa .bt{flex:1;max-width:14rem;margin:0}
+body.com-barra main{padding-bottom:7.5rem}
+.fp-resumo{border:1px solid var(--borda);border-radius:20px;background:var(--card);padding:1rem 1.15rem;margin:1rem 0}
+.fp-resumo .linha{padding:.35rem 0;font-size:.95rem}
+.fp-resumo .linha span:first-child{color:var(--mudo)}
+.fp-resumo .linha b{font-weight:600}
+.fp-qtd{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--borda);border-radius:20px;background:var(--card);padding:1rem 1.15rem;margin:1rem 0}
+.fp-qtd .rot{font-size:.9rem;color:var(--mudo)}
+/* status do pedido */
+.fp-status{display:flex;align-items:center;gap:.8rem;border:1px solid var(--borda);border-radius:16px;background:var(--card);padding:.9rem 1rem;margin:1rem 0}
+.fp-status .pulso{width:12px;height:12px;border-radius:50%;background:#FFC933;box-shadow:0 0 0 0 rgba(255,201,51,.6);animation:fp-pulso 1.6s infinite;flex:none}
+@keyframes fp-pulso{70%{box-shadow:0 0 0 10px rgba(255,201,51,0)}100%{box-shadow:0 0 0 0 rgba(255,201,51,0)}}
+.fp-status small{display:block;color:var(--mudo)}
+.pix{border-radius:16px;border:1px dashed rgba(40,224,255,.4)}
+/* ingresso (bilhete degradê) */
+.bilhete{border-radius:24px;background:linear-gradient(100deg,#FF2BD6,#28E0FF);color:#05060F;overflow:hidden;box-shadow:0 0 40px rgba(255,43,214,.35);margin:1rem 0}
+.bilhete .topo-b{padding:1.1rem 1.25rem .9rem;display:flex;flex-direction:column;gap:.35rem}
+.bilhete .lin-b{display:flex;justify-content:space-between;font-size:.72rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+.bilhete .nome-b{font-family:var(--titulo);font-weight:800;font-size:1.3rem;line-height:1.1;text-transform:uppercase;overflow-wrap:anywhere}
+.bilhete .data-b{font-size:.9rem;font-weight:600}
+.bilhete .furo{position:relative;height:0;border-top:2px dashed rgba(5,6,15,.45);margin:0 1.25rem}
+.bilhete .furo::before,.bilhete .furo::after{content:"";position:absolute;top:-13px;width:24px;height:24px;border-radius:50%;background:var(--bg)}
+.bilhete .furo::before{left:-2.15rem}.bilhete .furo::after{right:-2.15rem}
+.bilhete .qr-b{padding:1.1rem 1.25rem 1.25rem;display:flex;flex-direction:column;align-items:center;gap:.6rem}
+.bilhete .qrbox{background:#fff;border-radius:16px;padding:.6rem;width:min(100%,17rem)}
+.bilhete .peq,.bilhete .mudo{color:rgba(5,6,15,.75)}
+.bilhete a,.bilhete button.bt.sec{color:#05060F}
+/* formulários de acesso */
+.fp-logo{display:block;width:64px;height:auto;margin:.25rem 0 .5rem;filter:drop-shadow(0 0 14px rgba(255,43,214,.45))}
+.fp-seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:16px;background:var(--card);border:1px solid var(--borda);margin:1.2rem 0}
+.fp-seg a{display:flex;align-items:center;justify-content:center;height:44px;border-radius:12px;color:var(--mudo);text-decoration:none;font-weight:700;font-size:.95rem}
+.fp-seg a[aria-current]{background:var(--txt);color:#05060F}
+.fp-form{margin:0 0 1rem}
+.fp-form label{font-size:.72rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--mudo);margin:1rem 0 .35rem}
+.fp-form label.check{text-transform:none;letter-spacing:0;font-weight:400;font-size:.85rem}
+.fp-form input,.fp-form select{height:56px;border-radius:14px;border:1.5px solid var(--borda);background:var(--card);padding:0 1rem;font-size:1rem}
+.fp-form input[type=checkbox]{height:auto}
+.fp-form input:focus{border-color:var(--cor2);box-shadow:none}
+.fp-form .bt.bloco{height:58px;margin-top:1.5rem;font-size:1.1rem}
+/* admin */
+.card,.kpi{border-radius:20px}
+.kpis{grid-template-columns:repeat(auto-fit,minmax(8.5rem,1fr))}
+.kpi b{font-family:var(--titulo);font-size:1.15rem;font-weight:800;color:#fff;text-shadow:none}
+.kpi.dest{grid-column:1/-1;background:linear-gradient(var(--card),var(--card)) padding-box,linear-gradient(100deg,#FF2BD6,#28E0FF) border-box;border:1px solid transparent;box-shadow:0 0 30px rgba(255,43,214,.25)}
+.kpi.dest b{font-size:1.9rem;color:#fff;text-shadow:0 0 22px rgba(255,43,214,.5)}
+.abas a{border-radius:999px;border-color:var(--borda);font-size:.85rem}
+.abas a.on{background:var(--cor);color:#05060F}
+/* portaria */
+.fp-stats{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin:.8rem 0}
+.fp-stat{background:var(--card);border:1px solid var(--borda);border-radius:20px;padding:.9rem 1rem;display:flex;flex-direction:column}
+.fp-stat b{font-family:var(--titulo);font-size:2rem;font-weight:800;line-height:1.1}
+.fp-stat:first-child b{color:#3DFFA2;text-shadow:0 0 18px rgba(61,255,162,.45)}
+.fp-stat span{font-size:.8rem;color:var(--mudo)}
+.fp-abas3{grid-template-columns:repeat(3,1fr);padding:4px;border:1px solid var(--borda);border-radius:16px;background:var(--card);gap:4px}
+.fp-abas3 a{border:0;border-radius:12px;background:transparent;padding:.7rem .3rem;font-weight:700}
+.fp-abas3 a.on{background:var(--txt);color:#05060F;box-shadow:none}
+.camera{border-radius:24px;border:1px solid var(--borda)}
+.overlay .ov-titulo{font-family:var(--titulo);letter-spacing:.02em}
+.overlay.ok{background:#07130F;color:#3DFFA2}
+.overlay.ok .ov-titulo{text-shadow:0 0 30px rgba(61,255,162,.55)}
+.overlay.erro{background:#14060C;color:#ff5b7f}
+.overlay.aviso{background:#14100A;color:#FFC933}
+.overlay.ok .bt,.overlay.erro .bt,.overlay.aviso .bt{border:1.5px solid currentColor;background:transparent;color:inherit;box-shadow:none}
+.overlay .ov-corpo{color:var(--txt)}
+.bilhete .tag{background:#05060F;color:#fff;border-color:#05060F;box-shadow:none}
+.bilhete .bt.sec,.bilhete button.bt.sec.peq{background:#05060F;color:#fff;border-color:#05060F}
+.bilhete .bt.perigo{background:#fff;color:#B3123F;border-color:#fff}
+.bilhete .card{color:var(--txt)}
