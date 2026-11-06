@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="pt-BR" data-type="software" data-radius="round" data-buttons="solid" data-motion>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>After D'Adega: festa em Santana, ingressos online (versão neon)</title>
+<meta name="description" content="After D'Adega, festa em Santana, sexta 23 de outubro às 23h. Ingresso do primeiro lote a R$ 35,00 mais 10% de taxa de serviço, comprado online.">
+<meta name="site-kind" content="software">
+<meta name="page-type" content="software">
+<link rel="stylesheet" href="../assets/system.css">
+<link rel="stylesheet" href="../assets/ui/cards.css">
+<link rel="stylesheet" href="../assets/motion/motion.css">
+<link rel="stylesheet" href="../assets/backgrounds/backgrounds.css">
+<link rel="stylesheet" href="../assets/layout/layout.css">
+<link rel="stylesheet" href="../assets/icons/icon.css">
+<style>
+/* Híbrido: estrutura e verificadores da skill, identidade do FastPass (fontes e cores do app). */
+@font-face { font-family: "Unbounded"; font-weight: 600; font-display: swap; src: url(fonts/unbounded-latin-600-normal.woff2) format("woff2"); }
+@font-face { font-family: "Unbounded"; font-weight: 800; font-display: swap; src: url(fonts/unbounded-latin-800-normal.woff2) format("woff2"); }
+@font-face { font-family: "Space Grotesk"; font-weight: 400; font-display: swap; src: url(fonts/space-grotesk-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "Space Grotesk"; font-weight: 500; font-display: swap; src: url(fonts/space-grotesk-latin-500-normal.woff2) format("woff2"); }
+@font-face { font-family: "Space Grotesk"; font-weight: 700; font-display: swap; src: url(fonts/space-grotesk-latin-700-normal.woff2) format("woff2"); }
+:root {
+  --p-bg: #05060f; --p-surface: #0d1020; --p-ink: #f2f6ff; --p-muted: #9aa6c9;
+  --p-accent: #ff2bd6; --p-accent-ink: #05060f; --p-action: #ff2bd6; --p-action-ink: #05060f;
+  --p-inv-bg: #f2f6ff; --p-inv-surface: #e4e9f7; --p-inv-ink: #05060f; --p-inv-muted: #4b5578;
+  --p-inv-accent: #05060f; --p-inv-accent-ink: #ffffff; --p-inv-action: #05060f; --p-inv-action-ink: #ffffff;
+  --font-display: "Unbounded", system-ui, sans-serif;
+  --font-text: "Space Grotesk", system-ui, sans-serif;
+  --display-weight: 800;
+  --display-tracking: -0.01em;
+  --cyan: #28e0ff;
+}
+h1, h2 { text-transform: uppercase; }
+.hero--split h1 { font-size: clamp(30px, 3.9vw, 54px); line-height: 1.08; }
+.nav__logo { font-family: var(--font-display); font-weight: 800; text-transform: uppercase; letter-spacing: .02em; }
+h1 em { font-style: normal; color: var(--accent); text-shadow: 0 0 22px rgba(255, 43, 214, .6); }
+.hero__kicker .dot { background: #3dffa2; box-shadow: 0 0 8px #3dffa2; }
+.btn--primary { box-shadow: 0 0 24px rgba(255, 43, 214, .45); }
+.rows__value { color: var(--cyan); font-weight: 700; text-shadow: 0 0 10px rgba(40, 224, 255, .45); }
+.t-label { color: var(--cyan); letter-spacing: .14em; text-transform: uppercase; font-size: 13px; font-weight: 700; }
+.visit__address { font-family: var(--font-display); font-weight: 600; font-size: 18px; line-height: 28px; text-transform: none; }
+.hero__media img { object-fit: cover; border-radius: var(--r-lg); box-shadow: 0 0 40px rgba(40, 224, 255, .25); }
+#ingressos .t-label { margin-bottom: var(--s-3); }
+@media (max-width: 639px) { .nav__logo { font-size: 13px; } .hero--split h1 { font-size: 28px; } }
+@media (min-width: 640px) and (max-width: 1023px) {
+  #ingressos .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #ingressos .grid > .span-6 { grid-column: auto; }
+  #ingressos .visit__cols { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+</style>
+<script src="../assets/backgrounds/backgrounds.js"></script>
+</head>
+<body>
+<header class="nav nav--split">
+  <div class="wrap nav__bar">
+    <a class="nav__logo" href="#top">After D'Adega</a>
+    <nav class="nav__links" aria-label="Principal">
+      <div class="nav__item"><a class="nav__link" href="#ingressos">Ingressos</a></div>
+      <div class="nav__item"><a class="nav__link" href="#troca">Troca</a></div>
+      <div class="nav__item"><a class="nav__link" href="#visita">Visita</a></div>
+    </nav>
+    <div class="nav__actions">
+      <a class="btn btn--primary" href="/">Ver ingressos</a>
+    </div>
+    <button class="nav__toggle" type="button" aria-expanded="false" aria-label="Menu">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M2 5h14M2 13h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero hero--split" aria-labelledby="hero-h">
+    <div class="wrap"><div class="hero-text grid hero__grid">
+      <div class="hero__text span-7">
+        <p class="hero__kicker"><span class="dot" aria-hidden="true"></span>Sexta, 23 de outubro, às 23h</p>
+        <h1 id="hero-h">After D'Adega, festa em <em>Santana</em></h1>
+        <p class="hero__lead">Primeiro lote a R$ 35,00 mais 10% de taxa de serviço. Compre online e entre com o QR code.</p>
+        <div class="btn-row"><a class="btn btn--primary" href="/">Ver ingressos</a></div>
+      </div>
+      <div class="hero__media span-4 start-9">
+        <img src="/flyer-story.jpg" alt="Flyer da festa After D'Adega 5 Anos" fetchpriority="high">
+      </div>
+    </div></div>
+  </section>
+
+  <section class="section" id="ingressos" style="--h: 1; --hm: 2" aria-labelledby="ing-h">
+    <div class="wrap">
+      <div class="section-head"><h2 id="ing-h">Ingressos e troca</h2></div>
+      <div class="grid grid--top">
+        <div class="span-6" id="valores">
+          <p class="t-label">Ingresso do primeiro lote</p>
+          <ul class="rows">
+            <li><span class="rows__name">Ingresso</span><span class="rows__value">R$ 35,00</span></li>
+            <li><span class="rows__name">Taxa de serviço, 10%</span><span class="rows__value">R$ 3,50</span></li>
+            <li><span class="rows__name">Total, em qualquer forma de pagamento</span><span class="rows__value">R$ 38,50</span></li>
+            <li><span class="rows__name">Reserva do pedido</span><span class="rows__value">20 minutos</span></li>
+          </ul>
+        </div>
+        <div class="span-6 start-7" id="troca">
+          <p class="t-label">Troca e reembolso</p>
+          <ul class="rows">
+            <li><span class="rows__name">Desistir em até 7 dias e 48 h antes</span><span class="rows__value">Reembolso</span></li>
+            <li><span class="rows__name">Menos de 48 h para a festa</span><span class="rows__value">Transferência</span></li>
+            <li><span class="rows__name">Festa cancelada</span><span class="rows__value">Reembolso integral</span></li>
+            <li><span class="rows__name">Link de transferência</span><span class="rows__value">Vale 7 dias</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="visit visit--cols" id="visita" data-place="visit" style="margin-top: var(--s-7)">
+        <div class="visit__cols">
+          <div class="visit__col stack-4">
+            <p class="t-label">Endereço</p>
+            <address class="visit__address">Rua Capitão Amaral<br>Santana</address>
+            <a class="link" href="https://www.openstreetmap.org/search?query=Rua%20Capit%C3%A3o%20Amaral%20Santana%20S%C3%A3o%20Paulo">Ver rota até a festa</a>
+          </div>
+          <div class="visit__col stack-4">
+            <p class="t-label">Horário</p>
+            <p class="visit__address">Sexta, 23 de outubro<br>Início às 23h</p>
+          </div>
+          <div class="visit__col stack-4">
+            <p class="t-label">Entrada</p>
+            <p class="visit__address">QR code na portaria<br>Transferível pelo app</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer closing" id="contact" aria-labelledby="close-h">
+  <div class="wrap">
+    <div class="closing__cta close--word">
+      <div class="section-head--split">
+        <div><h2 id="close-h">Compre seu ingresso online</h2><p class="t-lead">Primeiro lote a R$ 35,00 mais 10% de taxa de serviço.</p></div>
+        <a class="btn btn--primary" href="/">Ver ingressos</a>
+      </div>
+    </div>
+    <div class="closing__links">
+      <div class="grid">
+        <div class="span-4 stack-4">
+          <a class="nav__logo" href="#top"><img src="/logo-marca.png" alt="" width="44" height="30" style="height:30px;width:auto">After D'Adega</a>
+          <p class="footer__lede">Festa em Santana, com ingresso online.</p>
+        </div>
+        <div class="span-2 footer__col"><h4>Ingressos</h4><ul><li><a href="#ingressos">Valores</a></li></ul></div>
+        <div class="span-2 footer__col"><h4>Troca</h4><ul><li><a href="#troca">Reembolso</a></li></ul></div>
+        <div class="span-2 footer__col"><h4>Visita</h4><ul><li><a href="#visita">Endereço</a></li></ul></div>
+        <div class="span-2 footer__col"><h4>Regras</h4><ul><li><a href="/#/regras">Termos de compra</a></li></ul></div>
+      </div>
+      <div class="footer__legal">
+        <span>&copy; 2026 After D'Adega &nbsp; <a href="/#/privacidade">Privacidade</a></span>
+        <div class="socials"></div>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<nav class="actionbar" aria-label="Ação rápida">
+  <a class="btn btn--primary" href="/">Ver ingressos</a>
+</nav>
+
+<script type="module" src="../assets/system.js"></script>
+<script type="module" src="../assets/motion/motion.js"></script>
+<script type="module" src="../assets/layout/layout.js"></script>
+</body>
+</html>
