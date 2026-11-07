@@ -42,7 +42,16 @@ h1 em { font-style: normal; color: var(--accent); text-shadow: 0 0 22px rgba(255
 .visit__address { font-family: var(--font-display); font-weight: 600; font-size: 18px; line-height: 28px; text-transform: none; }
 .hero__media img { object-fit: cover; border-radius: var(--r-lg); box-shadow: 0 0 40px rgba(40, 224, 255, .25); }
 #ingressos .t-label { margin-bottom: var(--s-3); }
-@media (max-width: 639px) { .nav__logo { font-size: 13px; } .hero--split h1 { font-size: 28px; } }
+@media (max-width: 639px) {
+  .nav__logo { font-size: 13px; }
+  .hero--split h1 { font-size: 28px; }
+  /* o flyer inteiro no celular, sem cortar título e endereço */
+  .hero__media img { object-fit: contain; box-shadow: none; }
+}
+/* Híbrido: as seções depois do herói acompanham o conteúdo, sem esticar até a altura da tela (desvio deliberado da regra "uma tela por seção"). */
+main > .section, footer.closing { height: auto !important; min-height: 0 !important; }
+main > .section { padding-bottom: var(--s-9); }
+footer.closing { padding-top: var(--s-9); }
 @media (min-width: 640px) and (max-width: 1023px) {
   #ingressos .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #ingressos .grid > .span-6 { grid-column: auto; }
