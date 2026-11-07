@@ -6,3 +6,5 @@
 const FIM = (a) => `COALESCE(${a}.data_fim, date(${a}.data_evento, '+1 day')) || ' ' || ${a}.hora_fim || ':00'`;
 export const eventoAberto = (a = 'e') => `(${a}.ativo = 1 AND datetime('now', '-3 hours') < ${FIM(a)})`;
 export const eventoEncerrado = (a = 'e') => `(datetime('now', '-3 hours') >= ${FIM(a)})`;
+// Ainda não começou (data e horário de início no futuro): só evento assim pode ser excluído.
+export const eventoNaoComecou = (a = 'e') => `(datetime('now', '-3 hours') < datetime(${a}.data_evento || ' ' || ${a}.hora_inicio || ':00'))`;

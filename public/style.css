@@ -177,3 +177,8 @@ details.item[hidden]{display:none}
 .ev-linha{display:block;width:100%;text-align:left;background:none;border:0;color:inherit;font:inherit;padding:0 0 .4rem;cursor:pointer}
 .ev-linha .peq{display:block;margin-top:.15rem}
 #aud-mais[hidden]{display:none}
+
+.passos{list-style:none;padding:0;margin:.8rem 0 1rem}
+.passos li{padding:.55rem 0;border-top:1px solid rgba(255,255,255,.1)}
+.passos li b{display:block}
+.passos li.feito b{color:#4ade80}

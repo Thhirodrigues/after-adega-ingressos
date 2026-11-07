@@ -1047,7 +1047,7 @@ function abrirEventos() {
         (e) => `<div class="ev-item${e.id === estado.evSel?.id ? ' on' : ''}">
           <button type="button" class="ev-linha" data-sel="${e.id}"><b>${esc(e.nome)}</b>
             <span class="peq">${e.encerrado ? '<span class="tag cancelado">Encerrado</span> ' : e.ativo ? '<span class="tag valido">À venda</span> ' : ''}${dataBR(e.data_evento)} ${esc(e.hora_inicio || '22:00')} → ${e.data_fim && e.data_fim !== e.data_evento ? `${dataBR(e.data_fim)} ` : ''}${esc(e.hora_fim || '06:00')}${e.id === estado.evSel?.id ? ' · em consulta' : ''}</span></button>
-          <div class="acoes"><button type="button" class="bt sec peq" data-edita="${e.id}">Editar</button>${e.ativo || e.encerrado ? '' : `<button type="button" class="bt sec peq" data-ativar="${e.id}">Tornar ativo</button>`}</div>
+          <div class="acoes"><button type="button" class="bt sec peq" data-edita="${e.id}">Editar</button>${e.ativo || e.encerrado ? '' : `<button type="button" class="bt sec peq" data-ativar="${e.id}">Tornar ativo</button>`}${e.nao_comecou ? `<button type="button" class="bt perigo peq" data-exclui-ev="${e.id}">Excluir</button>` : ''}</div>
           ${e.encerrado ? '<p class="peq" style="margin:.4rem 0 0">Encerrado. Para reabrir, edite e ajuste o término.</p>' : ''}</div>`,
       )
       .join('');
@@ -1059,6 +1059,21 @@ function abrirEventos() {
     ov.querySelector('#ev-novo').addEventListener('click', () => form(null));
     ov.querySelectorAll('[data-sel]').forEach((b) => b.addEventListener('click', () => escolher(b.dataset.sel)));
     ov.querySelectorAll('[data-edita]').forEach((b) => b.addEventListener('click', () => form(estado.eventos.find((e) => e.id === Number(b.dataset.edita)))));
+    ov.querySelectorAll('[data-exclui-ev]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const e = estado.eventos.find((x) => x.id === Number(b.dataset.excluiEv));
+        if (e.pedidos_pagos > 0) { aviso(`Este evento tem ${e.pedidos_pagos} pedido(s) pago(s). Estorne os pedidos antes de excluir.`, 'erro'); return; }
+        if (!confirm(`Excluir o evento "${e.nome}"?\n\nEle some do app (venda, portaria e telas do admin). Lotes, cupons e cortesias dele deixam de valer. ${e.ativo ? 'Este é o evento ATIVO: a venda fica fechada até você ativar outro.\n\n' : ''}Os dados continuam guardados no banco.`)) return;
+        comEspera(b, async () => {
+          await api('DELETE', `/admin/eventos/${e.id}`);
+          estado.evento = null;
+          try { if (Number(sessionStorage.getItem('evsel')) === e.id) sessionStorage.removeItem('evsel'); } catch {}
+          aviso('Evento excluído.');
+          await lista();
+          if (naAbaAdmin()) navegar();
+        });
+      }),
+    );
     ov.querySelectorAll('[data-ativar]').forEach((b) =>
       b.addEventListener('click', () => {
         if (!confirm('Tornar este o evento ativo? A venda e a portaria passam a usar ele.')) return;
@@ -1071,6 +1086,24 @@ function abrirEventos() {
         });
       }),
     );
+  };
+  // Depois de criar o evento: guia para as próximas etapas (lotes → configurações).
+  const passos = () => {
+    ov.innerHTML = `<div class="card ov-corpo"><h2 style="margin-top:0">Evento criado ✓</h2>
+      <ol class="passos"><li class="feito"><b>1. Evento</b><span class="peq">criado</span></li>
+      <li><b>2. Lotes</b><span class="peq">valor e quantidade dos ingressos</span></li>
+      <li><b>3. Configurações</b><span class="peq">Pix, regras, contato e flyer</span></li></ol>
+      <button type="button" class="bt bloco" id="p-lote">Criar lotes agora →</button>
+      <button type="button" class="bt sec bloco" id="p-depois" style="margin-top:.5rem">Fazer depois</button></div>`;
+    ov.querySelector('#p-lote').addEventListener('click', () => {
+      try { sessionStorage.setItem('guia', 'lote'); } catch {}
+      fecha();
+      if (location.hash === '#/admin/lotes') navegar(); else location.hash = '#/admin/lotes';
+    });
+    ov.querySelector('#p-depois').addEventListener('click', async () => {
+      await lista();
+      if (naAbaAdmin()) navegar();
+    });
   };
   const form = (e) => {
     ov.innerHTML = `<form class="card ov-corpo"><h2 style="margin-top:0">${e ? 'Editar evento' : 'Novo evento'}</h2>${camposEvento(e || {})}
@@ -1096,14 +1129,37 @@ function abrirEventos() {
         }
         estado.evento = null;
         aviso(e ? 'Evento salvo.' : 'Evento criado.');
-        await lista();
-        if (naAbaAdmin()) navegar();
+        if (e) {
+          await lista();
+          if (naAbaAdmin()) navegar();
+        } else {
+          await eventoSel();
+          passos();
+        }
       });
     });
   };
   lista().catch((e) => { fecha(); aviso(e.message, 'erro'); });
 }
 
+// Guia pós-criação de evento (lotes → configurações), lembrado na sessão.
+const lerGuia = () => { try { return sessionStorage.getItem('guia') || ''; } catch { return ''; } };
+const gravarGuia = (v) => { try { v ? sessionStorage.setItem('guia', v) : sessionStorage.removeItem('guia'); } catch {} };
+const guiaHtml = (passo) => {
+  if (passo === 'lote') return `<div class="card aviso-leitura"><b>Passo 2 de 3 · Lotes</b><p class="peq" style="margin:.3rem 0 .6rem">Cadastre o(s) lote(s) do evento: nome, valor e quantidade. Quando terminar, siga para as configurações.</p><div class="acoes"><button type="button" class="bt peq" data-guia="config">Próximo: Configurações →</button><button type="button" class="bt sec peq" data-guia="fim">Sair do guia</button></div></div>`;
+  if (passo === 'config') return `<div class="card aviso-leitura"><b>Passo 3 de 3 · Configurações</b><p class="peq" style="margin:.3rem 0 .6rem">Confira Pix, regras, contato e flyer deste evento. Depois é só abrir a venda.</p><div class="acoes"><button type="button" class="bt peq" data-guia="fim">Concluir</button></div></div>`;
+  return '';
+};
+function ligarGuia() {
+  app.querySelectorAll('[data-guia]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const v = b.dataset.guia;
+      if (v === 'fim') { gravarGuia(''); navegar(); return; }
+      gravarGuia(v);
+      location.hash = '#/admin/config';
+    }),
+  );
+}
 const ABAS_POR_EVENTO = new Set(['financeiro', 'pedidos', 'lotes', 'cortesias', 'auditoria']);
 const situacaoEvento = (e) => (e.encerrado ? 'Encerrado' : e.ativo ? 'À venda' : 'Inativo');
 function layoutAdmin(ativa, html) {
@@ -1302,7 +1358,7 @@ rota('/admin/lotes', async () => {
     .join('');
   layoutAdmin(
     'lotes',
-`${evAtivo ? `<p class="peq">Evento: <b>${esc(evAtivo.nome)}</b> · ${dataBR(evAtivo.data_evento)}. Para editar nome, data, local ou descrição, use o menu <b>Evento</b> (topo).</p>` : ''}
+`${guiaHtml(lerGuia() === 'lote' ? 'lote' : '')}${evAtivo ? `<p class="peq">Evento: <b>${esc(evAtivo.nome)}</b> · ${dataBR(evAtivo.data_evento)}. Para editar nome, data, local ou descrição, use o menu <b>Evento</b> (topo).</p>` : ''}
     <h2 id="lista-lotes" class="h-mais">Lotes <button type="button" class="mais" data-abre="fnovo" aria-label="Novo lote" title="Novo lote">+</button></h2>${cards || '<p class="mudo">Nenhum lote ainda.</p>'}
     <form class="card" id="fnovo" hidden>
       <b>Novo lote</b>
@@ -1372,6 +1428,7 @@ rota('/admin/lotes', async () => {
   app.querySelectorAll('form[data-lote]').forEach((f) =>
     f.addEventListener('submit', (e) => {
       e.preventDefault();
+      if (evAtivo.ativo && !confirm(`O evento "${evAtivo.nome}" está À VENDA agora. A mudança vale na hora para novos pedidos e os outros admins recebem um aviso. Salvar?`)) return;
       comEspera(f.querySelector('button'), async () => {
         await api('PUT', `/admin/lotes/${f.dataset.lote}`, { ...lerLote(f), ativo: f.ativo.checked });
         aviso('Lote salvo.');
@@ -1379,9 +1436,15 @@ rota('/admin/lotes', async () => {
       });
     }),
   );
+  ligarGuia();
+  if (lerGuia() === 'lote') {
+    const fn = document.getElementById('fnovo');
+    if (fn && !evAtivo?.encerrado) { fn.hidden = false; fn.scrollIntoView({ block: 'center' }); }
+  }
   document.getElementById('fnovo').addEventListener('submit', (e) => {
     e.preventDefault();
     const f = e.target;
+    if (evAtivo.ativo && !confirm(`O evento "${evAtivo.nome}" está À VENDA agora. O lote novo entra em venda na hora e os outros admins recebem um aviso. Criar o lote?`)) return;
     comEspera(f.querySelector('button'), async () => {
       await api('POST', '/admin/lotes', { ...lerLote(f), evento_id: evAtivo.id, ativo: true });
       aviso('Lote criado.');
@@ -1397,7 +1460,7 @@ rota('/admin/config', async () => {
   const resumoPix = c.pix_chave ? `${esc(c.pix_nome || '')} · ${esc(c.pix_chave)}` : '<b style="color:var(--erro)">não configurada</b>';
   layoutAdmin(
     'config',
-    `<h2 id="secoes-config">Configurações</h2>
+    `${guiaHtml(lerGuia() === 'config' ? 'config' : '')}<h2 id="secoes-config">Configurações</h2>
     <details class="item" id="det-push"><summary><b>Notificações</b><span class="peq">${esc(TXT_PUSH[sitPush] || 'verificando…')}</span></summary>
       <div class="card"><p class="peq" style="margin-top:0">Avisos de compra, pedido em pagamento e erros de confirmação na portaria chegam como notificação neste aparelho. O sino no menu faz o mesmo.</p>
         <div class="acoes">
@@ -1444,6 +1507,7 @@ rota('/admin/config', async () => {
         <label>Celular WhatsApp (opcional)</label><input name="contato_whatsapp" inputmode="tel" value="${esc((c.contato_whatsapp || '').replace(/^55/, ''))}" placeholder="11 99999-9999">
         <button class="bt peq" style="margin-top:.75rem">Salvar contato</button></form></details>`,
   );
+  ligarGuia();
   document.getElementById('push-ativar').addEventListener('click', (e) =>
     ativarPush(e.currentTarget).then(() => irParaLista('#secoes-config')).catch((er) => aviso(er.message, 'erro')));
   document.getElementById('push-teste').addEventListener('click', () => testarPush());

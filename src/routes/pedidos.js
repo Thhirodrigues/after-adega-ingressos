@@ -84,7 +84,7 @@ r.get('/meus-pedidos', exigir(), async (c) => {
   const { results } = await db
     .prepare(
       `SELECT p.id FROM pedidos p JOIN eventos e ON e.id = p.evento_id
-        WHERE p.comprador_id = ?1 AND p.canal = 'online' AND (?2 = 1 OR ${eventoAberto('e')}) ORDER BY p.id DESC LIMIT 50`,
+        WHERE p.comprador_id = ?1 AND p.canal = 'online' AND e.excluido_em IS NULL AND (?2 = 1 OR ${eventoAberto('e')}) ORDER BY p.id DESC LIMIT 50`,
     )
     .bind(c.get('usuario').id, c.get('usuario').papel === 'admin' ? 1 : 0)
     .all();
@@ -101,7 +101,7 @@ r.get('/meus-ingressos', exigir(), async (c) => {
        FROM ingressos i
        JOIN eventos e ON e.id = i.evento_id
        LEFT JOIN lotes l ON l.id = i.lote_id
-      WHERE i.dono_id = ?1 AND i.nome_avulso IS NULL AND (?3 = 1 OR ${eventoAberto('e')}) ORDER BY i.id`,
+      WHERE i.dono_id = ?1 AND i.nome_avulso IS NULL AND e.excluido_em IS NULL AND (?3 = 1 OR ${eventoAberto('e')}) ORDER BY i.id`,
   )
     .bind(c.get('usuario').id, agora(), c.get('usuario').papel === 'admin' ? 1 : 0)
     .all();

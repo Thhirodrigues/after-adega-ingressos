@@ -1196,3 +1196,53 @@ test('auditoria: filtro por usuário (admins e portaria cadastrados, com contage
   assert.equal(vazio.itens.length, 0);
   assert.ok(vazio.usuarios.some((u) => u.id === eu.id && u.acoes === 0));
 });
+
+test('excluir evento: só se não começou e sem pedido pago; some de tudo; lote em evento à venda avisa o admin', async () => {
+  const dia = (n) => new Date(Date.now() + n * 86400e3).toISOString().slice(0, 10);
+  const novo = (nome, ini, fim) => admin.post('/api/admin/eventos', { nome, data_evento: dia(ini), hora_inicio: '22:00', data_fim: dia(fim), hora_fim: '06:00' });
+  // evento futuro sem nada: exclui, some da lista e fica inacessível
+  const x = await novo('Evento Teste Excluir', 70, 71);
+  const lx = await admin.post('/api/admin/lotes', { evento_id: x.json.id, nome: 'L', valor_centavos: 1000, quantidade: 5, ativo: false });
+  assert.equal(lx.status, 201);
+  assert.equal((await admin.req('DELETE', `/api/admin/eventos/${x.json.id}`)).status, 200);
+  assert.ok(!(await admin.get('/api/admin/eventos')).json.eventos.some((e) => e.id === x.json.id));
+  assert.equal((await admin.get(`/api/admin/auditoria?evento_id=${x.json.id}`)).status, 404);
+  assert.equal((await admin.post('/api/admin/lotes', { evento_id: x.json.id, nome: 'M', valor_centavos: 1000, quantidade: 5, ativo: false })).status, 404);
+  assert.equal((await admin.req('DELETE', `/api/admin/eventos/${x.json.id}`)).status, 404);
+  assert.ok((await admin.get('/api/admin/auditoria')).json.itens.some((i) => i.acao === 'evento_excluido'));
+  // só admin
+  const { c: comp } = await novoComprador();
+  assert.equal((await comp.req('DELETE', `/api/admin/eventos/${eventoId}`)).status, 403);
+  // evento que já aconteceu não exclui
+  const pas = await novo('Evento Ja Passou', -5, -4);
+  assert.equal((await admin.req('DELETE', `/api/admin/eventos/${pas.json.id}`)).status, 409);
+
+  // com pedido pago: recusa até estornar
+  const y = await novo('Evento Com Venda', 80, 81);
+  assert.equal((await admin.put(`/api/admin/eventos/${y.json.id}`, { ativo: true })).status, 200);
+  try {
+    const ly = await admin.post('/api/admin/lotes', { evento_id: y.json.id, nome: 'LY', valor_centavos: 2000, quantidade: 5, ativo: true });
+    assert.equal(ly.status, 201);
+    // evento à venda: criar e alterar lote gera aviso para os admins
+    assert.equal((await admin.put(`/api/admin/lotes/${ly.json.id}`, { valor_centavos: 2500 })).status, 200);
+    const avisos = (await admin.get('/api/admin/alertas')).json.alertas.filter((a) => a.tipo === 'lote_em_uso');
+    assert.ok(avisos.some((a) => a.detalhe.includes('criou o lote') && a.detalhe.includes('Evento Com Venda')));
+    assert.ok(avisos.some((a) => a.detalhe.includes('valor R$ 20,00 → R$ 25,00')));
+    const { c: comprador } = await novoComprador();
+    const ped = await comprador.post('/api/pedidos', { aceito_termos: true, lote_id: ly.json.id, quantidade: 1, nome_pagador: 'Pagador Y' });
+    assert.equal(ped.status, 201, JSON.stringify(ped.json));
+    const pid = (await admin.get(`/api/admin/pedidos?evento_id=${y.json.id}`)).json.pedidos.find((p) => p.codigo === ped.json.codigo).id;
+    assert.equal((await admin.post(`/api/admin/pedidos/${pid}/confirmar`)).status, 200);
+    const r = await admin.req('DELETE', `/api/admin/eventos/${y.json.id}`);
+    assert.equal(r.status, 409);
+    assert.match(r.json.erro, /pedido\(s\) pago\(s\)/);
+    assert.equal((await admin.post(`/api/admin/pedidos/${pid}/cancelar`)).status, 200); // estorno
+    assert.equal((await admin.req('DELETE', `/api/admin/eventos/${y.json.id}`)).status, 200);
+    // excluído: o ativo some e o comprador não vê mais nada dele
+    assert.equal((await comprador.get('/api/evento')).json.evento, null);
+    assert.equal((await comprador.get('/api/meus-ingressos')).json.ingressos.length, 0);
+  } finally {
+    await admin.put(`/api/admin/eventos/${eventoId}`, { ativo: true });
+  }
+  assert.ok((await comp.get('/api/evento')).json.evento);
+});

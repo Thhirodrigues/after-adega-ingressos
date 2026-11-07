@@ -85,3 +85,9 @@ Valores em centavos; taxa de serviço 10% (configurável); reserva de 60 min; es
 - No topo das abas Financeiro, Pedidos, Lotes e cupons, Cortesias e Auditoria há o seletor **Evento**: ele escolhe qual evento as abas mostram (lembrado na sessão; padrão = o ativo). Não muda o evento ativo, que continua sendo só o do botão "Tornar ativo" do menu Evento (é o que a venda e a portaria usam).
 - **Evento encerrado** (término passou) é **só leitura** no admin: formulários desligados e o servidor recusa lote, cupom, cortesia e confirmação de pagamento (409). Continuam liberados: consultar, exportar CSV e estornar/cancelar pedido. Para reabrir, ajuste o término em Eventos.
 - **Auditoria por evento**: cada registro guarda `evento_id` (o evento da ação; nas ações gerais, o ativo na hora). Registros anteriores à migração `0014` ficaram no evento ativo da época. Só admin e portaria aparecem; ações de comprador (pedido, cancelamento, transferência) já ficam nas tabelas de pedidos e transferências.
+
+## Excluir evento, guia de criação e aviso de lote em uso
+
+- **Excluir evento** (menu Evento → Excluir): só evento que **ainda não começou**, sem pedido pago (estorne antes) e sem entrada na portaria. É exclusão reversível no banco (`excluido_em`, migração `0015`): some da venda, da portaria e do admin; lotes são desativados, pedidos em aberto cancelados e cortesias/convites cancelados. Evento que já começou ou terminou fica guardado para consulta.
+- **Guia ao criar evento**: depois de "Criar evento" o painel mostra os passos (1 Evento ✓ → 2 Lotes → 3 Configurações); "Criar lotes agora" abre a aba Lotes com o formulário aberto e o guia leva até Configurações.
+- **Lote em evento à venda** (ativo): criar ou alterar lote pede confirmação e gera **aviso + push** para os admins (`lote_em_uso`), com o que mudou (valor, quantidade, ativo, canal). Lote em evento encerrado continua bloqueado (somente leitura).
