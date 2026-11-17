@@ -25,13 +25,11 @@ export async function configuracoes(db) {
   return Object.fromEntries(results.map((r) => [r.chave, r.valor]));
 }
 
-// Cada registro pertence a um evento: o informado, ou (ações gerais) o evento ativo na hora.
+// Cada registro pertence ao evento da ação (eventoId). Sem evento = ação geral (usuários, permissões,
+// configurações, evento excluído), que aparece na Auditoria geral.
 export async function auditar(db, usuarioId, acao, detalhe = '', eventoId = null) {
   await db
-    .prepare(
-      `INSERT INTO auditoria (usuario_id, acao, detalhe, criado_em, evento_id)
-       VALUES (?1, ?2, ?3, ?4, COALESCE(?5, (SELECT id FROM eventos WHERE ativo = 1 AND excluido_em IS NULL ORDER BY data_evento LIMIT 1), (SELECT id FROM eventos WHERE excluido_em IS NULL ORDER BY data_evento DESC LIMIT 1)))`,
-    )
+    .prepare('INSERT INTO auditoria (usuario_id, acao, detalhe, criado_em, evento_id) VALUES (?1, ?2, ?3, ?4, ?5)')
     .bind(usuarioId ?? null, acao, String(detalhe).slice(0, 500), agora(), eventoId)
     .run();
 }

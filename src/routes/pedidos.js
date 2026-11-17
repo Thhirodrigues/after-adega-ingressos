@@ -33,12 +33,12 @@ r.post('/pedidos', exigir(), async (c) => {
   const codigo = await criarPedido(c.env, usuario, { loteId, quantidade, nomePagador, cupomDigitado });
   await c.env.DB.prepare('UPDATE pedidos SET aceite_termos_em = ?2, termos_versao = ?3 WHERE codigo = ?1').bind(codigo, agora(), TERMOS_VERSAO).run();
   let pedido = await buscarPedido(c.env.DB, { codigo });
-  await auditar(c.env.DB, usuario.id, 'pedido_criado', pedido.cupom_codigo ? `${codigo} cupom ${pedido.cupom_codigo}` : codigo);
+  await auditar(c.env.DB, usuario.id, 'pedido_criado', pedido.cupom_codigo ? `${codigo} cupom ${pedido.cupom_codigo}` : codigo, pedido.evento_id);
   const cents = (n) => (n / 100).toFixed(2).replace('.', ',');
   if (pedido.total_centavos === 0 && pedido.cupom_id) {
     await concluirPedidoGratis(c.env.DB, pedido.id, pedido.cupom_codigo);
     pedido = await buscarPedido(c.env.DB, { codigo });
-    await alertar(c, 'novo_pedido', `Pedido ${codigo} com cupom ${pedido.cupom_codigo}: ${usuario.nome} ${usuario.sobrenome} — ${quantidade} ingresso(s) sem custo, já confirmado.`);
+    await alertar(c, 'novo_pedido', `Pedido ${codigo} com cupom ${pedido.cupom_codigo}: ${usuario.nome} ${usuario.sobrenome} — ${quantidade} ingresso(s) sem custo, já confirmado.`, pedido.evento_id);
   }
   // Pedido pago normal: o admin só é avisado quando a pessoa escolhe a forma de pagamento.
   return c.json({ ...(await visaoPedido(c.env.DB, pedido)), mp_disponivel: !!c.env.MP_ACCESS_TOKEN }, 201);
@@ -75,7 +75,7 @@ r.post('/pedidos/:codigo/cancelar', exigir(), async (c) => {
     throw new HttpError(409, 'Pedido já pago. Para cancelar, fale com a organização.');
   }
   await cancelarNaoPago(db, pedido.id);
-  await auditar(db, usuario.id, 'pedido_cancelado_comprador', pedido.codigo);
+  await auditar(db, usuario.id, 'pedido_cancelado_comprador', pedido.codigo, pedido.evento_id);
   return c.json(await visaoPedido(db, await buscarPedido(db, { id: pedido.id })));
 });
 

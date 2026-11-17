@@ -216,7 +216,7 @@ async function avisarLoteEmUso(c, eventoId, o_que) {
   const ev = await c.env.DB.prepare('SELECT nome, ativo FROM eventos WHERE id = ?1').bind(eventoId).first();
   if (!ev?.ativo) return;
   const u = c.get('usuario');
-  await alertar(c, 'lote_em_uso', `**${u.nome} ${u.sobrenome}** ${o_que} no evento à venda ${ev.nome}.`);
+  await alertar(c, 'lote_em_uso', `**${u.nome} ${u.sobrenome}** ${o_que} no evento à venda ${ev.nome}.`, eventoId);
 }
 
 const canalLote = (x) => (['todos', 'online', 'porta'].includes(x) ? x : 'todos');
@@ -757,33 +757,73 @@ r.delete('/admin/flyer', async (c) => {
 });
 
 // ---------- Avisos (alertas) e push ----------
+// Avisos são do evento (?evento_id=, padrão: o ativo) ou gerais (?geral=1: conta, senha, pagamento sem pedido).
+// Evento novo começa sem avisos porque a consulta filtra; nada é apagado.
+async function escopoRegistro(db, q) {
+  if (q('geral') === '1') return { geral: true, evento: null };
+  return { geral: false, evento: await eventoConsulta(db, q('evento_id')) };
+}
+const filtroEscopo = (alias, n) => `((?${n} = 0 AND ${alias}.evento_id IS NULL) OR ${alias}.evento_id = ?${n})`;
+
 r.get('/admin/alertas', async (c) => {
-  const { results } = await c.env.DB.prepare('SELECT id, tipo, detalhe, criado_em, lido_em FROM alertas ORDER BY id DESC LIMIT 100').all();
-  const n = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM alertas WHERE lido_em IS NULL').first();
+  const db = c.env.DB;
+  const esc = await escopoRegistro(db, (k) => c.req.query(k));
+  const alvo = esc.geral ? 0 : esc.evento.id;
+  const { results } = await db
+    .prepare(`SELECT a.id, a.tipo, a.detalhe, a.criado_em, a.lido_em FROM alertas a WHERE ${filtroEscopo('a', 1)} ORDER BY a.id DESC LIMIT 100`)
+    .bind(alvo)
+    .all();
+  // Não lidos aqui, nos avisos gerais e nos outros eventos (para a tela apontar onde estão os demais).
+  const cont = await db
+    .prepare(
+      `SELECT SUM(CASE WHEN ${filtroEscopo('a', 1)} THEN 1 ELSE 0 END) AS aqui,
+              SUM(CASE WHEN a.evento_id IS NULL THEN 1 ELSE 0 END) AS geral,
+              COUNT(*) AS total
+         FROM alertas a WHERE a.lido_em IS NULL`,
+    )
+    .bind(alvo)
+    .first();
   // Avisos de pedido trazem o pedido (situação de agora), para o admin confirmar o Pix direto do aviso.
   const codigoDe = (a) => (/^(?:Novo pedido|Pedido) ([A-Z0-9]{6})\b/.exec(a.detalhe) || [])[1];
   const codigos = [...new Set(results.map(codigoDe).filter(Boolean))];
   const pedidos = new Map();
   if (codigos.length) {
-    const { results: ps } = await c.env.DB.prepare(
-      `SELECT id, codigo, status, expira_em FROM pedidos WHERE codigo IN (${codigos.map((_, i) => `?${i + 1}`).join(',')})`,
-    )
+    const { results: ps } = await db
+      .prepare(`SELECT id, codigo, status, expira_em FROM pedidos WHERE codigo IN (${codigos.map((_, i) => `?${i + 1}`).join(',')})`)
       .bind(...codigos)
       .all();
     const t = agora();
     for (const p of ps) pedidos.set(p.codigo, { id: p.id, codigo: p.codigo, status: p.status === 'aguardando_pagamento' && p.expira_em < t ? 'expirado' : p.status });
   }
-  return c.json({ alertas: results.map((a) => ({ ...a, pedido: pedidos.get(codigoDe(a)) || null })), nao_lidos: n.n });
+  const aqui = cont.aqui || 0;
+  const geral = cont.geral || 0;
+  return c.json({
+    evento: esc.evento,
+    alertas: results.map((a) => ({ ...a, pedido: pedidos.get(codigoDe(a)) || null })),
+    nao_lidos: aqui,
+    nao_lidos_geral: esc.geral ? 0 : geral,
+    nao_lidos_outros_eventos: (cont.total || 0) - aqui - (esc.geral ? 0 : geral),
+  });
 });
 
-// Usado pelo service worker ao receber o "toque" do push: devolve o aviso mais recente não lido.
+// Usado pelo service worker ao receber o "toque" do push: devolve o aviso mais recente não lido (de qualquer evento).
 r.get('/admin/alertas/pendentes', async (c) => {
   const { results } = await c.env.DB.prepare('SELECT id, tipo, detalhe, criado_em FROM alertas WHERE lido_em IS NULL ORDER BY id DESC LIMIT 5').all();
   return c.json({ alertas: results });
 });
 
+// Marca como lidos os avisos de um evento ({ evento_id }) ou os gerais ({ geral: true }). Sem nada: todos.
 r.post('/admin/alertas/lidos', async (c) => {
-  await c.env.DB.prepare('UPDATE alertas SET lido_em = ?1 WHERE lido_em IS NULL').bind(agora()).run();
+  const db = c.env.DB;
+  const b = await c.req.json().catch(() => ({}));
+  if (b?.geral) {
+    await db.prepare('UPDATE alertas SET lido_em = ?1 WHERE lido_em IS NULL AND evento_id IS NULL').bind(agora()).run();
+  } else if (b?.evento_id != null) {
+    const ev = await eventoConsulta(db, String(b.evento_id));
+    await db.prepare('UPDATE alertas SET lido_em = ?1 WHERE lido_em IS NULL AND evento_id = ?2').bind(agora(), ev.id).run();
+  } else {
+    await db.prepare('UPDATE alertas SET lido_em = ?1 WHERE lido_em IS NULL').bind(agora()).run();
+  }
   return c.json({ ok: true });
 });
 
@@ -1035,33 +1075,40 @@ r.post('/admin/cortesias/:id/cancelar', async (c) => {
   return c.json({ ok: true });
 });
 
-// Auditoria: o que cada administrador e cada pessoa da portaria fez, do mais recente para o mais antigo.
-// Só leitura. Paginada: "antes" é o id do último item já carregado.
+// Auditoria: o que cada administrador, cada pessoa da portaria e o próprio sistema (Mercado Pago) fez,
+// do mais recente para o mais antigo. Só leitura. Escopo: um evento (?evento_id=, padrão: o ativo) ou as
+// ações gerais (?geral=1: usuários, permissões, configurações, evento excluído, pagamento sem pedido).
+// Paginada: "antes" é o id do último item já carregado.
 r.get('/admin/auditoria', async (c) => {
+  const db = c.env.DB;
   const papel = ['admin', 'hostess'].includes(c.req.query('papel')) ? c.req.query('papel') : '';
   const antes = Math.max(0, Number.parseInt(c.req.query('antes') ?? '0', 10) || 0);
   const quem = Math.max(0, Number.parseInt(c.req.query('usuario_id') ?? '0', 10) || 0);
-  const evento = await eventoConsulta(c.env.DB, c.req.query('evento_id'));
+  const esc = await escopoRegistro(db, (k) => c.req.query(k));
+  const alvo = esc.geral ? 0 : esc.evento.id;
   const LIM = 100;
-  const { results } = await c.env.DB.prepare(
-    `SELECT a.id, a.acao, a.detalhe, a.criado_em, u.nome, u.sobrenome, u.papel
-       FROM auditoria a JOIN usuarios u ON u.id = a.usuario_id
-      WHERE u.papel IN ('admin', 'hostess') AND (?1 = '' OR u.papel = ?1) AND (?2 = 0 OR a.id < ?2) AND a.evento_id = ?4 AND (?5 = 0 OR a.usuario_id = ?5)
-      ORDER BY a.id DESC LIMIT ?3`,
-  )
-    .bind(papel, antes, LIM + 1, evento.id, quem)
+  const { results } = await db
+    .prepare(
+      `SELECT a.id, a.acao, a.detalhe, a.criado_em, u.nome, u.sobrenome, COALESCE(u.papel, 'sistema') AS papel
+         FROM auditoria a LEFT JOIN usuarios u ON u.id = a.usuario_id
+        WHERE (u.papel IN ('admin', 'hostess') OR a.usuario_id IS NULL) AND (?1 = '' OR u.papel = ?1)
+          AND (?2 = 0 OR a.id < ?2) AND ${filtroEscopo('a', 4)} AND (?5 = 0 OR a.usuario_id = ?5)
+        ORDER BY a.id DESC LIMIT ?3`,
+    )
+    .bind(papel, antes, LIM + 1, alvo, quem)
     .all();
   const mais = results.length > LIM;
   const itens = results.slice(0, LIM);
-  // Quem pode ser filtrado: todos os admins e pessoas da portaria cadastrados, com quantas ações fizeram neste evento.
-  const { results: usuarios } = await c.env.DB.prepare(
-    `SELECT u.id, u.nome, u.sobrenome, u.papel, u.ativo,
-            (SELECT COUNT(*) FROM auditoria a WHERE a.usuario_id = u.id AND a.evento_id = ?1) AS acoes
-       FROM usuarios u WHERE u.papel IN ('admin', 'hostess') ORDER BY u.papel, u.nome, u.id`,
-  )
-    .bind(evento.id)
+  // Quem pode ser filtrado: todos os admins e pessoas da portaria cadastrados, com quantas ações fizeram neste escopo.
+  const { results: usuarios } = await db
+    .prepare(
+      `SELECT u.id, u.nome, u.sobrenome, u.papel, u.ativo,
+              (SELECT COUNT(*) FROM auditoria a WHERE a.usuario_id = u.id AND ${filtroEscopo('a', 1)}) AS acoes
+         FROM usuarios u WHERE u.papel IN ('admin', 'hostess') ORDER BY u.papel, u.nome, u.id`,
+    )
+    .bind(alvo)
     .all();
-  return c.json({ itens, mais, proximo: mais ? itens[itens.length - 1].id : null, usuarios });
+  return c.json({ evento: esc.evento, itens, mais, proximo: mais ? itens[itens.length - 1].id : null, usuarios });
 });
 
 export default r;

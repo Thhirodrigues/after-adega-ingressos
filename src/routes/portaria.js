@@ -83,11 +83,11 @@ r.post('/portaria/validar', async (c) => {
   const u = c.get('usuario');
   const lido = await lerQr(c.env, b.qr);
   if (!lido) {
-    await auditar(db, u.id, 'entrada_recusada', 'QR inválido');
+    await auditar(db, u.id, 'entrada_recusada', 'QR inválido', ev.id);
     return c.json({ resultado: 'invalido' });
   }
   const res = await registrarEntrada(db, { ...lido, eventoId: ev.id, quando: agora(), porId: u.id });
-  await auditar(db, u.id, res.resultado === 'ok' ? 'entrada_qr' : 'entrada_recusada', `${res.nome ?? '—'} (#${lido.id})${res.resultado === 'ok' ? '' : `: ${res.resultado}`}`);
+  await auditar(db, u.id, res.resultado === 'ok' ? 'entrada_qr' : 'entrada_recusada', `${res.nome ?? '—'} (#${lido.id})${res.resultado === 'ok' ? '' : `: ${res.resultado}`}`, ev.id);
   return c.json({ ...res, ...(await contagem(db, ev.id)) });
 });
 
@@ -124,14 +124,14 @@ r.post('/portaria/entrada-manual', async (c) => {
         )
         .bind(chave, t, t + 900)
         .run();
-      await auditar(db, u.id, 'confirmacao_errada', `${ing.nome} (#${id})`);
-      await alertar(c, 'confirmacao_errada', `Na portaria, ${u.nome} ${u.sobrenome} informou 4 últimos números que não conferem com ${ing.nome} (ingresso #${id}). Entrada não liberada.`);
+      await auditar(db, u.id, 'confirmacao_errada', `${ing.nome} (#${id})`, ev.id);
+      await alertar(c, 'confirmacao_errada', `Na portaria, ${u.nome} ${u.sobrenome} informou 4 últimos números que não conferem com ${ing.nome} (ingresso #${id}). Entrada não liberada.`, ev.id);
       throw new HttpError(403, 'Os 4 últimos números não conferem. Entrada não liberada: sem a confirmação, a pessoa precisa pagar o ingresso da porta.');
     }
     await db.prepare('DELETE FROM tentativas_login WHERE cpf = ?1').bind(chave).run();
   }
   const res = await registrarEntrada(db, { id, eventoId: ev.id, quando: agora(), porId: u.id });
-  await auditar(db, u.id, res.resultado === 'ok' ? 'entrada_manual' : 'entrada_recusada', `${res.nome ?? ing.nome} (#${id})${res.resultado === 'ok' ? '' : `: ${res.resultado}`}`);
+  await auditar(db, u.id, res.resultado === 'ok' ? 'entrada_manual' : 'entrada_recusada', `${res.nome ?? ing.nome} (#${id})${res.resultado === 'ok' ? '' : `: ${res.resultado}`}`, ev.id);
   return c.json({ ...res, ...(await contagem(db, ev.id)) });
 });
 
@@ -166,8 +166,8 @@ r.post('/portaria/entrada-convite', async (c) => {
       )
       .bind(chave, t, t + 900)
       .run();
-    await auditar(db, u.id, 'confirmacao_errada', `${cv.nome} (cortesia sem conta)`);
-    await alertar(c, 'confirmacao_errada', `Na portaria, ${u.nome} ${u.sobrenome} informou 4 últimos números que não conferem com ${cv.nome} (cortesia pendente). Entrada não liberada.`);
+    await auditar(db, u.id, 'confirmacao_errada', `${cv.nome} (cortesia sem conta)`, ev.id);
+    await alertar(c, 'confirmacao_errada', `Na portaria, ${u.nome} ${u.sobrenome} informou 4 últimos números que não conferem com ${cv.nome} (cortesia pendente). Entrada não liberada.`, ev.id);
     throw new HttpError(403, 'Os 4 últimos números não conferem. Entrada não liberada.');
   }
   await db.prepare('DELETE FROM tentativas_login WHERE cpf = ?1').bind(chave).run();
@@ -186,7 +186,7 @@ r.post('/portaria/entrada-convite', async (c) => {
   if (quantas >= restantes) {
     await db.prepare(`UPDATE convites SET status = 'resgatado', resgatado_em = ?2 WHERE id = ?1 AND status = 'pendente'`).bind(id, t).run();
   }
-  await auditar(db, u.id, 'entrada_convite', `${cv.nome} (${quantas} pessoa(s))`);
+  await auditar(db, u.id, 'entrada_convite', `${cv.nome} (${quantas} pessoa(s))`, ev.id);
   return c.json({ resultado: 'ok', nome: cv.nome, tipo: 'cortesia', motivo: rotulo, usado_em: t, quantas, restantes: restantes - quantas, ...(await contagem(db, ev.id)) });
 });
 
@@ -210,10 +210,10 @@ r.post('/portaria/sincronizar', async (c) => {
       res = { resultado: 'invalido' };
     }
     resultados.push({ chave: u.qr ?? `m${u.ingresso_id}`, ...res });
-    await auditar(db, c.get('usuario').id, res.resultado === 'ok' ? 'entrada_qr' : 'entrada_recusada', `${res.nome ?? '—'}${res.ingresso_id ? ` (#${res.ingresso_id})` : ''} · sem internet, às ${formatarSP(quando)}${res.resultado === 'ok' ? '' : `: ${res.resultado}`}`);
+    await auditar(db, c.get('usuario').id, res.resultado === 'ok' ? 'entrada_qr' : 'entrada_recusada', `${res.nome ?? '—'}${res.ingresso_id ? ` (#${res.ingresso_id})` : ''} · sem internet, às ${formatarSP(quando)}${res.resultado === 'ok' ? '' : `: ${res.resultado}`}`, ev.id);
   }
   const conflitos = resultados.filter((x) => x.resultado !== 'ok').length;
-  if (usos.length) await auditar(db, c.get('usuario').id, 'portaria_sincronizou', `${usos.length} itens, ${conflitos} conflitos`);
+  if (usos.length) await auditar(db, c.get('usuario').id, 'portaria_sincronizou', `${usos.length} itens, ${conflitos} conflitos`, ev.id);
   return c.json({ resultados, ...(await contagem(db, ev.id)) });
 });
 
@@ -244,7 +244,7 @@ r.post('/portaria/desfazer', async (c) => {
         )
         .bind(chaveTent, t, t + 900)
         .run();
-      if (u.papel !== 'admin') await alertar(c, 'pin_errado', `${u.nome} ${u.sobrenome} errou a senha de desbloqueio ao tentar desfazer uma entrada.`);
+      if (u.papel !== 'admin') await alertar(c, 'pin_errado', `${u.nome} ${u.sobrenome} errou a senha de desbloqueio ao tentar desfazer uma entrada.`, ev.id);
       throw new HttpError(401, 'Senha de desbloqueio incorreta.');
     }
     await db.prepare('DELETE FROM tentativas_login WHERE cpf = ?1').bind(chaveTent).run();
@@ -261,9 +261,9 @@ r.post('/portaria/desfazer', async (c) => {
     .prepare(`SELECT i.desfeitos, COALESCE(i.nome_avulso, u.nome || ' ' || u.sobrenome) AS nome FROM ingressos i JOIN usuarios u ON u.id = i.dono_id WHERE i.id = ?1`)
     .bind(id)
     .first();
-  await auditar(db, u.id, 'entrada_desfeita', `${ing.nome} (#${id})`);
+  await auditar(db, u.id, 'entrada_desfeita', `${ing.nome} (#${id})`, ev.id);
   if (u.papel !== 'admin') {
-    await alertar(c, 'entrada_desfeita', `${u.nome} ${u.sobrenome} desfez a entrada de ${ing.nome} (ingresso #${id}). Total de desfeitos neste ingresso: ${ing.desfeitos}.`);
+    await alertar(c, 'entrada_desfeita', `${u.nome} ${u.sobrenome} desfez a entrada de ${ing.nome} (ingresso #${id}). Total de desfeitos neste ingresso: ${ing.desfeitos}.`, ev.id);
   }
   return c.json({ ok: true, nome: ing.nome, desfeitos: ing.desfeitos, ...(await contagem(db, ev.id)) });
 });
@@ -303,7 +303,7 @@ r.post('/portaria/venda', async (c) => {
   if (!lote || lote.evento_id !== ev.id) throw new HttpError(404, 'Lote indisponível para venda presencial.');
   const { codigo, id } = await venderPresencial(db, u, { loteId, quantidade, nomes, celulares, forma });
   const p = await db.prepare('SELECT total_centavos FROM pedidos WHERE id = ?1').bind(id).first();
-  await auditar(db, u.id, 'venda_presencial', `${codigo} ${quantidade}x ${forma} ${p.total_centavos}`);
+  await auditar(db, u.id, 'venda_presencial', `${codigo} ${quantidade}x ${forma} ${p.total_centavos}`, ev.id);
   return c.json({ ok: true, codigo, quantidade, total_centavos: p.total_centavos, forma, entrou: true, ...(await contagem(db, ev.id)) }, 201);
 });
 

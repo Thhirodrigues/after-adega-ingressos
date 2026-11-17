@@ -39,7 +39,8 @@ r.post('/ingressos/:id/transferir', exigir(), async (c) => {
       )
       .bind(await sha256Hex(token), id, u.id, t, expira),
   ]);
-  await auditar(db, u.id, 'transferencia_criada', String(id));
+  const evT = await db.prepare('SELECT evento_id FROM ingressos WHERE id = ?1').bind(id).first();
+  await auditar(db, u.id, 'transferencia_criada', String(id), evT?.evento_id);
   return c.json({ token, expira_em: expira }, 201);
 });
 
@@ -106,7 +107,8 @@ r.post('/transferencias/:token/aceitar', exigir(), async (c) => {
   ]);
   const depois = await db.prepare('SELECT dono_id FROM ingressos WHERE id = ?1').bind(t.ingresso_id).first();
   if (depois.dono_id !== u.id) throw new HttpError(409, 'Não foi possível concluir: o ingresso mudou. Peça um novo link.');
-  await auditar(db, u.id, 'transferencia_aceita', `${t.ingresso_id} de ${t.de_usuario_id}`);
+  const evA = await db.prepare('SELECT evento_id FROM ingressos WHERE id = ?1').bind(t.ingresso_id).first();
+  await auditar(db, u.id, 'transferencia_aceita', `${t.ingresso_id} de ${t.de_usuario_id}`, evA?.evento_id);
   return c.json({ ok: true });
 });
 

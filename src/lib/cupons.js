@@ -31,7 +31,7 @@ export async function buscarCupomParaCompra(db, usuarioId, eventoId, digitado) {
     .bind(eventoId, codigo)
     .first();
   if (!cupom || (cupom.limite != null && cupom.usados >= cupom.limite)) {
-    await auditar(db, usuarioId, 'cupom_invalido', codigo.slice(0, 30));
+    await auditar(db, usuarioId, 'cupom_invalido', codigo.slice(0, 30), eventoId);
     throw new HttpError(400, 'Cupom inválido ou indisponível.');
   }
   return cupom;

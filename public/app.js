@@ -1160,14 +1160,14 @@ function ligarGuia() {
     }),
   );
 }
-const ABAS_POR_EVENTO = new Set(['financeiro', 'pedidos', 'lotes', 'cortesias', 'auditoria']);
+const ABAS_POR_EVENTO = new Set(['financeiro', 'pedidos', 'lotes', 'cortesias', 'avisos', 'auditoria']);
 const situacaoEvento = (e) => (e.encerrado ? 'Encerrado' : e.ativo ? 'À venda' : 'Inativo');
-function layoutAdmin(ativa, html) {
-  const porEvento = ABAS_POR_EVENTO.has(ativa) && estado.eventos?.length;
+function layoutAdmin(ativa, html, titulo = '') {
+  const porEvento = !titulo && ABAS_POR_EVENTO.has(ativa) && estado.eventos?.length;
   const leitura = porEvento && estado.evSel?.encerrado;
   app.innerHTML = `
     <span class="fp-eyebrow">Admin</span>
-    <h1 class="hero" style="margin-top:.3rem">${ABAS.find(([k]) => k === ativa)?.[1] || 'Painel'}</h1>
+    <h1 class="hero" style="margin-top:.3rem">${titulo || ABAS.find(([k]) => k === ativa)?.[1] || 'Painel'}</h1>
     ${porEvento ? `<p class="peq" style="margin:0 0 .5rem">Evento: <b>${esc(estado.evSel?.nome || '')}</b> · ${situacaoEvento(estado.evSel || {})}</p>
     ${leitura ? '<div class="card aviso-leitura"><b>Evento encerrado: somente leitura.</b> Você pode consultar, exportar CSV e estornar pedidos. Para alterar algo, reabra o evento ajustando o término no menu Evento (topo).</div>' : ''}` : ''}
     <div class="abas">${ABAS.map(([k, n]) => `<a href="#/admin/${k}" class="${k === ativa ? 'on' : ''}">${n}${k === 'avisos' ? `<span class="badge" data-badge-avisos${estado.eu?.nao_lidos ? '' : ' hidden'}>${estado.eu?.nao_lidos || ''}</span>` : ''}</a>`).join('')}</div>
@@ -1455,7 +1455,7 @@ rota('/admin/lotes', async () => {
 
 rota('/admin/config', async () => {
   if (!exigirAdmin()) return;
-  const [c, sitPush] = await Promise.all([api('GET', '/admin/config'), verificarPush(true)]);
+  const [c, sitPush, avGerais] = await Promise.all([api('GET', '/admin/config'), verificarPush(true), api('GET', '/admin/alertas?geral=1').catch(() => ({ nao_lidos: 0 }))]);
   const TXT_PUSH = { ok: 'ativadas neste aparelho', desativado: 'desativadas', bloqueado: 'bloqueadas pelo navegador', instalar: 'instale o app no iPhone', sem_suporte: 'sem suporte neste navegador' };
   const resumoPix = c.pix_chave ? `${esc(c.pix_nome || '')} · ${esc(c.pix_chave)}` : '<b style="color:var(--erro)">não configurada</b>';
   layoutAdmin(
@@ -1467,6 +1467,12 @@ rota('/admin/config', async () => {
           <button type="button" class="bt peq" id="push-ativar">${sitPush === 'ok' ? 'Reativar neste aparelho' : 'Ativar notificações'}</button>
           <button type="button" class="bt sec peq" id="push-teste"${sitPush === 'ok' ? '' : ' disabled'}>Enviar teste</button>
           <button type="button" class="bt perigo peq" id="push-desligar"${sitPush === 'ok' ? '' : ' disabled'}>Desativar neste aparelho</button>
+        </div></div></details>
+    <details class="item"${avGerais.nao_lidos ? ' open' : ''}><summary><b>Registros gerais</b><span class="peq">${avGerais.nao_lidos ? `<b style="color:var(--erro)">${avGerais.nao_lidos} aviso(s) não lido(s)</b>` : 'fora dos eventos'}</span></summary>
+      <div class="card"><p class="peq" style="margin-top:0">Avisos e auditoria de cada festa ficam dentro do evento (abas Avisos e Auditoria). Aqui fica o que não pertence a um evento: usuários e permissões, configurações, evento excluído e pagamento do Mercado Pago sem pedido.</p>
+        <div class="acoes">
+          <a class="bt peq" href="#/admin/avisos-gerais">Avisos gerais${avGerais.nao_lidos ? ` <span class="badge">${avGerais.nao_lidos}</span>` : ''}</a>
+          <a class="bt sec peq" href="#/admin/auditoria-geral">Auditoria geral</a>
         </div></div></details>
     <details class="item"><summary><b>Flyer da tela de agradecimento</b><span class="peq">${c.flyer_personalizado ? 'enviado por você' : 'padrão'}</span></summary>
       <div class="card"><p class="peq" style="margin-top:0">Aparece depois do pagamento, com o botão de postar nos stories. Use imagem vertical (9:16 funciona melhor). A troca vale na hora.</p>
@@ -2268,16 +2274,29 @@ async function ativarPush(botao) {
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') verificarPush(); });
 setInterval(() => verificarPush(true), 5 * 60 * 1000);
 
-rota('/admin/avisos', async () => {
+// Avisos do evento escolhido (aba Avisos) ou avisos gerais (Configurações → Registros gerais).
+// Evento novo começa sem avisos: a lista é filtrada pelo evento, nada é apagado.
+async function telaAvisos(geral) {
   if (!exigirAdmin()) return;
-  const d = await api('GET', '/admin/alertas');
+  let ev = null;
+  if (!geral) {
+    ev = await eventoSel();
+    if (!ev) return layoutAdmin('avisos', '<p class="mudo">Nenhum evento cadastrado.</p>');
+  }
+  const d = await api('GET', geral ? '/admin/alertas?geral=1' : `/admin/alertas?evento_id=${ev.id}`);
   verificarPush(true);
+  const fora = [];
+  if (d.nao_lidos_geral) fora.push(`<a href="#/admin/avisos-gerais">${d.nao_lidos_geral} nos avisos gerais</a>`);
+  if (d.nao_lidos_outros_eventos) fora.push(`${d.nao_lidos_outros_eventos} em outro(s) evento(s) (troque o evento no menu Evento, no topo)`);
   layoutAdmin(
-    'avisos',
-    `<div class="card"><div class="linha"><h2 style="margin:0">Avisos</h2>${d.nao_lidos ? '<button class="bt sec peq" id="lidos">Marcar como lidos</button>' : ''}</div>
+    geral ? 'config' : 'avisos',
+    `${geral ? '<p class="mudo">Avisos que não pertencem a um evento: conta e senha de usuários e pagamentos do Mercado Pago sem pedido no Fast Pass. <a href="#/admin/config">← Configurações</a></p>' : ''}
+    ${fora.length ? `<div class="card aviso-leitura"><b>Não lidos fora daqui:</b> ${fora.join(' · ')}</div>` : ''}
+    <div class="card"><div class="linha"><h2 style="margin:0">${geral ? 'Avisos gerais' : 'Avisos do evento'}</h2>${d.nao_lidos ? '<button class="bt sec peq" id="lidos">Marcar como lidos</button>' : ''}</div>
       ${d.alertas.length ? d.alertas.map((a) => `<div class="linha aviso-item" style="margin-top:.6rem"><div>${a.lido_em ? '' : '<span class="badge">novo</span> '}${esc(a.detalhe).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')}<div class="peq">${hora(a.criado_em)}${a.pedido ? ` · pedido agora: ${tag(a.pedido.status)}` : ''}</div>
-        ${a.tipo === 'novo_pedido' && a.pedido && ['aguardando_pagamento', 'expirado'].includes(a.pedido.status) ? `<div class="acoes" style="margin-top:.4rem"><button class="bt ok peq" data-confirmar-pedido="${a.pedido.id}">Confirmar Pix</button><a class="bt sec peq" href="#/admin/pedidos" data-ver-pedidos>Ver pedido</a></div>` : ''}</div></div>`).join('') : '<p class="mudo">Nenhum aviso ainda.</p>'}
+        ${a.tipo === 'novo_pedido' && a.pedido && ['aguardando_pagamento', 'expirado'].includes(a.pedido.status) ? `<div class="acoes" style="margin-top:.4rem"><button class="bt ok peq" data-confirmar-pedido="${a.pedido.id}">Confirmar Pix</button><a class="bt sec peq" href="#/admin/pedidos" data-ver-pedidos>Ver pedido</a></div>` : ''}</div></div>`).join('') : `<p class="mudo">${geral ? 'Nenhum aviso geral.' : 'Nenhum aviso neste evento ainda.'}</p>`}
     </div>`,
+    geral ? 'Avisos gerais' : '',
   );
   app.querySelectorAll('[data-confirmar-pedido]').forEach((b) =>
     b.addEventListener('click', () => {
@@ -2292,12 +2311,14 @@ rota('/admin/avisos', async () => {
   app.querySelectorAll('[data-ver-pedidos]').forEach((a) => a.addEventListener('click', () => { try { sessionStorage.setItem('fped', 'todos'); } catch {} }));
   document.getElementById('lidos')?.addEventListener('click', (e) =>
     comEspera(e.target, async () => {
-      await api('POST', '/admin/alertas/lidos', {});
+      await api('POST', '/admin/alertas/lidos', geral ? { geral: true } : { evento_id: ev.id });
       await carregarEu();
       navegar();
     }),
   );
-});
+}
+rota('/admin/avisos', () => telaAvisos(false));
+rota('/admin/avisos-gerais', () => telaAvisos(true));
 
 const CATEGORIAS_CONV = { dj: 'DJ', aniversariante: 'Aniversariante', convidado: 'Amigo / parceiro' };
 const linkConvite = (token) => `${location.origin}/#/convite/${token}`;
@@ -2350,24 +2371,37 @@ const ACOES_AUD = {
   transferencia_aceita: 'Transferência aceita',
   senha_recuperada_resposta: 'Senha recuperada',
   resposta_definida: 'Resposta secreta definida',
+  evento_excluido: 'Evento excluído',
+  cupom_invalido: 'Cupom inválido digitado',
+  pedido_confirmado_mp: 'Pagamento confirmado pelo Mercado Pago',
+  pedido_estornado_mp: 'Pedido reembolsado no Mercado Pago',
+  mp_sem_pedido: 'Pagamento do Mercado Pago sem pedido',
 };
-const ACOES_ALERTA = new Set(['entrada_desfeita', 'entrada_recusada', 'confirmacao_errada', 'convite_excluido', 'convite_cancelado', 'cortesia_cancelada', 'pedido_estornado', 'pedido_cancelado_admin']);
+const ACOES_ALERTA = new Set(['entrada_desfeita', 'entrada_recusada', 'confirmacao_errada', 'convite_excluido', 'convite_cancelado', 'cortesia_cancelada', 'pedido_estornado', 'pedido_cancelado_admin', 'pedido_estornado_mp', 'mp_sem_pedido', 'evento_excluido']);
 
-rota('/admin/auditoria', async () => {
+// Auditoria do evento escolhido (aba Auditoria) ou geral (Configurações → Registros gerais).
+const PAPEL_AUD = { admin: 'admin', hostess: 'portaria', sistema: 'sistema' };
+async function telaAuditoria(geral) {
   if (!exigirAdmin()) return;
-  const evA = await eventoSel();
-  if (!evA) return layoutAdmin('auditoria', '<p class="mudo">Nenhum evento cadastrado.</p>');
+  let evA = null;
+  if (!geral) {
+    evA = await eventoSel();
+    if (!evA) return layoutAdmin('auditoria', '<p class="mudo">Nenhum evento cadastrado.</p>');
+  }
   let filtro = '';
   let itens = [];
   let proximo = null;
   layoutAdmin(
-    'auditoria',
-    `<p class="mudo">O que cada administrador e cada pessoa da portaria fez neste evento. Só leitura.</p>
+    geral ? 'config' : 'auditoria',
+    `<p class="mudo">${geral
+      ? 'Ações que não pertencem a um evento: usuários e permissões, configurações, evento excluído e pagamentos sem pedido. Só leitura. <a href="#/admin/config">← Configurações</a>'
+      : 'O que cada administrador, cada pessoa da portaria e o Mercado Pago fizeram neste evento. Só leitura.'}</p>
     <label for="aud-quem" class="peq" style="margin:0 0 .25rem">Quem</label>
     <select id="aud-quem"><option value="">Todos</option></select>
     <input id="aud-busca" placeholder="Buscar por nome, ação ou detalhe…" autocomplete="off">
     <div id="aud-lista"></div>
     <button class="bt sec bloco" id="aud-mais" hidden>Carregar mais</button>`,
+    geral ? 'Auditoria geral' : '',
   );
   const lista = document.getElementById('aud-lista');
   const quemSel = document.getElementById('aud-quem');
@@ -2376,13 +2410,13 @@ rota('/admin/auditoria', async () => {
   const maisBt = document.getElementById('aud-mais');
   const desenhar = () => {
     const q = semAcento(busca.value.trim());
-    const vis = itens.filter((x) => !q || semAcento(`${x.nome} ${x.sobrenome} ${ACOES_AUD[x.acao] || x.acao} ${x.detalhe}`).includes(q));
+    const vis = itens.filter((x) => !q || semAcento(`${quemFez(x)} ${ACOES_AUD[x.acao] || x.acao} ${x.detalhe}`).includes(q));
     lista.innerHTML = vis.length
       ? vis
           .map(
-            (x) => `<div class="card aud-item"><div class="linha"><b>${esc(ACOES_AUD[x.acao] || x.acao)}</b><span class="tag ${ACOES_ALERTA.has(x.acao) ? 'cancelado' : 'valido'}">${esc(x.papel === 'admin' ? 'admin' : 'portaria')}</span></div>
+            (x) => `<div class="card aud-item"><div class="linha"><b>${esc(ACOES_AUD[x.acao] || x.acao)}</b><span class="tag ${ACOES_ALERTA.has(x.acao) ? 'cancelado' : 'valido'}">${esc(PAPEL_AUD[x.papel] || x.papel)}</span></div>
             ${x.detalhe ? `<div class="aud-det">${esc(x.detalhe)}</div>` : ''}
-            <div class="peq">${esc(x.nome)} ${esc(x.sobrenome)} · ${hora(x.criado_em)}</div></div>`,
+            <div class="peq">${esc(quemFez(x))} · ${hora(x.criado_em)}</div></div>`,
           )
           .join('')
       : '<p class="mudo">Nenhum registro.</p>';
@@ -2390,7 +2424,7 @@ rota('/admin/auditoria', async () => {
   };
   const carregar = async (limpa) => {
     const alvo = filtro.startsWith('papel:') ? `&papel=${filtro.slice(6)}` : filtro ? `&usuario_id=${filtro}` : '';
-    const d = await api('GET', `/admin/auditoria?evento_id=${evA.id}${alvo}${limpa || !proximo ? '' : `&antes=${proximo}`}`);
+    const d = await api('GET', `/admin/auditoria?${geral ? 'geral=1' : `evento_id=${evA.id}`}${alvo}${limpa || !proximo ? '' : `&antes=${proximo}`}`);
     itens = limpa ? d.itens : itens.concat(d.itens);
     proximo = d.proximo;
     if (!quemMontado) {
@@ -2408,7 +2442,10 @@ rota('/admin/auditoria', async () => {
   busca.addEventListener('input', desenhar);
   maisBt.addEventListener('click', () => comEspera(maisBt, () => carregar(false)));
   await carregar(true);
-});
+}
+const quemFez = (x) => (x.papel === 'sistema' ? 'Mercado Pago (automático)' : `${x.nome} ${x.sobrenome}`);
+rota('/admin/auditoria', () => telaAuditoria(false));
+rota('/admin/auditoria-geral', () => telaAuditoria(true));
 
 rota('/admin/cortesias', async () => {
   if (!exigirAdmin()) return;

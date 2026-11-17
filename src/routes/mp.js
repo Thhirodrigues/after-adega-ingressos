@@ -23,7 +23,7 @@ r.post('/pedidos/:codigo/pagar-mp', exigir(), async (c) => {
   try {
     pref = await criarPreferencia(c.env, { origem: new URL(c.req.url).origin, pedido, metodo });
   } catch (e) {
-    if (e.mpDetalhe) await alertar(c, 'mp_erro', `Falha ao criar link do Mercado Pago (pedido ${pedido.codigo}, ${metodo || 'todos'}): ${e.mpDetalhe}`).catch(() => {});
+    if (e.mpDetalhe) await alertar(c, 'mp_erro', `Falha ao criar link do Mercado Pago (pedido ${pedido.codigo}, ${metodo || 'todos'}): ${e.mpDetalhe}`, pedido.evento_id).catch(() => {});
     throw e;
   }
   await avisarPedidoEmPagamento(c, pedido, u, metodo === 'cartao' ? 'cartão (Mercado Pago)' : 'Pix (Mercado Pago)').catch(() => {});
@@ -47,7 +47,19 @@ r.post('/mp/webhook', async (c) => {
   const pg = await buscarPagamento(c.env, dataId); // erro => 5xx => o MP tenta de novo
   const codigo = String(pg.external_reference || '').toUpperCase();
   const pedido = codigo ? await buscarPedido(db, { codigo }) : null;
-  if (!pedido) return c.json({ ok: true });
+  if (!pedido) {
+    // Pagamento com referência de pedido do Fast Pass, mas o pedido não existe: não dá para saber o evento,
+    // então vira aviso geral (uma vez por pagamento), para não sumir dinheiro sem ninguém ver.
+    if (/^[A-Z0-9]{6}$/.test(codigo) && ['approved', 'refunded', 'charged_back'].includes(pg.status)) {
+      const marca = `pagamento ${pg.id}`;
+      const ja = await db.prepare(`SELECT 1 FROM alertas WHERE tipo = 'mp_sem_pedido' AND instr(detalhe, ?1) > 0 LIMIT 1`).bind(marca).first();
+      if (!ja) {
+        await alertar(c, 'mp_sem_pedido', `ATENÇÃO: o Mercado Pago avisou ${marca} (${pg.status}, R$ ${pg.transaction_amount}) com referência ${codigo}, mas esse pedido não existe no Fast Pass. Confira no painel do Mercado Pago.`);
+        await auditar(db, null, 'mp_sem_pedido', `${codigo} ${marca} ${pg.status}`);
+      }
+    }
+    return c.json({ ok: true });
+  }
 
   if (['refunded', 'charged_back'].includes(pg.status)) {
     if (String(pedido.mp_payment_id) !== String(pg.id)) return c.json({ ok: true });
@@ -57,21 +69,21 @@ r.post('/mp/webhook', async (c) => {
         await estornarPago(db, pedido.id);
         const depois = await buscarPedido(db, { id: pedido.id });
         if (depois.status === 'cancelado') {
-          await auditar(db, null, 'pedido_estornado_mp', codigo);
-          await alertar(c, 'mp_estorno', `Pedido ${codigo} reembolsado no Mercado Pago: pedido cancelado e ingressos invalidados automaticamente.`);
+          await auditar(db, null, 'pedido_estornado_mp', codigo, pedido.evento_id);
+          await alertar(c, 'mp_estorno', `Pedido ${codigo} reembolsado no Mercado Pago: pedido cancelado e ingressos invalidados automaticamente.`, pedido.evento_id);
         } else {
-          await alertar(c, 'mp_estorno', `ATENÇÃO: pedido ${codigo} foi reembolsado no Mercado Pago, mas algum ingresso já foi usado na portaria, então NÃO foi cancelado. Veja o pedido.`);
+          await alertar(c, 'mp_estorno', `ATENÇÃO: pedido ${codigo} foi reembolsado no Mercado Pago, mas algum ingresso já foi usado na portaria, então NÃO foi cancelado. Veja o pedido.`, pedido.evento_id);
         }
       }
     } else {
-      await alertar(c, 'mp_estorno', `ATENÇÃO: pedido ${codigo} teve chargeback (contestação) no Mercado Pago. Decida se cancela o pedido em Admin → Pedidos.`);
+      await alertar(c, 'mp_estorno', `ATENÇÃO: pedido ${codigo} teve chargeback (contestação) no Mercado Pago. Decida se cancela o pedido em Admin → Pedidos.`, pedido.evento_id);
     }
     return c.json({ ok: true });
   }
   if (pg.status !== 'approved') return c.json({ ok: true });
 
   if (pg.currency_id !== 'BRL' || Math.round(Number(pg.transaction_amount) * 100) !== pedido.total_centavos) {
-    await alertar(c, 'mp_valor_diferente', `Pedido ${codigo} ERRO: valor diferente do esperado (esperado R$ ${reais(pedido.total_centavos)}), não confirmado. R$ ${pg.transaction_amount} (Mercado Pago)`);
+    await alertar(c, 'mp_valor_diferente', `Pedido ${codigo} ERRO: valor diferente do esperado (esperado R$ ${reais(pedido.total_centavos)}), não confirmado. R$ ${pg.transaction_amount} (Mercado Pago)`, pedido.evento_id);
     return c.json({ ok: true });
   }
   if (pedido.status === 'pago') return c.json({ ok: true });
@@ -85,10 +97,10 @@ r.post('/mp/webhook', async (c) => {
   await confirmarPedido(db, pedido.id, null, 'mercadopago');
   const depois = await buscarPedido(db, { id: pedido.id });
   if (depois.status === 'pago') {
-    await auditar(db, null, 'pedido_confirmado_mp', `${codigo} pagamento ${pg.id}`);
-    await alertar(c, 'pedido_pago_mp', `Pedido ${codigo} recebido R$ ${reais(pedido.total_centavos)} (Mercado Pago)`);
+    await auditar(db, null, 'pedido_confirmado_mp', `${codigo} pagamento ${pg.id}`, pedido.evento_id);
+    await alertar(c, 'pedido_pago_mp', `Pedido ${codigo} recebido R$ ${reais(pedido.total_centavos)} (Mercado Pago)`, pedido.evento_id);
   } else {
-    await alertar(c, 'mp_sem_estoque', `Pedido ${codigo} ERRO: reserva venceu e não há mais ingressos, devolva o valor no painel do Mercado Pago. R$ ${reais(pedido.total_centavos)} (Mercado Pago)`);
+    await alertar(c, 'mp_sem_estoque', `Pedido ${codigo} ERRO: reserva venceu e não há mais ingressos, devolva o valor no painel do Mercado Pago. R$ ${reais(pedido.total_centavos)} (Mercado Pago)`, pedido.evento_id);
   }
   return c.json({ ok: true });
 });

@@ -461,9 +461,10 @@ test('cadastro exige resposta secreta; recuperar senha por ela', async () => {
   assert.equal((await c.get('/api/me')).status, 401); // sessões antigas caem
   assert.equal((await new Cliente().post('/api/auth/login', { cpf: d.cpf, senha: d.senha })).status, 401); // senha antiga morreu
   assert.equal((await new Cliente().post('/api/auth/login', { cpf: d.cpf, senha: novo })).status, 200);
-  // admin é avisado
-  const av = (await admin.get('/api/admin/alertas')).json;
+  // admin é avisado nos avisos gerais (senha não pertence a um evento), não nos do evento
+  const av = (await admin.get('/api/admin/alertas?geral=1')).json;
   assert.ok(av.alertas.some((a) => a.tipo === 'senha_recuperada' && a.detalhe.includes(d.nome)));
+  assert.ok(!(await admin.get('/api/admin/alertas')).json.alertas.some((a) => a.tipo === 'senha_recuperada' && a.detalhe.includes(d.nome)));
 });
 
 test('recuperação: 5 erros bloqueiam por 1h (mesmo com a resposta certa)', async () => {
@@ -763,6 +764,16 @@ test('mercado pago: link, webhook assinado, valor conferido, idempotência', { s
     const f = (await admin.get('/api/admin/financeiro')).json;
     assert.ok(f.por_forma.length >= 0);
     assert.ok((await admin.get('/api/admin/alertas')).json.alertas.some((a) => a.tipo === 'pedido_pago_mp'));
+    // pagamento confirmado pelo Mercado Pago aparece na auditoria do evento, como "sistema"
+    assert.ok((await admin.get('/api/admin/auditoria')).json.itens.some((x) => x.acao === 'pedido_confirmado_mp' && x.papel === 'sistema'));
+    // pagamento com referência de pedido que não existe: vira aviso geral (uma vez só) e não aparece no evento
+    pagamentos[114] = { id: 114, status: 'approved', currency_id: 'BRL', transaction_amount: 50, external_reference: 'ZZZZ99' };
+    assert.equal((await hook(114, assinar(114))).status, 200);
+    assert.equal((await hook(114, assinar(114))).status, 200);
+    const orfaos = (await admin.get('/api/admin/alertas?geral=1')).json.alertas.filter((a) => a.tipo === 'mp_sem_pedido' && a.detalhe.includes('pagamento 114'));
+    assert.equal(orfaos.length, 1);
+    assert.ok(!(await admin.get('/api/admin/alertas')).json.alertas.some((a) => a.tipo === 'mp_sem_pedido'));
+    assert.ok((await admin.get('/api/admin/auditoria?geral=1')).json.itens.some((x) => x.acao === 'mp_sem_pedido'));
   } finally {
     srv.close();
   }
@@ -1068,7 +1079,7 @@ test('auditoria: admin vê ações de admin e portaria; hostess e comprador não
   assert.ok(tudo.itens.length > 0);
   const acoes = new Set(tudo.itens.map((x) => x.acao));
   assert.ok(acoes.has('entrada_qr') && acoes.has('convite_excluido') && acoes.has('entrada_recusada'));
-  assert.ok(tudo.itens.every((x) => ['admin', 'hostess'].includes(x.papel)));
+  assert.ok(tudo.itens.every((x) => ['admin', 'hostess', 'sistema'].includes(x.papel)));
   const port = (await admin.get('/api/admin/auditoria?papel=hostess')).json;
   assert.ok(port.itens.length > 0 && port.itens.every((x) => x.papel === 'hostess'));
   const adm = (await admin.get('/api/admin/auditoria?papel=admin')).json;
@@ -1209,7 +1220,8 @@ test('excluir evento: só se não começou e sem pedido pago; some de tudo; lote
   assert.equal((await admin.get(`/api/admin/auditoria?evento_id=${x.json.id}`)).status, 404);
   assert.equal((await admin.post('/api/admin/lotes', { evento_id: x.json.id, nome: 'M', valor_centavos: 1000, quantidade: 5, ativo: false })).status, 404);
   assert.equal((await admin.req('DELETE', `/api/admin/eventos/${x.json.id}`)).status, 404);
-  assert.ok((await admin.get('/api/admin/auditoria')).json.itens.some((i) => i.acao === 'evento_excluido'));
+  // evento excluído não tem mais tela: a exclusão fica na auditoria geral
+  assert.ok((await admin.get('/api/admin/auditoria?geral=1')).json.itens.some((i) => i.acao === 'evento_excluido'));
   // só admin
   const { c: comp } = await novoComprador();
   assert.equal((await comp.req('DELETE', `/api/admin/eventos/${eventoId}`)).status, 403);
@@ -1245,4 +1257,44 @@ test('excluir evento: só se não começou e sem pedido pago; some de tudo; lote
     await admin.put(`/api/admin/eventos/${eventoId}`, { ativo: true });
   }
   assert.ok((await comp.get('/api/evento')).json.evento);
+});
+
+test('avisos e auditoria por evento: evento novo começa vazio, histórico fica no evento antigo, ações gerais à parte', async () => {
+  const dia = (n) => new Date(Date.now() + n * 86400e3).toISOString().slice(0, 10);
+  const novo = await admin.post('/api/admin/eventos', { nome: 'Festa Zerada', data_evento: dia(90), hora_inicio: '22:00', data_fim: dia(91), hora_fim: '06:00' });
+  assert.equal(novo.status, 201);
+  const id = novo.json.id;
+
+  // evento novo: nenhum aviso, e a auditoria só tem a criação dele
+  const avNovo = (await admin.get(`/api/admin/alertas?evento_id=${id}`)).json;
+  assert.equal(avNovo.alertas.length, 0);
+  assert.equal(avNovo.nao_lidos, 0);
+  const audNovo = (await admin.get(`/api/admin/auditoria?evento_id=${id}`)).json.itens;
+  assert.deepEqual(audNovo.map((x) => x.acao), ['evento_criado']);
+
+  // o evento antigo continua com o histórico dele (pedidos, portaria)
+  const avAntigo = (await admin.get(`/api/admin/alertas?evento_id=${eventoId}`)).json.alertas.map((a) => a.tipo);
+  assert.ok(avAntigo.includes('novo_pedido') && avAntigo.includes('entrada_desfeita'));
+  const audAntigo = (await admin.get(`/api/admin/auditoria?evento_id=${eventoId}`)).json.itens.map((x) => x.acao);
+  assert.ok(audAntigo.includes('entrada_qr') && audAntigo.includes('pedido_confirmado'));
+
+  // ações gerais (usuários, configurações) ficam fora de todos os eventos
+  const gerais = new Set(['setup_admin', 'usuario_criado', 'config_alterada', 'pin_definido']);
+  const audGeral = (await admin.get('/api/admin/auditoria?geral=1')).json.itens.map((x) => x.acao);
+  assert.ok(audGeral.includes('usuario_criado') && audGeral.includes('config_alterada'));
+  assert.ok(!audAntigo.some((a) => gerais.has(a)));
+  assert.ok(!audGeral.includes('entrada_qr'));
+
+  // marcar como lidos só afeta o evento escolhido
+  await admin.post('/api/admin/alertas/lidos', { geral: true });
+  assert.equal((await admin.get('/api/admin/alertas?geral=1')).json.nao_lidos, 0);
+
+  // evento excluído vai para a auditoria geral (o evento some das telas)
+  assert.equal((await admin.req('DELETE', `/api/admin/eventos/${id}`)).status, 200);
+  assert.ok((await admin.get('/api/admin/auditoria?geral=1')).json.itens.some((x) => x.acao === 'evento_excluido' && x.detalhe.includes('Festa Zerada')));
+  assert.equal((await admin.get(`/api/admin/alertas?evento_id=${id}`)).status, 404);
+
+  // só admin acessa
+  assert.equal((await hostess.get('/api/admin/alertas?geral=1')).status, 403);
+  assert.equal((await hostess.get('/api/admin/auditoria?geral=1')).status, 403);
 });
