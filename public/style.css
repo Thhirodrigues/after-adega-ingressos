@@ -186,3 +186,6 @@ details.item[hidden]{display:none}
 details.item.ev-det{border:1.5px solid #fff}
 details.item.ev-det[open]{box-shadow:0 0 0 2px var(--cor2,#0ff)}
 details.item.ev-det>div.card{border-top-color:rgba(255,255,255,.5)}
+/* Topo: o "Evento: ..." parece uma caixa de seleção (borda branca e seta), para ficar claro que dá para trocar */
+#nav .nav-ev{border:1.5px solid #fff;border-radius:10px;padding:.3rem .7rem;color:var(--txt,#fff)}
+#nav .nav-ev:hover{border-color:var(--cor2);color:var(--cor2)}
