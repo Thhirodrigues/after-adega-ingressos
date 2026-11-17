@@ -182,3 +182,7 @@ details.item[hidden]{display:none}
 .passos li{padding:.55rem 0;border-top:1px solid rgba(255,255,255,.1)}
 .passos li b{display:block}
 .passos li.feito b{color:#4ade80}
+/* Menu Evento: cada evento numa caixa com borda branca, para ficar claro que é selecionável */
+details.item.ev-det{border:1.5px solid #fff}
+details.item.ev-det[open]{box-shadow:0 0 0 2px var(--cor2,#0ff)}
+details.item.ev-det>div.card{border-top-color:rgba(255,255,255,.5)}
