@@ -15,14 +15,14 @@ r.post('/ingressos/:id/transferir', exigir(), async (c) => {
   const id = v.inteiro(c.req.param('id'), 'Ingresso', 1, 1_000_000_000);
   const ing = await db
     .prepare(
-      `SELECT i.id, i.status, i.dono_id, e.data_evento, e.hora_inicio
+      `SELECT i.id, i.status, i.dono_id, i.evento_id, e.data_evento, e.hora_inicio
          FROM ingressos i JOIN eventos e ON e.id = i.evento_id WHERE i.id = ?1`,
     )
     .bind(id)
     .first();
   if (!ing || ing.dono_id !== u.id) throw new HttpError(404, 'Ingresso não encontrado.');
   if (ing.status !== 'valido') throw new HttpError(409, 'Só ingressos válidos podem ser transferidos.');
-  const cfg = await configuracoes(db);
+  const cfg = await configuracoes(db, ing.evento_id);
   const limite = limiteTransferencia(ing.data_evento, ing.hora_inicio, cfg.transferencia_limite_horas);
   const t = agora();
   if (t >= limite) {

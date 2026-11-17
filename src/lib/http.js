@@ -20,9 +20,21 @@ export async function corpo(c) {
   throw new HttpError(400, 'Corpo da requisição inválido (JSON esperado).');
 }
 
-export async function configuracoes(db) {
+// Configurações de cada evento (o resto, como a senha da recepção, é do app inteiro).
+export const CHAVES_EVENTO = [
+  'pix_chave', 'pix_nome', 'pix_cidade', 'taxa_percentual', 'reserva_minutos', 'max_ingressos_por_pedido',
+  'transferencia_limite_horas', 'contato', 'contato_whatsapp',
+];
+
+// Configurações do app; com eventoId, as do evento por cima (o que o evento não tiver, vem do app).
+export async function configuracoes(db, eventoId = null) {
   const { results } = await db.prepare('SELECT chave, valor FROM config').all();
-  return Object.fromEntries(results.map((r) => [r.chave, r.valor]));
+  const cfg = Object.fromEntries(results.map((r) => [r.chave, r.valor]));
+  if (eventoId) {
+    const { results: ev } = await db.prepare('SELECT chave, valor FROM config_evento WHERE evento_id = ?1').bind(eventoId).all();
+    for (const r of ev) cfg[r.chave] = r.valor;
+  }
+  return cfg;
 }
 
 // Cada registro pertence ao evento da ação (eventoId). Sem evento = ação geral (usuários, permissões,

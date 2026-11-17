@@ -12,21 +12,21 @@ import { formatarSP } from '../lib/prazo.js';
 
 const r = new Hono();
 r.use('/portaria/*', exigir('hostess', 'admin'));
-// Hostess só trabalha no evento para o qual foi escalada (admin trabalha em qualquer um).
-r.use('/portaria/*', async (c, next) => {
+// Evento da portaria. Pode haver mais de um evento à venda ao mesmo tempo:
+// - hostess trabalha só no evento em que está escalada (precisa estar aberto);
+// - admin usa o evento escolhido no app (cabeçalho X-Evento-Id); sem escolha, o próximo aberto.
+async function eventoPortaria(c) {
+  const db = c.env.DB;
   const u = c.get('usuario');
+  const sql = `SELECT e.id, e.nome, e.data_evento FROM eventos e WHERE ${eventoAberto('e')} AND e.excluido_em IS NULL AND (?1 = 0 OR e.id = ?1) ORDER BY e.data_evento, e.id LIMIT 1`;
   if (u.papel === 'hostess') {
-    const ev = await c.env.DB.prepare(`SELECT e.id FROM eventos e WHERE ${eventoAberto('e')} ORDER BY e.data_evento LIMIT 1`).first();
-    if (ev && ev.id !== u.hostess_evento_id) throw new HttpError(403, 'Você não está escalada para o evento de hoje. Fale com a organização.');
+    const ev = await db.prepare(sql).bind(u.hostess_evento_id || -1).first();
+    if (!ev) throw new HttpError(403, 'Você não está escalada para o evento de hoje. Fale com a organização.');
+    return ev;
   }
-  await next();
-});
-
-async function eventoAtivo(db) {
-  const ev = await db
-    .prepare(`SELECT e.id, e.nome, e.data_evento FROM eventos e WHERE ${eventoAberto('e')} ORDER BY e.data_evento LIMIT 1`)
-    .first();
-  if (!ev) throw new HttpError(409, 'Nenhum evento ativo.');
+  const pedido = Number.parseInt(c.req.header('x-evento-id') ?? '', 10) || 0;
+  const ev = await db.prepare(sql).bind(pedido).first();
+  if (!ev) throw new HttpError(409, pedido ? 'Este evento não está aberto para a portaria.' : 'Nenhum evento ativo.');
   return ev;
 }
 
@@ -45,7 +45,7 @@ async function contagem(db, eventoId) {
 // Lista para conferência offline: guarda só o hash do QR (não o QR em si).
 r.get('/portaria/lista', async (c) => {
   const db = c.env.DB;
-  const ev = await eventoAtivo(db);
+  const ev = await eventoPortaria(c);
   const { results } = await db
     .prepare(
       `SELECT i.id, i.status, i.tipo, i.motivo, i.categoria, i.qr_versao, i.usado_em, i.desfeitos, COALESCE(i.nome_avulso, u.nome || ' ' || u.sobrenome) AS nome
@@ -81,14 +81,14 @@ r.get('/portaria/lista', async (c) => {
 });
 
 r.get('/portaria/resumo', async (c) => {
-  const ev = await eventoAtivo(c.env.DB);
+  const ev = await eventoPortaria(c);
   return c.json({ evento: ev, ...(await contagem(c.env.DB, ev.id)) });
 });
 
 r.post('/portaria/validar', async (c) => {
   const b = await corpo(c);
   const db = c.env.DB;
-  const ev = await eventoAtivo(db);
+  const ev = await eventoPortaria(c);
   const u = c.get('usuario');
   const lido = await lerQr(c.env, b.qr);
   if (!lido) {
@@ -107,7 +107,7 @@ r.post('/portaria/entrada-manual', async (c) => {
   const b = await corpo(c);
   const db = c.env.DB;
   const u = c.get('usuario');
-  const ev = await eventoAtivo(db);
+  const ev = await eventoPortaria(c);
   const id = v.inteiro(b.ingresso_id, 'Ingresso', 1, 1_000_000_000);
   const ultimos = String(b.ultimos4 ?? '').replace(/\D/g, '');
   if (ultimos.length !== 4) throw new HttpError(400, 'Digite os 4 últimos números do celular do titular.');
@@ -150,7 +150,7 @@ r.post('/portaria/entrada-convite', async (c) => {
   const b = await corpo(c);
   const db = c.env.DB;
   const u = c.get('usuario');
-  const ev = await eventoAtivo(db);
+  const ev = await eventoPortaria(c);
   const id = v.inteiro(b.convite_id, 'Convite', 1, 1_000_000_000);
   const ultimos = String(b.ultimos4 ?? '').replace(/\D/g, '');
   if (ultimos.length !== 4) throw new HttpError(400, 'Digite os 4 últimos números do celular do convidado.');
@@ -203,7 +203,7 @@ r.post('/portaria/entrada-convite', async (c) => {
 r.post('/portaria/sincronizar', async (c) => {
   const b = await corpo(c);
   const db = c.env.DB;
-  const ev = await eventoAtivo(db);
+  const ev = await eventoPortaria(c);
   const usos = Array.isArray(b.usos) ? b.usos.slice(0, 500) : [];
   const resultados = [];
   for (const u of usos) {
@@ -232,7 +232,7 @@ r.post('/portaria/desfazer', async (c) => {
   const b = await corpo(c);
   const db = c.env.DB;
   const u = c.get('usuario');
-  const ev = await eventoAtivo(db);
+  const ev = await eventoPortaria(c);
   const id = v.inteiro(b.ingresso_id, 'Ingresso', 1, 1_000_000_000);
   const chaveTent = `pin:${u.id}`;
   {
@@ -280,7 +280,7 @@ r.post('/portaria/desfazer', async (c) => {
 // Lotes que podem ser vendidos presencialmente (porta ou dinheiro), do evento ativo.
 r.get('/portaria/lotes-venda', async (c) => {
   const db = c.env.DB;
-  const ev = await eventoAtivo(db);
+  const ev = await eventoPortaria(c);
   const { results } = await db
     .prepare(
       `SELECT id, nome, valor_centavos, canal, (quantidade - vendidos - reservados) AS disponiveis
@@ -297,7 +297,7 @@ r.post('/portaria/venda', async (c) => {
   const b = await corpo(c);
   const db = c.env.DB;
   const u = c.get('usuario');
-  const ev = await eventoAtivo(db);
+  const ev = await eventoPortaria(c);
   const loteId = v.inteiro(b.lote_id, 'Lote', 1, 1_000_000_000);
   const quantidade = v.inteiro(b.quantidade, 'Quantidade', 1, 20);
   const brutos = Array.isArray(b.nomes) ? b.nomes : [b.nome];

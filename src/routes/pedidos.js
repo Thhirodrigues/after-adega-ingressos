@@ -96,7 +96,7 @@ r.get('/meus-pedidos', exigir(), async (c) => {
 // Ingressos do usuário, com o QR (só para os ainda válidos).
 r.get('/meus-ingressos', exigir(), async (c) => {
   const { results } = await c.env.DB.prepare(
-    `SELECT i.id, i.tipo, i.status, i.qr_versao, i.motivo, e.nome AS evento, e.data_evento, e.hora_inicio, l.nome AS lote,
+    `SELECT i.id, i.tipo, i.status, i.qr_versao, i.motivo, i.evento_id AS evento_id_cfg, e.nome AS evento, e.data_evento, e.hora_inicio, l.nome AS lote,
             EXISTS (SELECT 1 FROM transferencias t WHERE t.ingresso_id = i.id AND t.status = 'pendente' AND t.expira_em > ?2) AS transferencia_pendente
        FROM ingressos i
        JOIN eventos e ON e.id = i.evento_id
@@ -105,9 +105,11 @@ r.get('/meus-ingressos', exigir(), async (c) => {
   )
     .bind(c.get('usuario').id, agora(), c.get('usuario').papel === 'admin' ? 1 : 0)
     .all();
-  const cfg = await configuracoes(c.env.DB);
+  const cfgs = new Map(); // configurações por evento (prazo de transferência)
   const ingressos = [];
-  for (const { qr_versao, hora_inicio, ...i } of results) {
+  for (const { qr_versao, hora_inicio, evento_id_cfg, ...i } of results) {
+    if (!cfgs.has(evento_id_cfg)) cfgs.set(evento_id_cfg, await configuracoes(c.env.DB, evento_id_cfg));
+    const cfg = cfgs.get(evento_id_cfg);
     ingressos.push({
       ...i,
       transferivel_ate: limiteTransferencia(i.data_evento, hora_inicio, cfg.transferencia_limite_horas),

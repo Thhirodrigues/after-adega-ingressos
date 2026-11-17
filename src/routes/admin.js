@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { HttpError, agora, auditar, configuracoes, corpo } from '../lib/http.js';
+import { CHAVES_EVENTO, HttpError, agora, auditar, configuracoes, corpo } from '../lib/http.js';
 import { exigir, guardarSenha } from '../lib/auth.js';
 import * as v from '../lib/validar.js';
 import {
@@ -33,14 +33,20 @@ const publicas = (cfg) => {
   for (const k of SEGREDOS_CONFIG) delete o[k];
   return o;
 };
+// Configurações do evento (?evento_id=, padrão: o em consulta/ativo) mais as do app (senha da recepção).
 r.get('/admin/config', async (c) => {
-  const fl = await c.env.DB.prepare(`SELECT 1 AS x FROM arquivos WHERE nome = 'flyer'`).first();
-  return c.json({ ...publicas(await configuracoes(c.env.DB)), flyer_personalizado: !!fl });
+  const db = c.env.DB;
+  const ev = await eventoConsulta(db, c.req.query('evento_id'));
+  const fl = await db.prepare(`SELECT 1 AS x FROM arquivos WHERE nome = ?1`).bind(`flyer:${ev.id}`).first();
+  return c.json({ ...publicas(await configuracoes(db, ev.id)), flyer_personalizado: !!fl, evento: ev });
 });
 
+// Salva configurações do evento informado (evento encerrado é só leitura).
 r.put('/admin/config', async (c) => {
   const b = await corpo(c);
   const db = c.env.DB;
+  const ev = await eventoConsulta(db, b.evento_id == null ? undefined : String(b.evento_id));
+  await exigirEditavel(db, ev.id);
   const novos = {};
   if ('pix_chave' in b) novos.pix_chave = v.texto(b.pix_chave, 'Chave Pix', 1, 77);
   if ('pix_nome' in b) novos.pix_nome = v.texto(b.pix_nome, 'Nome do favorecido', 1, 60);
@@ -60,20 +66,42 @@ r.put('/admin/config', async (c) => {
     if (d && (d.length < 12 || d.length > 13)) throw new HttpError(400, 'Celular inválido. Use DDD + número.');
     novos.contato_whatsapp = d;
   }
-  const chaves = Object.keys(novos);
+  const chaves = Object.keys(novos).filter((k) => CHAVES_EVENTO.includes(k));
   if (!chaves.length) throw new HttpError(400, 'Nada para atualizar.');
   await db.batch(
     chaves.map((k) =>
       db
         .prepare(
-          'INSERT INTO config (chave, valor) VALUES (?1, ?2) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor',
+          'INSERT INTO config_evento (evento_id, chave, valor) VALUES (?1, ?2, ?3) ON CONFLICT(evento_id, chave) DO UPDATE SET valor = excluded.valor',
         )
-        .bind(k, novos[k]),
+        .bind(ev.id, k, novos[k]),
     ),
   );
-  await auditar(db, c.get('usuario').id, 'config_alterada', chaves.join(','));
-  return c.json(publicas(await configuracoes(db)));
+  await auditar(db, c.get('usuario').id, 'config_alterada', chaves.join(','), ev.id);
+  return c.json(publicas(await configuracoes(db, ev.id)));
 });
+
+// Evento novo já nasce com as configurações (e o flyer) do evento mais recente; o admin só ajusta o que mudou.
+async function copiarConfigDoUltimo(db, novoId) {
+  const base = await db
+    .prepare('SELECT id FROM eventos WHERE id <> ?1 AND id IN (SELECT DISTINCT evento_id FROM config_evento) ORDER BY excluido_em IS NOT NULL, id DESC LIMIT 1')
+    .bind(novoId)
+    .first();
+  if (base) {
+    await db.batch([
+      db.prepare('INSERT OR IGNORE INTO config_evento (evento_id, chave, valor) SELECT ?1, chave, valor FROM config_evento WHERE evento_id = ?2').bind(novoId, base.id),
+      db
+        .prepare(`INSERT OR IGNORE INTO arquivos (nome, tipo, dados, atualizado_em) SELECT ?1, tipo, dados, atualizado_em FROM arquivos WHERE nome = ?2`)
+        .bind(`flyer:${novoId}`, `flyer:${base.id}`),
+    ]);
+  } else {
+    // Primeiro evento: parte dos valores padrão do app.
+    await db
+      .prepare(`INSERT OR IGNORE INTO config_evento (evento_id, chave, valor) SELECT ?1, chave, valor FROM config WHERE chave IN (${CHAVES_EVENTO.map((k) => `'${k}'`).join(',')})`)
+      .bind(novoId)
+      .run();
+  }
+}
 
 // ---------- Eventos e lotes ----------
 
@@ -125,8 +153,8 @@ r.post('/admin/eventos', async (c) => {
   const dataFim = b.data_fim ? v.dataISO(b.data_fim) : new Date(Date.parse(`${dataIni}T00:00:00Z`) + 86400e3).toISOString().slice(0, 10);
   const horaFim = 'hora_fim' in b ? v.horaHM(b.hora_fim, 'Horário de término') : '06:00';
   conferirTermino(dataIni, horaIni, dataFim, horaFim);
+  // Pode haver mais de um evento à venda ao mesmo tempo: ativar este não desativa os outros.
   const stmts = [];
-  if (ativo) stmts.push(db.prepare('UPDATE eventos SET ativo = 0'));
   stmts.push(
     db
       .prepare(
@@ -146,6 +174,7 @@ r.post('/admin/eventos', async (c) => {
   );
   const res = await db.batch(stmts);
   const novoId = res[res.length - 1].meta.last_row_id;
+  await copiarConfigDoUltimo(db, novoId);
   await auditar(db, c.get('usuario').id, 'evento_criado', `${v.texto(b.nome, 'Nome', 2, 80)} ${b.data_evento}${ativo ? ' (ativo)' : ''}`, novoId);
   return c.json({ ok: true, id: novoId }, 201);
 });
@@ -172,7 +201,6 @@ r.put('/admin/eventos/:id', async (c) => {
   const horaFim = 'hora_fim' in b ? v.horaHM(b.hora_fim, 'Horário de término') : atual.hora_fim;
   conferirTermino(data, hora, dataFim, horaFim);
   const stmts = [];
-  if (ativo) stmts.push(db.prepare('UPDATE eventos SET ativo = 0 WHERE id <> ?1').bind(id));
   stmts.push(
     db
       .prepare('UPDATE eventos SET nome=?2, data_evento=?3, local=?4, descricao=?5, ativo=?6, hora_inicio=?7, data_fim=?8, hora_fim=?9 WHERE id=?1')
@@ -742,6 +770,8 @@ r.put('/admin/pin', async (c) => {
 const TIPOS_IMG = { 'image/jpeg': [0xff, 0xd8, 0xff], 'image/png': [0x89, 0x50, 0x4e, 0x47], 'image/webp': [0x52, 0x49, 0x46, 0x46] };
 r.put('/admin/flyer', async (c) => {
   const b = await corpo(c);
+  const ev = await eventoConsulta(c.env.DB, b.evento_id == null ? undefined : String(b.evento_id));
+  await exigirEditavel(c.env.DB, ev.id);
   const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(b.imagem ?? ''));
   if (!m) throw new HttpError(400, 'Envie uma imagem JPG, PNG ou WebP.');
   let bin;
@@ -750,17 +780,19 @@ r.put('/admin/flyer', async (c) => {
   const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
   if (!TIPOS_IMG[m[1]].every((x, i) => bytes[i] === x)) throw new HttpError(400, 'O arquivo não parece ser uma imagem válida.');
   await c.env.DB.prepare(
-    `INSERT INTO arquivos (nome, tipo, dados, atualizado_em) VALUES ('flyer', ?1, ?2, ?3)
+    `INSERT INTO arquivos (nome, tipo, dados, atualizado_em) VALUES (?4, ?1, ?2, ?3)
      ON CONFLICT(nome) DO UPDATE SET tipo = excluded.tipo, dados = excluded.dados, atualizado_em = excluded.atualizado_em`,
   )
-    .bind(m[1], bytes, agora())
+    .bind(m[1], bytes, agora(), `flyer:${ev.id}`)
     .run();
-  await auditar(c.env.DB, c.get('usuario').id, 'flyer_trocado');
+  await auditar(c.env.DB, c.get('usuario').id, 'flyer_trocado', '', ev.id);
   return c.json({ ok: true });
 });
 r.delete('/admin/flyer', async (c) => {
-  await c.env.DB.prepare(`DELETE FROM arquivos WHERE nome = 'flyer'`).run();
-  await auditar(c.env.DB, c.get('usuario').id, 'flyer_padrao');
+  const ev = await eventoConsulta(c.env.DB, c.req.query('evento_id'));
+  await exigirEditavel(c.env.DB, ev.id);
+  await c.env.DB.prepare(`DELETE FROM arquivos WHERE nome = ?1`).bind(`flyer:${ev.id}`).run();
+  await auditar(c.env.DB, c.get('usuario').id, 'flyer_padrao', '', ev.id);
   return c.json({ ok: true });
 });
 
@@ -772,6 +804,9 @@ async function escopoRegistro(db, q) {
   return { geral: false, evento: await eventoConsulta(db, q('evento_id')) };
 }
 const filtroEscopo = (alias, n) => `((?${n} = 0 AND ${alias}.evento_id IS NULL) OR ${alias}.evento_id = ?${n})`;
+// Auditoria completa (Configurações do app → Registros gerais): todos os eventos e as ações gerais.
+// alvo -1 = tudo; 0 = só gerais; N = só o evento N.
+const filtroAlvo = (alias, n) => `(?${n} = -1 OR (?${n} = 0 AND ${alias}.evento_id IS NULL) OR ${alias}.evento_id = ?${n})`;
 
 r.get('/admin/alertas', async (c) => {
   const db = c.env.DB;
@@ -1089,39 +1124,57 @@ r.post('/admin/cortesias/:id/cancelar', async (c) => {
 // Paginada: "antes" é o id do último item já carregado.
 r.get('/admin/auditoria', async (c) => {
   const db = c.env.DB;
-  const papel = ['admin', 'hostess'].includes(c.req.query('papel')) ? c.req.query('papel') : '';
-  const antes = Math.max(0, Number.parseInt(c.req.query('antes') ?? '0', 10) || 0);
-  const quem = Math.max(0, Number.parseInt(c.req.query('usuario_id') ?? '0', 10) || 0);
-  const esc = await escopoRegistro(db, (k) => c.req.query(k));
-  const alvo = esc.geral ? 0 : esc.evento.id;
+  const q = (k) => c.req.query(k);
+  const papel = ['admin', 'hostess'].includes(q('papel')) ? q('papel') : '';
+  const antes = Math.max(0, Number.parseInt(q('antes') ?? '0', 10) || 0);
+  const quem = Math.max(0, Number.parseInt(q('usuario_id') ?? '0', 10) || 0);
+  const acao = /^[a-z_]{1,40}$/.test(q('acao') ?? '') ? q('acao') : '';
+  // Escopo: completa (?completa=1, com filtro ?evento=geral|<id>), geral (?geral=1) ou um evento (?evento_id=).
+  let alvo;
+  let evento = null;
+  if (q('completa') === '1') {
+    const f = q('evento') ?? '';
+    if (f === 'geral') alvo = 0;
+    else if (/^\d+$/.test(f)) alvo = (await eventoConsulta(db, f)).id;
+    else alvo = -1;
+  } else {
+    const esc = await escopoRegistro(db, q);
+    alvo = esc.geral ? 0 : esc.evento.id;
+    evento = esc.evento;
+  }
   const LIM = 100;
   const { results } = await db
     .prepare(
-      `SELECT a.id, a.acao, a.detalhe, a.criado_em, u.nome, u.sobrenome, CASE WHEN a.usuario_id IS NULL THEN 'sistema' ELSE a.papel END AS papel
-         FROM auditoria a LEFT JOIN usuarios u ON u.id = a.usuario_id
+      `SELECT a.id, a.acao, a.detalhe, a.criado_em, a.evento_id, ev.nome AS evento_nome, u.nome, u.sobrenome,
+              CASE WHEN a.usuario_id IS NULL THEN 'sistema' ELSE a.papel END AS papel
+         FROM auditoria a LEFT JOIN usuarios u ON u.id = a.usuario_id LEFT JOIN eventos ev ON ev.id = a.evento_id
         WHERE (a.papel IN ('admin', 'hostess') OR a.usuario_id IS NULL) AND (?1 = '' OR a.papel = ?1)
-          AND (?2 = 0 OR a.id < ?2) AND ${filtroEscopo('a', 4)} AND (?5 = 0 OR a.usuario_id = ?5)
+          AND (?2 = 0 OR a.id < ?2) AND ${filtroAlvo('a', 4)} AND (?5 = 0 OR a.usuario_id = ?5) AND (?6 = '' OR a.acao = ?6)
         ORDER BY a.id DESC LIMIT ?3`,
     )
-    .bind(papel, antes, LIM + 1, alvo, quem)
+    .bind(papel, antes, LIM + 1, alvo, quem, acao)
     .all();
   const mais = results.length > LIM;
   const itens = results.slice(0, LIM);
-  // Quem pode ser filtrado: todos os admins e pessoas da portaria cadastrados, com quantas ações fizeram neste escopo.
+  // Quem pode ser filtrado: admins e portaria (inclui quem já não é hostess, mas trabalhou no escopo).
   const { results: usuarios } = await db
     .prepare(
-      // Inclui quem já não é hostess, mas trabalhou na portaria neste evento.
       `SELECT u.id, u.nome, u.sobrenome, u.ativo,
               CASE WHEN u.papel IN ('admin', 'hostess') THEN u.papel ELSE MAX(a.papel) END AS papel,
               COUNT(a.id) AS acoes
          FROM usuarios u
-         LEFT JOIN auditoria a ON a.usuario_id = u.id AND a.papel IN ('admin', 'hostess') AND ${filtroEscopo('a', 1)}
+         LEFT JOIN auditoria a ON a.usuario_id = u.id AND a.papel IN ('admin', 'hostess') AND ${filtroAlvo('a', 1)}
         WHERE u.papel IN ('admin', 'hostess') OR a.id IS NOT NULL
         GROUP BY u.id ORDER BY 5, u.nome, u.id`,
     )
     .bind(alvo)
     .all();
-  return c.json({ evento: esc.evento, itens, mais, proximo: mais ? itens[itens.length - 1].id : null, usuarios });
+  // Ações que aparecem no escopo (para o filtro "Ação").
+  const { results: acoes } = await db
+    .prepare(`SELECT a.acao, COUNT(*) AS n FROM auditoria a WHERE (a.papel IN ('admin', 'hostess') OR a.usuario_id IS NULL) AND ${filtroAlvo('a', 1)} GROUP BY a.acao ORDER BY a.acao`)
+    .bind(alvo)
+    .all();
+  return c.json({ evento, itens, mais, proximo: mais ? itens[itens.length - 1].id : null, usuarios, acoes });
 });
 
 export default r;

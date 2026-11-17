@@ -41,17 +41,6 @@ export async function liberarExpirados(db) {
 
 export async function criarPedido(env, usuario, { loteId, quantidade, nomePagador, cupomDigitado = '' }) {
   const db = env.DB;
-  const cfg = await configuracoes(db);
-  if (!cfg.pix_chave) {
-    throw new HttpError(503, 'O pagamento ainda não foi configurado. Fale com a organização.');
-  }
-  const pct = Number(cfg.taxa_percentual);
-  const reservaMin = Number(cfg.reserva_minutos);
-  const max = Number(cfg.max_ingressos_por_pedido);
-  if (quantidade > max) {
-    throw new HttpError(400, `Máximo de ${max} ingressos por pedido.`);
-  }
-
   await liberarExpirados(db);
 
   const lote = await db
@@ -62,6 +51,18 @@ export async function criarPedido(env, usuario, { loteId, quantidade, nomePagado
     .bind(loteId)
     .first();
   if (!lote || !lote.ativo || !lote.evento_ativo || lote.canal === 'porta') throw new HttpError(404, 'Lote indisponível.');
+
+  // Regras de venda e Pix são do evento do lote.
+  const cfg = await configuracoes(db, lote.evento_id);
+  if (!cfg.pix_chave) {
+    throw new HttpError(503, 'O pagamento ainda não foi configurado. Fale com a organização.');
+  }
+  const pct = Number(cfg.taxa_percentual);
+  const reservaMin = Number(cfg.reserva_minutos);
+  const max = Number(cfg.max_ingressos_por_pedido);
+  if (quantidade > max) {
+    throw new HttpError(400, `Máximo de ${max} ingressos por pedido.`);
+  }
 
   const cupom = await buscarCupomParaCompra(db, usuario.id, lote.evento_id, cupomDigitado);
   const v = calcularValores(lote.valor_centavos, quantidade, pct, cupom);
@@ -244,6 +245,7 @@ export async function visaoPedido(db, p) {
     codigo: p.codigo,
     status,
     evento: p.evento_nome,
+    evento_id: p.evento_id,
     data_evento: p.data_evento,
     lote: p.lote_nome,
     quantidade: p.quantidade,
@@ -259,7 +261,7 @@ export async function visaoPedido(db, p) {
     pago_em: p.pago_em,
   };
   if (status === 'aguardando_pagamento') {
-    const cfg = await configuracoes(db);
+    const cfg = await configuracoes(db, p.evento_id);
     visao.pix = {
       chave: cfg.pix_chave,
       favorecido: cfg.pix_nome,

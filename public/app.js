@@ -58,7 +58,8 @@ async function api(metodo, caminho, corpo) {
   try {
     r = await fetch('/api' + caminho, {
       method: metodo,
-      headers: { 'content-type': 'application/json' },
+      // Portaria do admin: evento escolhido (pode haver mais de um à venda). Hostess usa sempre o evento dela.
+      headers: { 'content-type': 'application/json', ...(estado.evPortaria && caminho.startsWith('/portaria') ? { 'x-evento-id': String(estado.evPortaria) } : {}) },
       body: corpo === undefined ? undefined : JSON.stringify(corpo),
     });
   } catch {
@@ -234,11 +235,26 @@ async function navegar() {
 }
 
 // ---------- páginas públicas ----------
+// Tela inicial: com mais de um evento à venda, o comprador escolhe; com um só, abre direto nele.
 rota('/', async () => {
-  const d = await api('GET', '/evento');
+  const { eventos } = await api('GET', '/eventos');
+  if (eventos.length > 1) {
+    app.innerHTML = `<span class="fp-chip"><i class="dot"></i>Ingressos abertos</span>
+      <span class="fp-eyebrow">FastPass · festas</span>
+      <h1 class="hero">Escolha a <span class="neon">festa</span></h1>
+      ${eventos.map((e) => `<a class="card ev-escolha" href="#/evento/${e.id}"><b>${esc(e.nome)}</b><span class="peq">${dataBR(e.data_evento)}${e.hora_inicio ? ` · ${esc(e.hora_inicio)}` : ''}${e.local ? ` · ${esc(e.local)}` : ''}</span><span class="bt peq">Ver ingressos</span></a>`).join('')}
+      <p class="peq"><a href="#/regras">Termos e regras</a> · <a href="#/privacidade">Privacidade</a></p>`;
+    return;
+  }
+  await telaEvento(eventos[0]?.id || 0);
+});
+rota('/evento/(\\d+)', (id) => telaEvento(Number(id)));
+
+async function telaEvento(id) {
+  const d = await api('GET', id ? `/evento?id=${id}` : '/evento');
   estado.evento = d;
   if (!d.evento) {
-    app.innerHTML = '<h1>Em breve</h1><p class="mudo">Nenhuma festa com vendas abertas no momento.</p>';
+    app.innerHTML = `<h1>Em breve</h1><p class="mudo">${id ? 'Este evento não está com vendas abertas.' : 'Nenhuma festa com vendas abertas no momento.'}</p>${id ? '<a class="bt sec" href="#/">Ver festas à venda</a>' : ''}`;
     return;
   }
   const ev = d.evento;
@@ -314,7 +330,7 @@ rota('/', async () => {
       } else location.hash = `#/comprar/${b.dataset.lote}`;
     }),
   );
-});
+}
 
 rota('/comprar/(\\d+)', async (id) => {
   if (!estado.eu) {
@@ -322,7 +338,8 @@ rota('/comprar/(\\d+)', async (id) => {
     location.hash = '#/entrar';
     return;
   }
-  const d = estado.evento?.lotes ? estado.evento : await api('GET', '/evento');
+  // Dados do evento deste lote (com vários eventos à venda, pode não ser o último que foi aberto).
+  const d = estado.evento?.lotes?.some((x) => String(x.id) === id) ? estado.evento : await api('GET', `/evento?lote_id=${id}`);
   estado.evento = d;
   const l = d.lotes.find((x) => String(x.id) === id);
   if (!l || l.esgotado) {
@@ -424,11 +441,11 @@ rota('/pedido/([A-Za-z0-9]+)', async (codigo) => {
       <div class="acoes"><button class="bt perigo peq" id="cancelar">Cancelar pedido</button></div>`;
     } else if (p.status === 'pago') {
       corpo = `<div class="card atual"><b>Pagamento confirmado!</b><p class="mudo">Seus ingressos estão em "Meus ingressos".</p><a class="bt" href="#/meus">Ver meus ingressos</a></div>
-      <div class="card obrigado"><b>Ingresso garantido, te vejo dia 23 🫶🏼</b>
+      <div class="card obrigado"><b>Ingresso garantido, te vejo dia ${Number(String(p.data_evento || '').slice(8, 10)) || ''} 🫶🏼</b>
         <p class="mudo">Se quiser dar uma força, posta o flyer nos seus stories. Ajuda a festa a encher.</p>
-        <img src="/api/flyer" alt="Flyer da festa">
+        <img src="/api/flyer?evento_id=${p.evento_id}" alt="Flyer da festa">
         <div class="acoes2"><button class="bt bloco" id="stories">Postar nos stories</button>
-        <a class="bt sec bloco" href="/api/flyer" download="flyer-festa.jpg" id="baixarflyer">Baixar imagem</a></div></div>`;
+        <a class="bt sec bloco" href="/api/flyer?evento_id=${p.evento_id}" download="flyer-festa.jpg" id="baixarflyer">Baixar imagem</a></div></div>`;
     } else if (p.status === 'expirado') {
       corpo = `<div class="card"><b>Reserva expirada.</b><p class="mudo">Se você já pagou, fale com a organização informando o código ${esc(p.codigo)}. Caso contrário, faça um novo pedido.</p><a class="bt sec" href="#/">Voltar</a></div>`;
     } else {
@@ -473,7 +490,7 @@ rota('/pedido/([A-Za-z0-9]+)', async (codigo) => {
     document.getElementById('stories')?.addEventListener('click', async (e) => {
       const bt = e.currentTarget;
       try {
-        const blob = await (await fetch('/api/flyer')).blob();
+        const blob = await (await fetch(`/api/flyer?evento_id=${p.evento_id}`)).blob();
         const arq = new File([blob], 'flyer-festa.jpg', { type: blob.type || 'image/jpeg' });
         if (navigator.canShare && navigator.canShare({ files: [arq] })) {
           await navigator.share({ files: [arq] });
@@ -1001,10 +1018,11 @@ const ABAS = [
   ['pedidos', 'Pedidos'],
   ['lotes', 'Lotes e cupons'],
   ['cortesias', 'Cortesias'],
-  ['usuarios', 'Usuários'],
   ['avisos', 'Avisos'],
   ['auditoria', 'Auditoria'],
-  ['config', 'Configurações'],
+  ['evento-config', 'Config. do evento'],
+  ['usuarios', 'Usuários'],
+  ['config', 'Config. do app'],
 ];
 // Evento que as abas do admin estão mostrando (não é necessariamente o ativo): lembrado na sessão.
 // Padrão: o ativo; sem ativo, o mais recente.
@@ -1054,14 +1072,14 @@ function abrirEventos() {
             <div class="acoes">
               <button type="button" class="bt peq" data-sel="${e.id}">Abrir</button>
               <button type="button" class="bt sec peq" data-edita="${e.id}">Editar</button>
-              ${e.ativo || e.encerrado ? '' : `<button type="button" class="bt sec peq" data-ativar="${e.id}">Tornar ativo</button>`}
+              ${e.encerrado ? '' : e.ativo ? `<button type="button" class="bt sec peq" data-pausar="${e.id}">Pausar venda</button>` : `<button type="button" class="bt sec peq" data-ativar="${e.id}">Abrir venda</button>`}
               ${e.nao_comecou ? `<button type="button" class="bt perigo peq" data-exclui-ev="${e.id}">Excluir</button>` : ''}
             </div>
           </div></details>`,
       )
       .join('');
     ov.innerHTML = `<div class="card ov-corpo"><div class="linha"><h2 class="h-mais" style="margin:0">Eventos <button type="button" class="mais" id="ev-novo" aria-label="Novo evento" title="Novo evento">+</button></h2><button type="button" class="bt sec peq" id="ev-fecha">Fechar</button></div>
-      <p class="peq">Toque num evento para ver as opções. <b>Abrir</b> mostra os dados dele nas abas do admin (pedidos, avisos, auditoria…). Só um evento fica ativo por vez: o que está à venda e o que a portaria usa.</p>
+      <p class="peq">Toque num evento para ver as opções. <b>Abrir</b> mostra os dados dele nas abas do admin (pedidos, avisos, auditoria…). Pode haver mais de um evento à venda ao mesmo tempo: o comprador escolhe na tela inicial.</p>
       ${itens || '<p class="mudo">Nenhum evento ainda. Toque em + para criar.</p>'}</div>`;
     ov.querySelector('#ev-fecha').addEventListener('click', fecha);
     ov.querySelector('#ev-novo').addEventListener('click', () => form(null));
@@ -1084,11 +1102,23 @@ function abrirEventos() {
     );
     ov.querySelectorAll('[data-ativar]').forEach((b) =>
       b.addEventListener('click', () => {
-        if (!confirm('Tornar este o evento ativo? A venda e a portaria passam a usar ele.')) return;
+        if (!confirm('Abrir a venda deste evento? Ele aparece para os compradores (os outros eventos à venda continuam).')) return;
         comEspera(b, async () => {
           await api('PUT', `/admin/eventos/${b.dataset.ativar}`, { ativo: true });
           estado.evento = null;
-          aviso('Evento ativado.');
+          aviso('Venda aberta.');
+          await lista();
+          if (naAbaAdmin()) navegar();
+        });
+      }),
+    );
+    ov.querySelectorAll('[data-pausar]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (!confirm('Pausar a venda deste evento? Ele some da tela de compra e da portaria até você abrir de novo. Pedidos e ingressos continuam valendo.')) return;
+        comEspera(b, async () => {
+          await api('PUT', `/admin/eventos/${b.dataset.pausar}`, { ativo: false });
+          estado.evento = null;
+          aviso('Venda pausada.');
           await lista();
           if (naAbaAdmin()) navegar();
         });
@@ -1115,7 +1145,7 @@ function abrirEventos() {
   };
   const form = (e) => {
     ov.innerHTML = `<form class="card ov-corpo"><h2 style="margin-top:0">${e ? 'Editar evento' : 'Novo evento'}</h2>${camposEvento(e || {})}
-      ${e ? '' : `<label class="check"><input type="checkbox" name="ativo"> Já deixar este evento ativo (à venda agora)</label>
+      ${e ? '' : `<label class="check"><input type="checkbox" name="ativo"> Já abrir a venda deste evento</label>
       <p class="peq">Depois de criar, vá em <b>Lotes e cupons</b> para cadastrar valor e quantidade.</p>`}
       <div class="acoes" style="margin-top:1rem"><button class="bt">${e ? 'Salvar evento' : 'Criar evento'}</button><button type="button" class="bt sec" id="ev-volta">Voltar</button></div></form>`;
     const f = ov.querySelector('form');
@@ -1164,11 +1194,11 @@ function ligarGuia() {
       const v = b.dataset.guia;
       if (v === 'fim') { gravarGuia(''); navegar(); return; }
       gravarGuia(v);
-      location.hash = '#/admin/config';
+      location.hash = '#/admin/evento-config';
     }),
   );
 }
-const ABAS_POR_EVENTO = new Set(['financeiro', 'pedidos', 'lotes', 'cortesias', 'avisos', 'auditoria']);
+const ABAS_POR_EVENTO = new Set(['financeiro', 'pedidos', 'lotes', 'cortesias', 'avisos', 'auditoria', 'evento-config']);
 const situacaoEvento = (e) => (e.encerrado ? 'Encerrado' : e.ativo ? 'À venda' : 'Inativo');
 function layoutAdmin(ativa, html, titulo = '') {
   const porEvento = !titulo && ABAS_POR_EVENTO.has(ativa) && estado.eventos?.length;
@@ -1461,14 +1491,16 @@ rota('/admin/lotes', async () => {
   });
 });
 
+// Configurações do APP (valem para todos os eventos): notificações deste aparelho, registros gerais
+// (avisos gerais e auditoria completa) e a senha de desbloqueio da recepção.
 rota('/admin/config', async () => {
   if (!exigirAdmin()) return;
   const [c, sitPush, avGerais] = await Promise.all([api('GET', '/admin/config'), verificarPush(true), api('GET', '/admin/alertas?geral=1').catch(() => ({ nao_lidos: 0 }))]);
   const TXT_PUSH = { ok: 'ativadas neste aparelho', desativado: 'desativadas', bloqueado: 'bloqueadas pelo navegador', instalar: 'instale o app no iPhone', sem_suporte: 'sem suporte neste navegador' };
-  const resumoPix = c.pix_chave ? `${esc(c.pix_nome || '')} · ${esc(c.pix_chave)}` : '<b style="color:var(--erro)">não configurada</b>';
   layoutAdmin(
     'config',
-    `${guiaHtml(lerGuia() === 'config' ? 'config' : '')}<h2 id="secoes-config">Configurações</h2>
+    `<h2 id="secoes-config">Configurações do app</h2>
+    <p class="peq">Valem para todos os eventos. Pix, regras de venda, contato e flyer ficam em <a href="#/admin/evento-config">Config. do evento</a>.</p>
     <details class="item" id="det-push"><summary><b>Notificações</b><span class="peq">${esc(TXT_PUSH[sitPush] || 'verificando…')}</span></summary>
       <div class="card"><p class="peq" style="margin-top:0">Avisos de compra, pedido em pagamento e erros de confirmação na portaria chegam como notificação neste aparelho. O sino no menu faz o mesmo.</p>
         <div class="acoes">
@@ -1476,25 +1508,57 @@ rota('/admin/config', async () => {
           <button type="button" class="bt sec peq" id="push-teste"${sitPush === 'ok' ? '' : ' disabled'}>Enviar teste</button>
           <button type="button" class="bt perigo peq" id="push-desligar"${sitPush === 'ok' ? '' : ' disabled'}>Desativar neste aparelho</button>
         </div></div></details>
-    <details class="item"${avGerais.nao_lidos ? ' open' : ''}><summary><b>Registros gerais</b><span class="peq">${avGerais.nao_lidos ? `<b style="color:var(--erro)">${avGerais.nao_lidos} aviso(s) não lido(s)</b>` : 'fora dos eventos'}</span></summary>
-      <div class="card"><p class="peq" style="margin-top:0">Avisos e auditoria de cada festa ficam dentro do evento (abas Avisos e Auditoria). Aqui fica o que não pertence a um evento: usuários e permissões, configurações, evento excluído e pagamento do Mercado Pago sem pedido.</p>
+    <details class="item"${avGerais.nao_lidos ? ' open' : ''}><summary><b>Registros gerais</b><span class="peq">${avGerais.nao_lidos ? `<b style="color:var(--erro)">${avGerais.nao_lidos} aviso(s) não lido(s)</b>` : 'auditoria completa'}</span></summary>
+      <div class="card"><p class="peq" style="margin-top:0"><b>Auditoria completa</b>: tudo o que admins, portaria e o Mercado Pago fizeram, em todos os eventos, com filtros por evento, pessoa e ação. <b>Avisos gerais</b>: o que não pertence a um evento (senha recuperada, pagamento do Mercado Pago sem pedido).</p>
         <div class="acoes">
-          <a class="bt peq" href="#/admin/avisos-gerais">Avisos gerais${avGerais.nao_lidos ? ` <span class="badge">${avGerais.nao_lidos}</span>` : ''}</a>
-          <a class="bt sec peq" href="#/admin/auditoria-geral">Auditoria geral</a>
-        </div></div></details>
-    <details class="item"><summary><b>Flyer da tela de agradecimento</b><span class="peq">${c.flyer_personalizado ? 'enviado por você' : 'padrão'}</span></summary>
-      <div class="card"><p class="peq" style="margin-top:0">Aparece depois do pagamento, com o botão de postar nos stories. Use imagem vertical (9:16 funciona melhor). A troca vale na hora.</p>
-        <img id="flyer-prev" src="/api/flyer?v=${Date.now()}" alt="Flyer atual" style="width:100%;max-width:12rem;border-radius:10px;display:block;margin:.5rem 0">
-        <input type="file" id="flyer-arq" accept="image/*" hidden>
-        <div class="acoes">
-          <button type="button" class="bt peq" id="flyer-trocar">Escolher nova imagem</button>
-          ${c.flyer_personalizado ? '<button type="button" class="bt sec peq" id="flyer-padrao">Voltar ao padrão</button>' : ''}
+          <a class="bt peq" href="#/admin/auditoria-geral">Auditoria completa</a>
+          <a class="bt sec peq" href="#/admin/avisos-gerais">Avisos gerais${avGerais.nao_lidos ? ` <span class="badge">${avGerais.nao_lidos}</span>` : ''}</a>
         </div></div></details>
     <details class="item"><summary><b>Senha de desbloqueio da recepção</b><span class="peq">${c.pin_definido ? 'definida' : '<b style="color:var(--erro)">não definida</b>'}</span></summary>
       <form class="card" id="fpin">
         <p class="peq" style="margin-top:0">${c.pin_definido ? 'Já definida.' : '<b>Ainda não definida</b> — sem ela a recepcionista não consegue desfazer entradas.'} Ela precisa digitá-la para desfazer uma entrada; você recebe um aviso a cada uso.</p>
         <label>${c.pin_definido ? 'Senha (toque para trocar)' : 'Nova senha (4 a 12 caracteres)'}</label><input name="pin" type="password" required minlength="4" maxlength="12" autocomplete="new-password"${c.pin_definido ? ' value="••••••••" data-mascara="1"' : ''}>
-        <button class="bt peq" style="margin-top:.75rem">Salvar senha</button></form></details>
+        <button class="bt peq" style="margin-top:.75rem">Salvar senha</button></form></details>`,
+  );
+  document.getElementById('push-ativar').addEventListener('click', (e) =>
+    ativarPush(e.currentTarget).then(() => irParaLista('#secoes-config')).catch((er) => aviso(er.message, 'erro')));
+  document.getElementById('push-teste').addEventListener('click', () => testarPush());
+  document.getElementById('push-desligar').addEventListener('click', () => desativarPushManual().then(() => irParaLista('#secoes-config')));
+  const campoPin = document.getElementById('fpin').pin;
+  campoPin.addEventListener('focus', () => { if (campoPin.dataset.mascara) { campoPin.value = ''; delete campoPin.dataset.mascara; } });
+  campoPin.addEventListener('blur', () => { if (!campoPin.value && campoPin.defaultValue) { campoPin.value = campoPin.defaultValue; campoPin.dataset.mascara = '1'; } });
+  document.getElementById('fpin').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    if (f.pin.dataset.mascara) return aviso('Digite a nova senha para trocar.', 'erro');
+    comEspera(f.querySelector('button'), async () => {
+      await api('PUT', '/admin/pin', { pin: f.pin.value });
+      aviso('Senha de desbloqueio salva.');
+      await irParaLista('#secoes-config');
+    });
+  });
+});
+
+// Configurações do EVENTO em consulta: flyer, Pix, regras de venda e contato.
+// Evento novo já vem com as do evento anterior (copiadas ao criar).
+rota('/admin/evento-config', async () => {
+  if (!exigirAdmin()) return;
+  const evC = await eventoSel();
+  if (!evC) return layoutAdmin('evento-config', '<p class="mudo">Nenhum evento cadastrado.</p>');
+  const c = await api('GET', `/admin/config?evento_id=${evC.id}`);
+  const resumoPix = c.pix_chave ? `${esc(c.pix_nome || '')} · ${esc(c.pix_chave)}` : '<b style="color:var(--erro)">não configurada</b>';
+  layoutAdmin(
+    'evento-config',
+    `${guiaHtml(lerGuia() === 'config' ? 'config' : '')}<h2 id="secoes-config">Configurações do evento</h2>
+    <p class="peq">Valem só para <b>${esc(evC.nome)}</b>.</p>
+    <details class="item"><summary><b>Flyer da tela de agradecimento</b><span class="peq">${c.flyer_personalizado ? 'enviado por você' : 'padrão'}</span></summary>
+      <div class="card"><p class="peq" style="margin-top:0">Aparece depois do pagamento, com o botão de postar nos stories. Use imagem vertical (9:16 funciona melhor). A troca vale na hora.</p>
+        <img id="flyer-prev" src="/api/flyer?evento_id=${evC.id}&v=${Date.now()}" alt="Flyer atual" style="width:100%;max-width:12rem;border-radius:10px;display:block;margin:.5rem 0">
+        <input type="file" id="flyer-arq" accept="image/*" hidden>
+        <div class="acoes">
+          <button type="button" class="bt peq" id="flyer-trocar">Escolher nova imagem</button>
+          ${c.flyer_personalizado ? '<button type="button" class="bt sec peq" id="flyer-padrao">Voltar ao padrão</button>' : ''}
+        </div></div></details>
     <details class="item"><summary><b>Recebimento por Pix</b><span class="peq">${resumoPix}</span></summary>
       <form class="card" data-sec="pix">
         <label>Tipo da chave Pix</label>
@@ -1522,23 +1586,6 @@ rota('/admin/config', async () => {
         <button class="bt peq" style="margin-top:.75rem">Salvar contato</button></form></details>`,
   );
   ligarGuia();
-  document.getElementById('push-ativar').addEventListener('click', (e) =>
-    ativarPush(e.currentTarget).then(() => irParaLista('#secoes-config')).catch((er) => aviso(er.message, 'erro')));
-  document.getElementById('push-teste').addEventListener('click', () => testarPush());
-  document.getElementById('push-desligar').addEventListener('click', () => desativarPushManual().then(() => irParaLista('#secoes-config')));
-  const campoPin = document.getElementById('fpin').pin;
-  campoPin.addEventListener('focus', () => { if (campoPin.dataset.mascara) { campoPin.value = ''; delete campoPin.dataset.mascara; } });
-  campoPin.addEventListener('blur', () => { if (!campoPin.value && campoPin.defaultValue) { campoPin.value = campoPin.defaultValue; campoPin.dataset.mascara = '1'; } });
-  document.getElementById('fpin').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const f = e.target;
-    if (f.pin.dataset.mascara) return aviso('Digite a nova senha para trocar.', 'erro');
-    comEspera(f.querySelector('button'), async () => {
-      await api('PUT', '/admin/pin', { pin: f.pin.value });
-      aviso('Senha de desbloqueio salva.');
-      await irParaLista('#secoes-config');
-    });
-  });
   const arq = document.getElementById('flyer-arq');
   document.getElementById('flyer-trocar').addEventListener('click', () => arq.click());
   arq.addEventListener('change', () =>
@@ -1554,13 +1601,13 @@ rota('/admin/config', async () => {
       cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
       let q = 0.9, url = cv.toDataURL('image/jpeg', q);
       while (url.length > 1_900_000 && q > 0.4) { q -= 0.1; url = cv.toDataURL('image/jpeg', q); }
-      await api('PUT', '/admin/flyer', { imagem: url });
+      await api('PUT', '/admin/flyer', { imagem: url, evento_id: evC.id });
       aviso('Flyer atualizado.');
       await irParaLista('#secoes-config');
     }));
   document.getElementById('flyer-padrao')?.addEventListener('click', (e) =>
     comEspera(e.currentTarget, async () => {
-      await api('DELETE', '/admin/flyer');
+      await api('DELETE', `/admin/flyer?evento_id=${evC.id}`);
       aviso('Flyer padrão restaurado.');
       await irParaLista('#secoes-config');
     }));
@@ -1581,7 +1628,7 @@ rota('/admin/config', async () => {
           else if (String(v).trim() !== '') corpo[k] = ['pix_chave', 'pix_nome', 'pix_cidade', 'contato'].includes(k) ? v.trim() : Number(v);
         }
         if (corpo.pix_chave !== undefined) corpo.pix_chave = normalizarChavePix(fp.pix_tipo.value, corpo.pix_chave);
-        await api('PUT', '/admin/config', corpo);
+        await api('PUT', '/admin/config', { ...corpo, evento_id: evC.id });
         aviso('Configurações salvas.');
         await irParaLista('#secoes-config');
       });
@@ -1814,6 +1861,13 @@ rota('/portaria', async () => {
     app.innerHTML = '<p class="mudo">Acesso restrito à portaria.</p>';
     return;
   }
+  // Admin escolhe em qual evento à venda está trabalhando (padrão: o evento em consulta, se estiver à venda).
+  let abertos = [];
+  if (estado.eu.papel === 'admin') {
+    await eventoSel();
+    abertos = estado.eventos.filter((e) => e.ativo && !e.encerrado);
+    if (!abertos.some((e) => e.id === estado.evPortaria)) estado.evPortaria = (abertos.find((e) => e.id === estado.evSel?.id) || abertos[0])?.id || null;
+  }
   let aba = 'ler';
   let stream = null;
   let travado = false;
@@ -1823,6 +1877,7 @@ rota('/portaria', async () => {
 
   app.innerHTML = `
     <div class="linha"><h1 class="hero" style="margin:0">Portaria</h1><span id="conn" class="tag"></span></div>
+    ${abertos.length > 1 ? `<label for="port-ev" class="peq" style="margin:.4rem 0 .2rem">Evento</label><select id="port-ev">${abertos.map((e) => `<option value="${e.id}"${e.id === estado.evPortaria ? ' selected' : ''}>${esc(e.nome)} · ${dataBR(e.data_evento)}</option>`).join('')}</select>` : ''}
     <div id="resumo" class="fp-stats"></div>
     <div id="conflitos"></div>
     <div class="abas fp-abas3"><a href="#" data-aba="ler" class="on">Ler QR</a><a href="#" data-aba="lista">Lista</a><a href="#" data-aba="venda">Venda</a></div>
@@ -1838,6 +1893,19 @@ rota('/portaria', async () => {
     <div id="aba-venda" hidden></div>
     <div id="overlay" class="overlay" hidden></div>`;
   const $ = (id) => document.getElementById(id);
+  $('port-ev')?.addEventListener('change', (e) => {
+    // Troca de evento: a lista de conferência (e a offline) passa a ser a do evento escolhido.
+    if (P.fila.length) {
+      // Entradas feitas sem internet pertencem ao evento atual: sincroniza antes de trocar.
+      e.target.value = String(estado.evPortaria);
+      aviso('Há entradas sem internet para sincronizar. Conecte e sincronize antes de trocar de evento.', 'erro');
+      return;
+    }
+    estado.evPortaria = Number(e.target.value);
+    Object.assign(P, { lista: [], pendentes: [], evento: null, gerado_em: 0 });
+    salvarP();
+    navegar();
+  });
 
   const desenharTopo = () => {
     const c = navigator.onLine ? null : null;
@@ -2401,6 +2469,7 @@ const ACOES_AUD = {
   pedido_confirmado_mp: 'Pagamento confirmado pelo Mercado Pago',
   pedido_estornado_mp: 'Pedido reembolsado no Mercado Pago',
   mp_sem_pedido: 'Pagamento do Mercado Pago sem pedido',
+  hostess_encerrada: 'Hostess voltou a ser usuário (fim do evento)',
 };
 const ACOES_ALERTA = new Set(['entrada_desfeita', 'entrada_recusada', 'confirmacao_errada', 'convite_excluido', 'convite_cancelado', 'cortesia_cancelada', 'pedido_estornado', 'pedido_cancelado_admin', 'pedido_estornado_mp', 'mp_sem_pedido', 'evento_excluido']);
 
@@ -2414,34 +2483,43 @@ async function telaAuditoria(geral) {
     if (!evA) return layoutAdmin('auditoria', '<p class="mudo">Nenhum evento cadastrado.</p>');
   }
   let filtro = '';
+  let filtroEv = '';
+  let filtroAcao = '';
   let itens = [];
   let proximo = null;
+  if (geral) await eventoSel();
   layoutAdmin(
     geral ? 'config' : 'auditoria',
     `<p class="mudo">${geral
-      ? 'Ações que não pertencem a um evento: usuários e permissões, configurações, evento excluído e pagamentos sem pedido. Só leitura. <a href="#/admin/config">← Configurações</a>'
+      ? 'Tudo o que admins, portaria e o sistema fizeram, em todos os eventos e fora deles. Só leitura. <a href="#/admin/config">← Config. do app</a>'
       : 'O que cada administrador, cada pessoa da portaria e o Mercado Pago fizeram neste evento. Só leitura.'}</p>
-    <label for="aud-quem" class="peq" style="margin:0 0 .25rem">Quem</label>
+    ${geral ? `<label for="aud-ev" class="peq" style="margin:0 0 .25rem">Evento</label>
+    <select id="aud-ev"><option value="">Todos os eventos e gerais</option><option value="geral">Só gerais (fora de eventos)</option>${(estado.eventos || []).map((e) => `<option value="${e.id}">${esc(e.nome)} · ${dataBR(e.data_evento)}</option>`).join('')}</select>` : ''}
+    <label for="aud-quem" class="peq" style="margin:.5rem 0 .25rem">Quem</label>
     <select id="aud-quem"><option value="">Todos</option></select>
+    <label for="aud-acao" class="peq" style="margin:.5rem 0 .25rem">Ação</label>
+    <select id="aud-acao"><option value="">Todas</option></select>
     <input id="aud-busca" placeholder="Buscar por nome, ação ou detalhe…" autocomplete="off">
     <div id="aud-lista"></div>
     <button class="bt sec bloco" id="aud-mais" hidden>Carregar mais</button>`,
-    geral ? 'Auditoria geral' : '',
+    geral ? 'Auditoria completa' : '',
   );
   const lista = document.getElementById('aud-lista');
+  const evSelF = document.getElementById('aud-ev');
+  const acaoSel = document.getElementById('aud-acao');
   const quemSel = document.getElementById('aud-quem');
   let quemMontado = false;
   const busca = document.getElementById('aud-busca');
   const maisBt = document.getElementById('aud-mais');
   const desenhar = () => {
     const q = semAcento(busca.value.trim());
-    const vis = itens.filter((x) => !q || semAcento(`${quemFez(x)} ${ACOES_AUD[x.acao] || x.acao} ${x.detalhe}`).includes(q));
+    const vis = itens.filter((x) => !q || semAcento(`${quemFez(x)} ${ACOES_AUD[x.acao] || x.acao} ${x.detalhe} ${x.evento_nome || ''}`).includes(q));
     lista.innerHTML = vis.length
       ? vis
           .map(
             (x) => `<div class="card aud-item"><div class="linha"><b>${esc(ACOES_AUD[x.acao] || x.acao)}</b><span class="tag ${ACOES_ALERTA.has(x.acao) ? 'cancelado' : 'valido'}">${esc(PAPEL_AUD[x.papel] || x.papel)}</span></div>
             ${x.detalhe ? `<div class="aud-det">${esc(x.detalhe)}</div>` : ''}
-            <div class="peq">${esc(quemFez(x))} · ${hora(x.criado_em)}</div></div>`,
+            <div class="peq">${esc(quemFez(x))} · ${hora(x.criado_em)}${geral ? ` · ${x.evento_nome ? esc(x.evento_nome) : 'geral'}` : ''}</div></div>`,
           )
           .join('')
       : '<p class="mudo">Nenhum registro.</p>';
@@ -2449,7 +2527,8 @@ async function telaAuditoria(geral) {
   };
   const carregar = async (limpa) => {
     const alvo = filtro.startsWith('papel:') ? `&papel=${filtro.slice(6)}` : filtro ? `&usuario_id=${filtro}` : '';
-    const d = await api('GET', `/admin/auditoria?${geral ? 'geral=1' : `evento_id=${evA.id}`}${alvo}${limpa || !proximo ? '' : `&antes=${proximo}`}`);
+    const escopo = geral ? `completa=1${filtroEv ? `&evento=${filtroEv}` : ''}` : `evento_id=${evA.id}`;
+    const d = await api('GET', `/admin/auditoria?${escopo}${alvo}${filtroAcao ? `&acao=${filtroAcao}` : ''}${limpa || !proximo ? '' : `&antes=${proximo}`}`);
     itens = limpa ? d.itens : itens.concat(d.itens);
     proximo = d.proximo;
     if (!quemMontado) {
@@ -2461,14 +2540,20 @@ async function telaAuditoria(geral) {
         ${adms.length ? `<optgroup label="Admins">${adms.map(op).join('')}</optgroup>` : ''}${port.length ? `<optgroup label="Portaria">${port.map(op).join('')}</optgroup>` : ''}`;
       quemSel.value = filtro;
     }
+    if (limpa) {
+      acaoSel.innerHTML = `<option value="">Todas</option>${(d.acoes || []).map((a) => `<option value="${esc(a.acao)}">${esc(ACOES_AUD[a.acao] || a.acao)} (${a.n})</option>`).join('')}`;
+      acaoSel.value = filtroAcao;
+    }
     desenhar();
   };
   quemSel.addEventListener('change', () => { filtro = quemSel.value; carregar(true); });
+  acaoSel.addEventListener('change', () => { filtroAcao = acaoSel.value; carregar(true); });
+  evSelF?.addEventListener('change', () => { filtroEv = evSelF.value; quemMontado = false; carregar(true); });
   busca.addEventListener('input', desenhar);
   maisBt.addEventListener('click', () => comEspera(maisBt, () => carregar(false)));
   await carregar(true);
 }
-const quemFez = (x) => (x.papel === 'sistema' ? 'Mercado Pago (automático)' : `${x.nome} ${x.sobrenome}`);
+const quemFez = (x) => (x.papel === 'sistema' ? (/(^mp_|_mp$)/.test(x.acao) ? 'Mercado Pago (automático)' : 'Sistema (automático)') : `${x.nome} ${x.sobrenome}`);
 rota('/admin/auditoria', () => telaAuditoria(false));
 rota('/admin/auditoria-geral', () => telaAuditoria(true));
 

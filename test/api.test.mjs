@@ -95,12 +95,13 @@ test('escrita sem JSON é recusada', async () => {
 });
 
 test('admin configura Pix, evento e lote', async () => {
-  let r = await admin.put('/api/admin/config', { pix_chave: '+5511999990000', pix_nome: 'Os Brothers', pix_cidade: 'SAO PAULO', reserva_minutos: 60 });
-  assert.equal(r.status, 200, JSON.stringify(r.json));
   eventoId = (await admin.get('/api/admin/eventos')).json.eventos[0].id;
   // a data de partida do evento de teste não pode já ter passado (os testes de transferência dependem disso)
   const daqui30 = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
   assert.equal((await admin.put(`/api/admin/eventos/${eventoId}`, { data_evento: daqui30 })).status, 200);
+  // configurações são do evento (evento encerrado não aceita alteração)
+  let r = await admin.put('/api/admin/config', { evento_id: eventoId, pix_chave: '+5511999990000', pix_nome: 'Os Brothers', pix_cidade: 'SAO PAULO', reserva_minutos: 60 });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
   r = await admin.post('/api/admin/lotes', { evento_id: eventoId, nome: 'Teste 5', valor_centavos: 3500, quantidade: 5, ativo: true });
   assert.equal(r.status, 201, JSON.stringify(r.json));
   loteId = r.json.id;
@@ -878,12 +879,14 @@ test('flyer: padrão por redirect, admin troca, valida tipo e volta ao padrão',
   assert.equal((await admin.put('/api/admin/flyer', { imagem: 'texto' })).status, 400);
   assert.equal((await admin.put('/api/admin/flyer', { imagem: png })).status, 200);
   assert.equal((await admin.get('/api/admin/config')).json.flyer_personalizado, true);
-  const r = await fetch(BASE + '/api/flyer');
+  // o flyer é do evento: o do evento ativo mudou, o de outro evento continua o padrão
+  const r = await fetch(BASE + `/api/flyer?evento_id=${eventoId}`);
   assert.equal(r.status, 200);
   assert.equal(r.headers.get('content-type'), 'image/png');
   assert.equal((await r.arrayBuffer()).byteLength, 70);
+  assert.equal((await fetch(BASE + '/api/flyer?evento_id=999999', { redirect: 'manual' })).status, 302);
   assert.equal((await admin.req('DELETE', '/api/admin/flyer', {})).status, 200);
-  assert.equal((await fetch(BASE + '/api/flyer', { redirect: 'manual' })).status, 302);
+  assert.equal((await fetch(BASE + `/api/flyer?evento_id=${eventoId}`, { redirect: 'manual' })).status, 302);
 });
 
 test('contato: WhatsApp opcional, normalizado, validado e público', async () => {
@@ -1264,8 +1267,9 @@ test('excluir evento: só se não começou e sem pedido pago; some de tudo; lote
     assert.match(r.json.erro, /pedido\(s\) pago\(s\)/);
     assert.equal((await admin.post(`/api/admin/pedidos/${pid}/cancelar`)).status, 200); // estorno
     assert.equal((await admin.req('DELETE', `/api/admin/eventos/${y.json.id}`)).status, 200);
-    // excluído: o ativo some e o comprador não vê mais nada dele
-    assert.equal((await comprador.get('/api/evento')).json.evento, null);
+    // excluído: some da lista de eventos à venda e o comprador não vê mais nada dele
+    assert.equal((await comprador.get(`/api/evento?id=${y.json.id}`)).json.evento, null);
+    assert.ok(!(await comprador.get('/api/eventos')).json.eventos.some((e) => e.id === y.json.id));
     assert.equal((await comprador.get('/api/meus-ingressos')).json.ingressos.length, 0);
   } finally {
     await admin.put(`/api/admin/eventos/${eventoId}`, { ativo: true });
@@ -1293,9 +1297,11 @@ test('avisos e auditoria por evento: evento novo começa vazio, histórico fica 
   assert.ok(audAntigo.includes('entrada_qr') && audAntigo.includes('pedido_confirmado'));
 
   // ações gerais (admins, configurações) ficam fora de todos os eventos; escala de hostess fica no evento dela
-  const gerais = new Set(['setup_admin', 'config_alterada', 'pin_definido']);
+  // configurações de Pix/regras são do evento; senha da recepção e admins são gerais
+  const gerais = new Set(['setup_admin', 'pin_definido']);
   const audGeral = (await admin.get('/api/admin/auditoria?geral=1')).json.itens.map((x) => x.acao);
-  assert.ok(audGeral.includes('setup_admin') && audGeral.includes('config_alterada'));
+  assert.ok(audGeral.includes('setup_admin') && audGeral.includes('pin_definido'));
+  assert.ok(audAntigo.includes('config_alterada'));
   assert.ok(audAntigo.includes('usuario_criado'));
   assert.ok(!audAntigo.some((a) => gerais.has(a)));
   assert.ok(!audGeral.includes('entrada_qr'));
@@ -1339,4 +1345,57 @@ test('avisos não lidos vêm separados por evento (aba Avisos do evento novo com
   assert.equal(typeof me.nao_lidos_eventos, 'object');
   const soma = Object.values(me.nao_lidos_eventos).reduce((a, b) => a + b, 0);
   assert.equal(soma, me.nao_lidos);
+});
+
+test('configurações por evento: evento novo copia do último; cada um muda sem afetar o outro', async () => {
+  const dia = (n) => new Date(Date.now() + n * 86400e3).toISOString().slice(0, 10);
+  const base = (await admin.get(`/api/admin/config?evento_id=${eventoId}`)).json;
+  const novo = await admin.post('/api/admin/eventos', { nome: 'Festa Config Própria', data_evento: dia(40), hora_inicio: '22:00', data_fim: dia(41), hora_fim: '06:00', ativo: true });
+  assert.equal(novo.status, 201);
+  const id = novo.json.id;
+  try {
+    // nasce com o Pix e as regras do evento anterior
+    const cfgNovo = (await admin.get(`/api/admin/config?evento_id=${id}`)).json;
+    assert.equal(cfgNovo.pix_chave, base.pix_chave);
+    assert.equal(cfgNovo.taxa_percentual, base.taxa_percentual);
+    // muda a taxa só do novo
+    assert.equal((await admin.put('/api/admin/config', { evento_id: id, taxa_percentual: 20 })).status, 200);
+    assert.equal((await admin.get(`/api/admin/config?evento_id=${id}`)).json.taxa_percentual, '20');
+    assert.equal((await admin.get(`/api/admin/config?evento_id=${eventoId}`)).json.taxa_percentual, base.taxa_percentual);
+    // a alteração fica na auditoria do evento novo
+    assert.ok((await admin.get(`/api/admin/auditoria?evento_id=${id}`)).json.itens.some((x) => x.acao === 'config_alterada'));
+    // a compra no evento novo usa a taxa dele (lote de R$ 10,00 → taxa R$ 2,00)
+    const l = await admin.post('/api/admin/lotes', { evento_id: id, nome: 'Lote Taxa 20', valor_centavos: 1000, quantidade: 5, ativo: true });
+    const pub = (await new Cliente().get(`/api/evento?id=${id}`)).json;
+    assert.equal(pub.taxa_percentual, 20);
+    assert.equal(pub.lotes.find((x) => x.id === l.json.id).taxa_centavos, 200);
+    // vários eventos à venda ao mesmo tempo: abrir o novo não fechou o antigo
+    const abertos = (await new Cliente().get('/api/eventos')).json.eventos.map((e) => e.id);
+    assert.ok(abertos.includes(id) && abertos.includes(eventoId));
+    // a página de compra encontra o evento pelo lote
+    assert.equal((await new Cliente().get(`/api/evento?lote_id=${l.json.id}`)).json.evento.id, id);
+    // admin escolhe o evento da portaria; hostess fica no evento dela
+    const pl = await fetch(BASE + '/api/portaria/lista', { headers: { cookie: admin.cookie, 'x-evento-id': String(id) } }).then((r) => r.json());
+    assert.equal(pl.evento.id, id);
+    assert.equal((await hostess.get('/api/portaria/lista')).json.evento.id, eventoId);
+    // pausar a venda: some da lista do comprador
+    assert.equal((await admin.put(`/api/admin/eventos/${id}`, { ativo: false })).status, 200);
+    assert.ok(!(await new Cliente().get('/api/eventos')).json.eventos.some((e) => e.id === id));
+  } finally {
+    await admin.req('DELETE', `/api/admin/eventos/${id}`);
+  }
+});
+
+test('auditoria completa: todos os eventos e gerais, com filtros de evento e ação', async () => {
+  const tudo = (await admin.get('/api/admin/auditoria?completa=1')).json;
+  assert.ok(tudo.itens.some((x) => x.evento_id === eventoId) && tudo.itens.some((x) => x.evento_id === null));
+  assert.ok(tudo.itens.some((x) => x.evento_nome));
+  const so = (await admin.get('/api/admin/auditoria?completa=1&evento=geral')).json;
+  assert.ok(so.itens.length && so.itens.every((x) => x.evento_id === null));
+  const ev = (await admin.get(`/api/admin/auditoria?completa=1&evento=${eventoId}`)).json;
+  assert.ok(ev.itens.length && ev.itens.every((x) => x.evento_id === eventoId));
+  const ac = (await admin.get('/api/admin/auditoria?completa=1&acao=entrada_qr')).json;
+  assert.ok(ac.itens.length && ac.itens.every((x) => x.acao === 'entrada_qr'));
+  assert.ok(tudo.acoes.some((a) => a.acao === 'entrada_qr'));
+  assert.equal((await hostess.get('/api/admin/auditoria?completa=1')).status, 403);
 });
