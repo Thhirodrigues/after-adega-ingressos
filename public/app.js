@@ -162,8 +162,10 @@ async function carregarEu() {
 }
 
 // Mantém a bolinha vermelha de avisos não lidos (aba Avisos) sempre em dia.
+// Aba Avisos: só os não lidos do evento em consulta (evento novo começa zerado). O "Admin" do menu soma tudo.
+const naoLidosEvento = () => (estado.eu?.papel === 'admin' && estado.evSel ? estado.eu.nao_lidos_eventos?.[estado.evSel.id] || 0 : 0);
 function atualizarBadgeAvisos() {
-  const n = estado.eu?.papel === 'admin' ? estado.eu.nao_lidos || 0 : 0;
+  const n = naoLidosEvento();
   document.querySelectorAll('[data-badge-avisos]').forEach((el) => {
     el.textContent = n || '';
     el.hidden = !n;
@@ -1042,19 +1044,25 @@ function abrirEventos() {
   };
   const lista = async () => {
     await eventoSel();
+    // Mesmo padrão das outras listas do app: cada evento é um item; as ações só aparecem depois de tocar nele.
+    const situ = (e) => (e.encerrado ? '<span class="tag cancelado">Encerrado</span>' : e.ativo ? '<span class="tag valido">À venda</span>' : '<span class="tag">Inativo</span>');
     const itens = estado.eventos
       .map(
-        (e) => `<div class="ev-item${e.id === estado.evSel?.id ? ' on' : ''}">
-          <button type="button" class="ev-linha" data-sel="${e.id}"><b>${esc(e.nome)}</b>
-            <span class="peq">${e.encerrado ? '<span class="tag cancelado">Encerrado</span> ' : e.ativo ? '<span class="tag valido">À venda</span> ' : ''}${dataBR(e.data_evento)} ${esc(e.hora_inicio || '22:00')} → ${e.data_fim && e.data_fim !== e.data_evento ? `${dataBR(e.data_fim)} ` : ''}${esc(e.hora_fim || '06:00')}${e.id === estado.evSel?.id ? ' · em consulta' : ''}</span></button>
-          <div class="acoes"><button type="button" class="bt sec peq" data-edita="${e.id}">Editar</button>${e.ativo || e.encerrado ? '' : `<button type="button" class="bt sec peq" data-ativar="${e.id}">Tornar ativo</button>`}${e.nao_comecou ? `<button type="button" class="bt perigo peq" data-exclui-ev="${e.id}">Excluir</button>` : ''}</div>
-          ${e.encerrado ? '<p class="peq" style="margin:.4rem 0 0">Encerrado. Para reabrir, edite e ajuste o término.</p>' : ''}</div>`,
+        (e) => `<details class="item ev-det" name="eventos"><summary><b>${esc(e.nome)}</b><span class="peq">${situ(e)} ${dataBR(e.data_evento)}${e.id === estado.evSel?.id ? '<br>em consulta' : ''}</span></summary>
+          <div class="card">
+            <p class="peq" style="margin:0 0 .6rem">${dataBR(e.data_evento)} ${esc(e.hora_inicio || '22:00')} → ${e.data_fim && e.data_fim !== e.data_evento ? `${dataBR(e.data_fim)} ` : ''}${esc(e.hora_fim || '06:00')}${e.local ? ` · ${esc(e.local)}` : ''}${e.encerrado ? '<br>Encerrado: só consulta. Para reabrir, edite e ajuste o término.' : ''}</p>
+            <div class="acoes">
+              <button type="button" class="bt peq" data-sel="${e.id}">Abrir</button>
+              <button type="button" class="bt sec peq" data-edita="${e.id}">Editar</button>
+              ${e.ativo || e.encerrado ? '' : `<button type="button" class="bt sec peq" data-ativar="${e.id}">Tornar ativo</button>`}
+              ${e.nao_comecou ? `<button type="button" class="bt perigo peq" data-exclui-ev="${e.id}">Excluir</button>` : ''}
+            </div>
+          </div></details>`,
       )
       .join('');
-    ov.innerHTML = `<div class="card ov-corpo"><div class="linha"><h2 style="margin:0">Eventos</h2><button type="button" class="bt sec peq" id="ev-fecha">Fechar</button></div>
-      <p class="peq">Toque num evento para ver os dados dele nas abas do admin. Só <b>um evento fica ativo</b> por vez: é o que está à venda e o que a portaria usa. Os ingressos de festas anteriores continuam salvos.</p>
-      ${itens || '<p class="mudo">Nenhum evento ainda.</p>'}
-      <button type="button" class="bt bloco" id="ev-novo">+ Novo evento</button></div>`;
+    ov.innerHTML = `<div class="card ov-corpo"><div class="linha"><h2 class="h-mais" style="margin:0">Eventos <button type="button" class="mais" id="ev-novo" aria-label="Novo evento" title="Novo evento">+</button></h2><button type="button" class="bt sec peq" id="ev-fecha">Fechar</button></div>
+      <p class="peq">Toque num evento para ver as opções. <b>Abrir</b> mostra os dados dele nas abas do admin (pedidos, avisos, auditoria…). Só um evento fica ativo por vez: o que está à venda e o que a portaria usa.</p>
+      ${itens || '<p class="mudo">Nenhum evento ainda. Toque em + para criar.</p>'}</div>`;
     ov.querySelector('#ev-fecha').addEventListener('click', fecha);
     ov.querySelector('#ev-novo').addEventListener('click', () => form(null));
     ov.querySelectorAll('[data-sel]').forEach((b) => b.addEventListener('click', () => escolher(b.dataset.sel)));
@@ -1170,7 +1178,7 @@ function layoutAdmin(ativa, html, titulo = '') {
     <h1 class="hero" style="margin-top:.3rem">${titulo || ABAS.find(([k]) => k === ativa)?.[1] || 'Painel'}</h1>
     ${porEvento ? `<p class="peq" style="margin:0 0 .5rem">Evento: <b>${esc(estado.evSel?.nome || '')}</b> · ${situacaoEvento(estado.evSel || {})}</p>
     ${leitura ? '<div class="card aviso-leitura"><b>Evento encerrado: somente leitura.</b> Você pode consultar, exportar CSV e estornar pedidos. Para alterar algo, reabra o evento ajustando o término no menu Evento (topo).</div>' : ''}` : ''}
-    <div class="abas">${ABAS.map(([k, n]) => `<a href="#/admin/${k}" class="${k === ativa ? 'on' : ''}">${n}${k === 'avisos' ? `<span class="badge" data-badge-avisos${estado.eu?.nao_lidos ? '' : ' hidden'}>${estado.eu?.nao_lidos || ''}</span>` : ''}</a>`).join('')}</div>
+    <div class="abas">${ABAS.map(([k, n]) => `<a href="#/admin/${k}" class="${k === ativa ? 'on' : ''}">${n}${k === 'avisos' ? `<span class="badge" data-badge-avisos${naoLidosEvento() ? '' : ' hidden'}>${naoLidosEvento() || ''}</span>` : ''}</a>`).join('')}</div>
     <div id="admin-corpo"${leitura ? ' class="leitura"' : ''}>${html}</div>`;
   if (leitura) {
     // Evento encerrado: formulários só para ler (o servidor também recusa qualquer alteração).
@@ -1583,7 +1591,10 @@ rota('/admin/config', async () => {
 
 rota('/admin/usuarios', async () => {
   if (!exigirAdmin()) return;
-  const [u, rs] = await Promise.all([api('GET', '/admin/usuarios'), api('GET', '/admin/resets')]);
+  const [u, rs] = await Promise.all([api('GET', '/admin/usuarios'), api('GET', '/admin/resets'), eventoSel()]);
+  // Hostess é escalada no evento em consulta (se ainda não terminou); senão o servidor usa o próximo evento.
+  const evEscala = estado.evSel && !estado.evSel.encerrado ? estado.evSel : null;
+  const rotuloPapel = (x) => (x.papel === 'hostess' ? `hostess · ${x.hostess_evento_nome ? esc(x.hostess_evento_nome) : 'sem evento'}` : esc(x.papel));
   const resets = rs.resets.length
     ? `<h2>Pedidos de nova senha</h2>${rs.resets
         .map(
@@ -1600,10 +1611,11 @@ rota('/admin/usuarios', async () => {
     <div id="lista-usuarios-itens">
     ${u.usuarios
       .map(
-        (x) => `<details class="item" data-busca="${esc(semAcento(`${x.nome} ${x.sobrenome} ${x.email} ${x.telefone} ${soDig(x.telefone)} ${x.cpf} ${fmtCpf(x.cpf)} ${x.papel}`))}"><summary><b>${esc(x.nome)} ${esc(x.sobrenome)}</b><span class="peq">${esc(x.papel)}${x.ativo ? '' : ' · <span class="tag cancelado">inativo</span>'}</span></summary>
+        (x) => `<details class="item" data-busca="${esc(semAcento(`${x.nome} ${x.sobrenome} ${x.email} ${x.telefone} ${soDig(x.telefone)} ${x.cpf} ${fmtCpf(x.cpf)} ${x.papel}`))}"><summary><b>${esc(x.nome)} ${esc(x.sobrenome)}</b><span class="peq">${rotuloPapel(x)}${x.ativo ? '' : ' · <span class="tag cancelado">inativo</span>'}</span></summary>
         <div class="card">
           <p class="peq" style="margin:0 0 .6rem">${esc(x.telefone)}<br>${esc(x.email)}</p>
-          ${x.id === estado.eu.id ? '' : `<label>Perfil</label><select data-papel="${x.id}"><option value="comprador"${x.papel === 'comprador' ? ' selected' : ''}>comprador</option><option value="hostess"${x.papel === 'hostess' ? ' selected' : ''}>hostess</option><option value="admin"${x.papel === 'admin' ? ' selected' : ''}>admin</option></select>`}
+          ${x.id === estado.eu.id ? '' : `<label>Perfil</label><select data-papel="${x.id}"><option value="comprador"${x.papel === 'comprador' ? ' selected' : ''}>comprador</option><option value="hostess"${x.papel === 'hostess' ? ' selected' : ''}>hostess</option><option value="admin"${x.papel === 'admin' ? ' selected' : ''}>admin</option></select>
+          ${x.papel === 'hostess' ? `<p class="peq" style="margin:.4rem 0 0">Escalada em <b>${esc(x.hostess_evento_nome || '—')}</b>. Volta a ser usuário quando esse evento terminar.</p>${evEscala && evEscala.id !== x.hostess_evento_id ? `<button type="button" class="bt sec peq" style="margin-top:.4rem" data-escalar="${x.id}">Escalar em ${esc(evEscala.nome)}</button>` : ''}` : ''}`}
           <div class="acoes" style="margin-top:.75rem"><button class="bt sec peq" data-senha="${x.id}" data-cpf="${esc(x.cpf)}">Nova senha</button>
           ${x.id !== estado.eu.id ? `<button class="bt sec peq" data-ativo="${x.id}" data-v="${x.ativo ? 0 : 1}">${x.ativo ? 'Desativar' : 'Reativar'}</button>` : ''}</div>
         </div></details>`,
@@ -1612,6 +1624,7 @@ rota('/admin/usuarios', async () => {
     <p class="mudo" id="sem-usuarios" hidden>Nenhum usuário encontrado.</p>
     </div>
     <form class="card" id="f" hidden><b>Cadastrar recepcionista (hostess) ou admin</b>
+      <p class="peq">Hostess fica escalada em <b>${evEscala ? esc(evEscala.nome) : 'o próximo evento'}</b> e volta a ser usuário comum automaticamente quando ele terminar.</p>
       ${campoUsuario('<label>Perfil</label><select name="papel"><option value="hostess">Hostess (leitura de QR e lista)</option><option value="admin">Administrador</option></select>' + campoSenha('senha', 'Senha provisória (ela troca no 1º acesso)'))}
       <div class="linha"><button class="bt peq">Cadastrar</button><button type="button" class="bt sec peq" data-fecha="f">Cancelar</button></div></form>`,
   );
@@ -1632,14 +1645,27 @@ rota('/admin/usuarios', async () => {
   buscaUsu.addEventListener('input', filtrarUsuarios);
   app.querySelectorAll('select[data-papel]').forEach((sel) =>
     sel.addEventListener('change', async () => {
-      if (!confirm(`Mudar o perfil desta pessoa para "${sel.value}"?`)) return navegar();
+      const msg = sel.value === 'hostess'
+        ? `Escalar esta pessoa como hostess${evEscala ? ` em "${evEscala.nome}"` : ' no próximo evento'}? Ela volta a ser usuário quando o evento terminar.`
+        : `Mudar o perfil desta pessoa para "${sel.value}"?`;
+      if (!confirm(msg)) return navegar();
       try {
-        await api('PUT', `/admin/usuarios/${sel.dataset.papel}`, { papel: sel.value });
+        await api('PUT', `/admin/usuarios/${sel.dataset.papel}`, { papel: sel.value, ...(sel.value === 'hostess' && evEscala ? { evento_id: evEscala.id } : {}) });
         aviso('Perfil atualizado.');
       } catch (e) {
         aviso(e.message, 'erro');
       }
       navegar();
+    }),
+  );
+  app.querySelectorAll('[data-escalar]').forEach((b) =>
+    b.addEventListener('click', () => {
+      if (!confirm(`Escalar esta hostess em "${evEscala.nome}"? Ela deixa o evento anterior.`)) return;
+      comEspera(b, async () => {
+        await api('PUT', `/admin/usuarios/${b.dataset.escalar}`, { papel: 'hostess', evento_id: evEscala.id });
+        aviso('Hostess escalada.');
+        navegar();
+      });
     }),
   );
   const f = document.getElementById('f');
@@ -1648,7 +1674,7 @@ rota('/admin/usuarios', async () => {
     e.preventDefault();
     comEspera(f.querySelector('button'), async () => {
       const d = await dadosCadastro(f);
-      await api('POST', '/admin/usuarios', { ...d, papel: f.papel.value });
+      await api('POST', '/admin/usuarios', { ...d, papel: f.papel.value, ...(f.papel.value === 'hostess' && evEscala ? { evento_id: evEscala.id } : {}) });
       aviso('Usuário cadastrado.');
       await irParaLista('#lista-usuarios');
     });
@@ -2287,7 +2313,6 @@ async function telaAvisos(geral) {
   verificarPush(true);
   const fora = [];
   if (d.nao_lidos_geral) fora.push(`<a href="#/admin/avisos-gerais">${d.nao_lidos_geral} nos avisos gerais</a>`);
-  if (d.nao_lidos_outros_eventos) fora.push(`${d.nao_lidos_outros_eventos} em outro(s) evento(s) (troque o evento no menu Evento, no topo)`);
   layoutAdmin(
     geral ? 'config' : 'avisos',
     `${geral ? '<p class="mudo">Avisos que não pertencem a um evento: conta e senha de usuários e pagamentos do Mercado Pago sem pedido no Fast Pass. <a href="#/admin/config">← Configurações</a></p>' : ''}

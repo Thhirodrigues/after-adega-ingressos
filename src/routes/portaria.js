@@ -12,6 +12,15 @@ import { formatarSP } from '../lib/prazo.js';
 
 const r = new Hono();
 r.use('/portaria/*', exigir('hostess', 'admin'));
+// Hostess só trabalha no evento para o qual foi escalada (admin trabalha em qualquer um).
+r.use('/portaria/*', async (c, next) => {
+  const u = c.get('usuario');
+  if (u.papel === 'hostess') {
+    const ev = await c.env.DB.prepare(`SELECT e.id FROM eventos e WHERE ${eventoAberto('e')} ORDER BY e.data_evento LIMIT 1`).first();
+    if (ev && ev.id !== u.hostess_evento_id) throw new HttpError(403, 'Você não está escalada para o evento de hoje. Fale com a organização.');
+  }
+  await next();
+});
 
 async function eventoAtivo(db) {
   const ev = await db

@@ -13,6 +13,7 @@ import { alertar } from '../lib/alertas.js';
 import { chavesVapid, enviarPush } from '../lib/push.js';
 import { inicioDoEvento } from '../lib/prazo.js';
 import { eventoEncerrado, eventoNaoComecou } from '../lib/evento.js';
+import { encerrarHostess, eventoParaHostess } from '../lib/hostess.js';
 import { aleatorioHex, hmacHex } from '../lib/crypto.js';
 import { ROTULO_CATEGORIA, resgatarPendentes } from '../lib/convites.js';
 import { SQL_USADOS, TIPOS_CUPOM, normalizarCupom } from '../lib/cupons.js';
@@ -425,9 +426,12 @@ r.post('/admin/pedidos/:id/cancelar', async (c) => {
 
 r.get('/admin/usuarios', async (c) => {
   const papel = c.req.query('papel') || null;
+  await encerrarHostess(c.env.DB);
   const { results } = await c.env.DB.prepare(
-    `SELECT id, cpf, nome, sobrenome, email, telefone, papel, ativo, deve_trocar_senha, criado_em
-       FROM usuarios WHERE (?1 IS NULL OR papel = ?1) ORDER BY id DESC LIMIT 500`,
+    `SELECT u.id, u.cpf, u.nome, u.sobrenome, u.email, u.telefone, u.papel, u.ativo, u.deve_trocar_senha, u.criado_em,
+            u.hostess_evento_id, e.nome AS hostess_evento_nome, e.data_evento AS hostess_evento_data
+       FROM usuarios u LEFT JOIN eventos e ON e.id = u.hostess_evento_id
+      WHERE (?1 IS NULL OR u.papel = ?1) ORDER BY u.id DESC LIMIT 500`,
   )
     .bind(papel)
     .all();
@@ -440,8 +444,11 @@ r.post('/admin/usuarios', async (c) => {
   const papel = String(b.papel ?? '');
   if (!['hostess', 'admin', 'comprador'].includes(papel)) throw new HttpError(400, 'Papel inválido.');
   const dados = lerDadosUsuario(b);
+  const ev = papel === 'hostess' ? await eventoParaHostess(c.env.DB, b.evento_id) : null;
   const id = await inserirUsuario(c, dados, papel, true);
-  await auditar(c.env.DB, c.get('usuario').id, 'usuario_criado', `${id}:${papel}`);
+  if (ev) await c.env.DB.prepare('UPDATE usuarios SET hostess_evento_id = ?2 WHERE id = ?1').bind(id, ev.id).run();
+  // Hostess fica registrada no evento em que vai trabalhar; admin e comprador, na auditoria geral.
+  await auditar(c.env.DB, c.get('usuario').id, 'usuario_criado', `${id}:${papel}${ev ? ` (${ev.nome})` : ''}`, ev?.id);
   return c.json({ ok: true, id }, 201);
 });
 
@@ -454,9 +461,10 @@ r.put('/admin/usuarios/:id', async (c) => {
     const papel = String(b.papel ?? '');
     if (!['hostess', 'admin', 'comprador'].includes(papel)) throw new HttpError(400, 'Perfil inválido.');
     if (id === admin.id) throw new HttpError(409, 'Você não pode mudar o seu próprio perfil.');
-    const res = await db.prepare('UPDATE usuarios SET papel = ?2 WHERE id = ?1').bind(id, papel).run();
+    const ev = papel === 'hostess' ? await eventoParaHostess(db, b.evento_id) : null;
+    const res = await db.prepare('UPDATE usuarios SET papel = ?2, hostess_evento_id = ?3 WHERE id = ?1').bind(id, papel, ev?.id ?? null).run();
     if (res.meta.changes !== 1) throw new HttpError(404, 'Usuário não encontrado.');
-    await auditar(db, admin.id, 'usuario_papel', `${id}:${papel}`);
+    await auditar(db, admin.id, 'usuario_papel', `${id}:${papel}${ev ? ` (${ev.nome})` : ''}`, ev?.id);
     if (!('ativo' in b)) return c.json({ ok: true });
   }
   if (!('ativo' in b)) throw new HttpError(400, 'Nada para atualizar.');
@@ -1089,9 +1097,9 @@ r.get('/admin/auditoria', async (c) => {
   const LIM = 100;
   const { results } = await db
     .prepare(
-      `SELECT a.id, a.acao, a.detalhe, a.criado_em, u.nome, u.sobrenome, COALESCE(u.papel, 'sistema') AS papel
+      `SELECT a.id, a.acao, a.detalhe, a.criado_em, u.nome, u.sobrenome, CASE WHEN a.usuario_id IS NULL THEN 'sistema' ELSE a.papel END AS papel
          FROM auditoria a LEFT JOIN usuarios u ON u.id = a.usuario_id
-        WHERE (u.papel IN ('admin', 'hostess') OR a.usuario_id IS NULL) AND (?1 = '' OR u.papel = ?1)
+        WHERE (a.papel IN ('admin', 'hostess') OR a.usuario_id IS NULL) AND (?1 = '' OR a.papel = ?1)
           AND (?2 = 0 OR a.id < ?2) AND ${filtroEscopo('a', 4)} AND (?5 = 0 OR a.usuario_id = ?5)
         ORDER BY a.id DESC LIMIT ?3`,
     )
@@ -1102,9 +1110,14 @@ r.get('/admin/auditoria', async (c) => {
   // Quem pode ser filtrado: todos os admins e pessoas da portaria cadastrados, com quantas ações fizeram neste escopo.
   const { results: usuarios } = await db
     .prepare(
-      `SELECT u.id, u.nome, u.sobrenome, u.papel, u.ativo,
-              (SELECT COUNT(*) FROM auditoria a WHERE a.usuario_id = u.id AND ${filtroEscopo('a', 1)}) AS acoes
-         FROM usuarios u WHERE u.papel IN ('admin', 'hostess') ORDER BY u.papel, u.nome, u.id`,
+      // Inclui quem já não é hostess, mas trabalhou na portaria neste evento.
+      `SELECT u.id, u.nome, u.sobrenome, u.ativo,
+              CASE WHEN u.papel IN ('admin', 'hostess') THEN u.papel ELSE MAX(a.papel) END AS papel,
+              COUNT(a.id) AS acoes
+         FROM usuarios u
+         LEFT JOIN auditoria a ON a.usuario_id = u.id AND a.papel IN ('admin', 'hostess') AND ${filtroEscopo('a', 1)}
+        WHERE u.papel IN ('admin', 'hostess') OR a.id IS NOT NULL
+        GROUP BY u.id ORDER BY 5, u.nome, u.id`,
     )
     .bind(alvo)
     .all();

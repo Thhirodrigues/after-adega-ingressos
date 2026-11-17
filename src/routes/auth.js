@@ -149,9 +149,15 @@ r.post('/auth/logout', exigir(), async (c) => {
 r.get('/me', exigir(), async (c) => {
   const u = c.get('usuario');
   const convites_resgatados = await resgatarPendentes(c.env.DB, u).catch(() => 0);
-  const nao_lidos = u.papel === 'admin' ? (await c.env.DB.prepare('SELECT COUNT(*) AS n FROM alertas WHERE lido_em IS NULL').first()).n : 0;
+  let nao_lidos = 0;
+  const nao_lidos_eventos = {}; // por evento (chave 0 = avisos gerais): a aba Avisos mostra só o do evento em consulta
+  if (u.papel === 'admin') {
+    const { results } = await c.env.DB.prepare('SELECT COALESCE(evento_id, 0) AS ev, COUNT(*) AS n FROM alertas WHERE lido_em IS NULL GROUP BY 1').all();
+    for (const x of results) { nao_lidos_eventos[x.ev] = x.n; nao_lidos += x.n; }
+  }
   return c.json({
     nao_lidos,
+    nao_lidos_eventos,
     convites_resgatados,
     id: u.id,
     cpf: u.cpf,

@@ -214,11 +214,15 @@ async function comprarEConfirmar(qtd) {
   return { c, d, ingressos: (await c.get('/api/meus-ingressos')).json.ingressos };
 }
 
-let hostess;
+let hostess, hostessId;
 test('admin cadastra hostess e ela entra', async () => {
   const d = dados();
   const r = await admin.post('/api/admin/usuarios', { ...d, papel: 'hostess' });
   assert.equal(r.status, 201, JSON.stringify(r.json));
+  hostessId = r.json.id;
+  // sem evento informado, fica escalada no evento ativo
+  const h = (await admin.get('/api/admin/usuarios')).json.usuarios.find((x) => x.id === hostessId);
+  assert.equal(h.hostess_evento_id, eventoId);
   hostess = new Cliente();
   assert.equal((await hostess.post('/api/auth/login', { cpf: d.cpf, senha: d.senha })).status, 200);
   assert.equal((await hostess.get('/api/admin/config')).status, 403); // hostess não é admin
@@ -1103,8 +1107,15 @@ test('evento encerrado: só o admin continua vendo; comprador, portaria e link s
     assert.equal((await c.get('/api/meus-ingressos')).json.ingressos.length, 0);
     assert.equal((await c.get('/api/meus-pedidos')).json.pedidos.length, 0);
     assert.equal((await c.get('/api/evento')).json.evento, null);
-    assert.equal((await hostess.get('/api/portaria/lista')).status, 409);
-    assert.equal((await hostess.post('/api/portaria/validar', { qr: ingressos[0].qr ?? 'x' })).status, 409);
+    // o evento da hostess terminou: ela volta a ser usuário comum (sem portaria)
+    assert.equal((await hostess.get('/api/portaria/lista')).status, 403);
+    assert.equal((await hostess.post('/api/portaria/validar', { qr: ingressos[0].qr ?? 'x' })).status, 403);
+    assert.equal((await hostess.get('/api/me')).json.papel, 'comprador');
+    assert.ok((await admin.get(`/api/admin/auditoria?evento_id=${eventoId}`)).json.itens.some((x) => x.acao === 'hostess_encerrada' && x.papel === 'sistema'));
+    // as entradas que ela registrou continuam na auditoria do evento como "portaria"
+    assert.ok((await admin.get(`/api/admin/auditoria?evento_id=${eventoId}&papel=hostess`)).json.itens.some((x) => x.acao === 'entrada_qr'));
+    // não dá para escalar hostess num evento que já terminou
+    assert.equal((await admin.put(`/api/admin/usuarios/${hostessId}`, { papel: 'hostess', evento_id: eventoId })).status, 409);
     assert.equal((await c.post('/api/pedidos', { aceito_termos: true, lote_id: loteId, quantidade: 1, nome_pagador: 'Tarde Demais' })).status, 404);
     assert.equal((await c.get(`/api/convites/${token}`)).json.estado, 'encerrado');
     assert.equal((await c.post(`/api/convites/${token}/resgatar`, {})).status, 409);
@@ -1114,6 +1125,9 @@ test('evento encerrado: só o admin continua vendo; comprador, portaria e link s
   } finally {
     await admin.put(`/api/admin/eventos/${eventoId}`, { data_evento: original.data_evento, ativo: 1 });
   }
+  // reabrir o evento não devolve o acesso sozinho: o admin escala de novo
+  assert.equal((await hostess.get('/api/portaria/lista')).status, 403);
+  assert.equal((await admin.put(`/api/admin/usuarios/${hostessId}`, { papel: 'hostess', evento_id: eventoId })).status, 200);
   // reaberto: tudo volta
   assert.equal((await c.get('/api/meus-ingressos')).json.ingressos.length, 1);
   assert.ok((await c.get('/api/evento')).json.evento);
@@ -1278,10 +1292,11 @@ test('avisos e auditoria por evento: evento novo começa vazio, histórico fica 
   const audAntigo = (await admin.get(`/api/admin/auditoria?evento_id=${eventoId}`)).json.itens.map((x) => x.acao);
   assert.ok(audAntigo.includes('entrada_qr') && audAntigo.includes('pedido_confirmado'));
 
-  // ações gerais (usuários, configurações) ficam fora de todos os eventos
-  const gerais = new Set(['setup_admin', 'usuario_criado', 'config_alterada', 'pin_definido']);
+  // ações gerais (admins, configurações) ficam fora de todos os eventos; escala de hostess fica no evento dela
+  const gerais = new Set(['setup_admin', 'config_alterada', 'pin_definido']);
   const audGeral = (await admin.get('/api/admin/auditoria?geral=1')).json.itens.map((x) => x.acao);
-  assert.ok(audGeral.includes('usuario_criado') && audGeral.includes('config_alterada'));
+  assert.ok(audGeral.includes('setup_admin') && audGeral.includes('config_alterada'));
+  assert.ok(audAntigo.includes('usuario_criado'));
   assert.ok(!audAntigo.some((a) => gerais.has(a)));
   assert.ok(!audGeral.includes('entrada_qr'));
 
@@ -1297,4 +1312,31 @@ test('avisos e auditoria por evento: evento novo começa vazio, histórico fica 
   // só admin acessa
   assert.equal((await hostess.get('/api/admin/alertas?geral=1')).status, 403);
   assert.equal((await hostess.get('/api/admin/auditoria?geral=1')).status, 403);
+});
+
+test('hostess escalada em outro evento não usa a portaria do evento de hoje', async () => {
+  const dia = (n) => new Date(Date.now() + n * 86400e3).toISOString().slice(0, 10);
+  const outro = await admin.post('/api/admin/eventos', { nome: 'Festa da Outra Hostess', data_evento: dia(100), hora_inicio: '22:00', data_fim: dia(101), hora_fim: '06:00' });
+  const d = dados();
+  const r = await admin.post('/api/admin/usuarios', { ...d, papel: 'hostess', evento_id: outro.json.id });
+  assert.equal(r.status, 201, JSON.stringify(r.json));
+  const h2 = new Cliente();
+  assert.equal((await h2.post('/api/auth/login', { cpf: d.cpf, senha: d.senha })).status, 200);
+  assert.equal((await h2.get('/api/portaria/lista')).status, 403);
+  // a escala dela fica registrada na auditoria do evento dela, não na geral
+  assert.ok((await admin.get(`/api/admin/auditoria?evento_id=${outro.json.id}`)).json.itens.some((x) => x.acao === 'usuario_criado'));
+  // escalada no evento de hoje, passa a ter acesso
+  assert.equal((await admin.put(`/api/admin/usuarios/${r.json.id}`, { papel: 'hostess', evento_id: eventoId })).status, 200);
+  assert.equal((await h2.get('/api/portaria/lista')).status, 200);
+  // evento dela excluído: volta a ser usuário
+  assert.equal((await admin.put(`/api/admin/usuarios/${r.json.id}`, { papel: 'hostess', evento_id: outro.json.id })).status, 200);
+  assert.equal((await admin.req('DELETE', `/api/admin/eventos/${outro.json.id}`)).status, 200);
+  assert.equal((await h2.get('/api/me')).json.papel, 'comprador');
+});
+
+test('avisos não lidos vêm separados por evento (aba Avisos do evento novo começa zerada)', async () => {
+  const me = (await admin.get('/api/me')).json;
+  assert.equal(typeof me.nao_lidos_eventos, 'object');
+  const soma = Object.values(me.nao_lidos_eventos).reduce((a, b) => a + b, 0);
+  assert.equal(soma, me.nao_lidos);
 });

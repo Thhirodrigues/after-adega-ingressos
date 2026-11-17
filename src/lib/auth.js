@@ -1,6 +1,7 @@
 import { getCookie, setCookie } from 'hono/cookie';
 import { HttpError, agora } from './http.js';
 import { aleatorioHex, hmacHex, sha256Hex } from './crypto.js';
+import { encerrarHostess } from './hostess.js';
 
 const SESSAO_SEGUNDOS = 30 * 24 * 3600;
 
@@ -34,7 +35,7 @@ export function exigir(...papeis) {
     if (!token) throw new HttpError(401, 'Faça login para continuar.');
     const id = await sha256Hex(token);
     const u = await c.env.DB.prepare(
-      `SELECT u.id, u.cpf, u.nome, u.sobrenome, u.email, u.telefone, u.papel, u.deve_trocar_senha,
+      `SELECT u.id, u.cpf, u.nome, u.sobrenome, u.email, u.telefone, u.papel, u.deve_trocar_senha, u.hostess_evento_id,
               (u.resposta_hash IS NOT NULL) AS tem_resposta
          FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id
         WHERE s.id = ?1 AND s.expira_em > ?2 AND u.ativo = 1`,
@@ -42,6 +43,11 @@ export function exigir(...papeis) {
       .bind(id, agora())
       .first();
     if (!u) throw new HttpError(401, 'Sessão expirada. Faça login novamente.');
+    // Hostess cujo evento já terminou volta a ser usuário comum na hora.
+    if (u.papel === 'hostess' && (await encerrarHostess(c.env.DB)).includes(u.id)) {
+      u.papel = 'comprador';
+      u.hostess_evento_id = null;
+    }
     if (papeis.length && !papeis.includes(u.papel)) {
       throw new HttpError(403, 'Você não tem permissão para isso.');
     }

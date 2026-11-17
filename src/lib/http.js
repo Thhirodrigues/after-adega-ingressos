@@ -29,7 +29,11 @@ export async function configuracoes(db) {
 // configurações, evento excluído), que aparece na Auditoria geral.
 export async function auditar(db, usuarioId, acao, detalhe = '', eventoId = null) {
   await db
-    .prepare('INSERT INTO auditoria (usuario_id, acao, detalhe, criado_em, evento_id) VALUES (?1, ?2, ?3, ?4, ?5)')
+    // papel = o de quem agiu neste momento (a hostess continua "portaria" na festa em que trabalhou).
+    .prepare(
+      `INSERT INTO auditoria (usuario_id, acao, detalhe, criado_em, evento_id, papel)
+       VALUES (?1, ?2, ?3, ?4, ?5, (SELECT papel FROM usuarios WHERE id = ?1))`,
+    )
     .bind(usuarioId ?? null, acao, String(detalhe).slice(0, 500), agora(), eventoId)
     .run();
 }
