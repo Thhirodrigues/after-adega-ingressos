@@ -192,3 +192,5 @@ details.item.ev-det>div.card{border-top-color:rgba(255,255,255,.5)}
 /* Tela inicial com várias festas à venda */
 a.card.ev-escolha{display:flex;flex-direction:column;gap:.35rem;text-decoration:none;color:inherit;border:1.5px solid #fff}
 a.card.ev-escolha .bt{align-self:flex-start;margin-top:.3rem}
+/* Menu do topo: 1ª linha = app (ingressos, admin, portaria, usuários, conta, configuração); 2ª linha = Evento */
+#nav .nav-quebra{flex-basis:100%;height:0}

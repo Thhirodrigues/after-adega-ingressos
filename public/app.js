@@ -185,11 +185,16 @@ function desenharNav() {
   let h = '';
   if (!eu) h = '<a href="#/entrar">Entrar</a>';
   else {
-    if (eu.papel === 'admin') h += `<a href="#/admin">Admin${eu.nao_lidos ? ` <span class="badge">${eu.nao_lidos}</span>` : ''}</a>`;
-    if (eu.papel === 'admin' || eu.papel === 'hostess') h += '<a href="#/portaria">Portaria</a>';
-    h += '<a href="#/meus">Meus ingressos</a><a href="#/conta">Conta</a>';
-    if (eu.papel === 'admin') h += `<button type="button" id="nav-evento" class="nav-ev" title="Eventos">${estado.evSel ? `Evento: ${esc(estado.evSel.nome)}` : 'Evento'} ▾</button>`;
-    h += '<span class="sair-sino"><button id="sair">Sair</button>' + (eu.papel === 'admin' ? htmlSino() : '') + '</span>';
+    // 1ª linha: o que é do app. 2ª linha (só admin): o evento em consulta.
+    const adm = eu.papel === 'admin';
+    h += '<a href="#/meus">Meus ingressos</a>';
+    if (adm) h += `<a href="#/admin">Admin${eu.nao_lidos ? ` <span class="badge">${eu.nao_lidos}</span>` : ''}</a>`;
+    if (adm || eu.papel === 'hostess') h += '<a href="#/portaria">Portaria</a>';
+    if (adm) h += '<a href="#/admin/usuarios">Usuários</a>';
+    h += '<a href="#/conta">Conta</a>';
+    if (adm) h += '<a href="#/admin/config">Configuração</a>';
+    h += '<span class="sair-sino"><button id="sair">Sair</button>' + (adm ? htmlSino() : '') + '</span>';
+    if (adm) h += `<span class="nav-quebra" aria-hidden="true"></span><button type="button" id="nav-evento" class="nav-ev" title="Eventos">${estado.evSel ? `Evento: ${esc(estado.evSel.nome)}` : 'Evento'} ▾</button>`;
   }
   nav.innerHTML = h;
   ligarSino();
@@ -834,11 +839,15 @@ rota('/conta', async () => {
 
 // Termos de uso, regras de compra e privacidade (rascunho: vale revisão jurídica antes de divulgar em larga escala).
 const TERMOS_VERSAO = '2026-10-v3';
+// Campo de um WhatsApp do contato da organização (Config. do evento).
+const zapCampo = (z) => `<div class="linha zap-linha" style="gap:.5rem;margin-top:.4rem"><input name="zap" inputmode="tel" value="${esc(String(z).replace(/^55/, ''))}" placeholder="11 99999-9999" style="flex:1"><button type="button" class="bt sec peq" data-zap-tira aria-label="Remover número">×</button></div>`;
 const contatoHtml = (c) => {
   const [txt, zap] = Array.isArray(c) ? c : [c, ''];
   const partes = [];
   if (txt) partes.push(`<b>${esc(txt)}</b>`);
-  if (zap) partes.push(`<a href="https://wa.me/${esc(zap)}" target="_blank" rel="noopener"><b>WhatsApp ${esc(zap.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, '($1) $2-$3'))}</b></a>`);
+  for (const z of (Array.isArray(zap) ? zap : [zap]).filter(Boolean)) {
+    partes.push(`<a href="https://wa.me/${esc(z)}" target="_blank" rel="noopener"><b>WhatsApp ${esc(z.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, '($1) $2-$3'))}</b></a>`);
+  }
   return partes.length ? partes.join(' · ') : 'o contato informado pela organização na página do evento';
 };
 const TEXTO_REGRAS = (contato) => `
@@ -879,7 +888,7 @@ const TEXTO_PRIVACIDADE = (contato) => `
   <p class="peq">Política de privacidade · versão ${TERMOS_VERSAO}.</p>`;
 async function paginaLegal(titulo, texto) {
   let contato = ['', ''];
-  try { const r = await api('GET', '/contato'); contato = [r.contato || '', r.contato_whatsapp || '']; } catch {}
+  try { const r = await api('GET', '/contato'); contato = [r.contato || '', r.contatos_whatsapp || (r.contato_whatsapp ? [r.contato_whatsapp] : [])]; } catch {}
   app.innerHTML = `<h1>${titulo}</h1><div class="card regras">${texto(contato)}</div><a class="bt sec" href="javascript:history.back()">Voltar</a>`;
 }
 rota('/regras', () => paginaLegal('Termos de uso e regras de compra', TEXTO_REGRAS));
@@ -1021,9 +1030,9 @@ const ABAS = [
   ['avisos', 'Avisos'],
   ['auditoria', 'Auditoria'],
   ['evento-config', 'Config. do evento'],
-  ['usuarios', 'Usuários'],
-  ['config', 'Config. do app'],
 ];
+// Telas do app (menu do topo): sem as abas do evento.
+const TELAS_APP = { usuarios: 'Usuários', config: 'Configuração' };
 // Evento que as abas do admin estão mostrando (não é necessariamente o ativo): lembrado na sessão.
 // Padrão: o ativo; sem ativo, o mais recente.
 async function eventoSel() {
@@ -1205,10 +1214,10 @@ function layoutAdmin(ativa, html, titulo = '') {
   const leitura = porEvento && estado.evSel?.encerrado;
   app.innerHTML = `
     <span class="fp-eyebrow">Admin</span>
-    <h1 class="hero" style="margin-top:.3rem">${titulo || ABAS.find(([k]) => k === ativa)?.[1] || 'Painel'}</h1>
+    <h1 class="hero" style="margin-top:.3rem">${titulo || TELAS_APP[ativa] || ABAS.find(([k]) => k === ativa)?.[1] || 'Painel'}</h1>
     ${porEvento ? `<p class="peq" style="margin:0 0 .5rem">Evento: <b>${esc(estado.evSel?.nome || '')}</b> · ${situacaoEvento(estado.evSel || {})}</p>
     ${leitura ? '<div class="card aviso-leitura"><b>Evento encerrado: somente leitura.</b> Você pode consultar, exportar CSV e estornar pedidos. Para alterar algo, reabra o evento ajustando o término no menu Evento (topo).</div>' : ''}` : ''}
-    <div class="abas">${ABAS.map(([k, n]) => `<a href="#/admin/${k}" class="${k === ativa ? 'on' : ''}">${n}${k === 'avisos' ? `<span class="badge" data-badge-avisos${naoLidosEvento() ? '' : ' hidden'}>${naoLidosEvento() || ''}</span>` : ''}</a>`).join('')}</div>
+    ${TELAS_APP[ativa] ? '' : `<div class="abas">${ABAS.map(([k, n]) => `<a href="#/admin/${k}" class="${k === ativa ? 'on' : ''}">${n}${k === 'avisos' ? `<span class="badge" data-badge-avisos${naoLidosEvento() ? '' : ' hidden'}>${naoLidosEvento() || ''}</span>` : ''}</a>`).join('')}</div>`}
     <div id="admin-corpo"${leitura ? ' class="leitura"' : ''}>${html}</div>`;
   if (leitura) {
     // Evento encerrado: formulários só para ler (o servidor também recusa qualquer alteração).
@@ -1499,8 +1508,7 @@ rota('/admin/config', async () => {
   const TXT_PUSH = { ok: 'ativadas neste aparelho', desativado: 'desativadas', bloqueado: 'bloqueadas pelo navegador', instalar: 'instale o app no iPhone', sem_suporte: 'sem suporte neste navegador' };
   layoutAdmin(
     'config',
-    `<h2 id="secoes-config">Configurações do app</h2>
-    <p class="peq">Valem para todos os eventos. Pix, regras de venda, contato e flyer ficam em <a href="#/admin/evento-config">Config. do evento</a>.</p>
+    `<p class="peq" id="secoes-config">Valem para todos os eventos. Pix, regras de venda, contato e flyer de cada festa ficam em Admin → <a href="#/admin/evento-config">Config. do evento</a>.</p>
     <details class="item" id="det-push"><summary><b>Notificações</b><span class="peq">${esc(TXT_PUSH[sitPush] || 'verificando…')}</span></summary>
       <div class="card"><p class="peq" style="margin-top:0">Avisos de compra, pedido em pagamento e erros de confirmação na portaria chegam como notificação neste aparelho. O sino no menu faz o mesmo.</p>
         <div class="acoes">
@@ -1579,10 +1587,11 @@ rota('/admin/evento-config', async () => {
         <div><label>Transferências encerram (horas antes da festa)</label><input name="transferencia_limite_horas" inputmode="numeric" value="${esc(c.transferencia_limite_horas ?? 48)}"></div></div>
         <p class="peq">Alterar a taxa vale só para pedidos novos; pedidos já feitos mantêm o valor combinado.</p>
         <button class="bt peq" style="margin-top:.5rem">Salvar regras</button></form></details>
-    <details class="item"><summary><b>Contato da organização</b><span class="peq">${esc([c.contato, c.contato_whatsapp && '+' + c.contato_whatsapp].filter(Boolean).join(' · ') || 'não informado')}</span></summary>
+    <details class="item"><summary><b>Contato da organização</b><span class="peq">${esc([c.contato, ...String(c.contato_whatsapp || '').split(',').filter(Boolean).map((z) => '+' + z)].filter(Boolean).join(' · ') || 'não informado')}</span></summary>
       <form class="card" data-sec="contato">
         <label>Contato</label><input name="contato" value="${esc(c.contato || '')}" maxlength="200" placeholder="E-mail ou texto de contato">
-        <label>Celular WhatsApp (opcional)</label><input name="contato_whatsapp" inputmode="tel" value="${esc((c.contato_whatsapp || '').replace(/^55/, ''))}" placeholder="11 99999-9999">
+        <h3 class="h-mais" style="font-size:1rem;margin:.9rem 0 .2rem">WhatsApp (opcional) <button type="button" class="mais" id="zap-mais" aria-label="Adicionar outro WhatsApp" title="Adicionar outro número">+</button></h3>
+        <div id="zaps">${(String(c.contato_whatsapp || '').split(',').filter(Boolean).length ? String(c.contato_whatsapp).split(',').filter(Boolean) : ['']).map((z) => zapCampo(z)).join('')}</div>
         <button class="bt peq" style="margin-top:.75rem">Salvar contato</button></form></details>`,
   );
   ligarGuia();
@@ -1611,6 +1620,19 @@ rota('/admin/evento-config', async () => {
       aviso('Flyer padrão restaurado.');
       await irParaLista('#secoes-config');
     }));
+  // Contato: "+" adiciona outro WhatsApp (até 5); "×" remove.
+  const zaps = document.getElementById('zaps');
+  document.getElementById('zap-mais').addEventListener('click', () => {
+    if (zaps.querySelectorAll('input[name=zap]').length >= 5) return aviso('No máximo 5 números.', 'erro');
+    zaps.insertAdjacentHTML('beforeend', zapCampo(''));
+    zaps.lastElementChild.querySelector('input').focus();
+  });
+  zaps.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-zap-tira]');
+    if (!b) return;
+    if (zaps.children.length > 1) b.parentElement.remove();
+    else b.parentElement.querySelector('input').value = '';
+  });
   const fp = app.querySelector('form[data-sec=pix]');
   fp.pix_tipo.value = detectarTipoPix(fp.pix_chave.value);
   const dicaPix = () => (document.getElementById('dica-pix').textContent = DICAS_PIX[fp.pix_tipo.value]);
@@ -1622,6 +1644,10 @@ rota('/admin/evento-config', async () => {
       comEspera(f.querySelector('button'), async () => {
         const d = dadosForm(f);
         const corpo = {};
+        if (f.dataset.sec === 'contato') {
+          d.contato_whatsapp = [...f.querySelectorAll('input[name=zap]')].map((i) => i.value.trim()).filter(Boolean).join(',');
+          delete d.zap;
+        }
         for (const [k, v] of Object.entries(d)) {
           if (k === 'pix_tipo') continue;
           if (k === 'contato_whatsapp' || k === 'contato') corpo[k] = String(v).trim();
@@ -2491,7 +2517,7 @@ async function telaAuditoria(geral) {
   layoutAdmin(
     geral ? 'config' : 'auditoria',
     `<p class="mudo">${geral
-      ? 'Tudo o que admins, portaria e o sistema fizeram, em todos os eventos e fora deles. Só leitura. <a href="#/admin/config">← Config. do app</a>'
+      ? 'Tudo o que admins, portaria e o sistema fizeram, em todos os eventos e fora deles. Só leitura. <a href="#/admin/config">← Configuração</a>'
       : 'O que cada administrador, cada pessoa da portaria e o Mercado Pago fizeram neste evento. Só leitura.'}</p>
     ${geral ? `<label for="aud-ev" class="peq" style="margin:0 0 .25rem">Evento</label>
     <select id="aud-ev"><option value="">Todos os eventos e gerais</option><option value="geral">Só gerais (fora de eventos)</option>${(estado.eventos || []).map((e) => `<option value="${e.id}">${esc(e.nome)} · ${dataBR(e.data_evento)}</option>`).join('')}</select>` : ''}

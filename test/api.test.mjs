@@ -431,7 +431,8 @@ test('transferência: prazo de 48h antes da festa', async () => {
   const ok = await c.post(`/api/ingressos/${ingressos[0].id}/transferir`);
   assert.equal(ok.status, 201);
   assert.ok(ingressos[0].transferivel_ate > Date.now() / 1000);
-  const amanha = new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10);
+  // "amanhã" no horário de São Paulo (UTC-3): com a data em UTC o teste falhava entre 21h e 0h
+  const amanha = new Date(Date.now() - 3 * 3600 * 1000 + 24 * 3600 * 1000).toISOString().slice(0, 10);
   const antigo = (await admin.get('/api/admin/eventos')).json.eventos.find((e) => e.id === eventoId).data_evento;
   assert.equal((await admin.put(`/api/admin/eventos/${eventoId}`, { data_evento: amanha })).status, 200);
   const bloq = await c.post(`/api/ingressos/${ingressos[0].id}/transferir`);
@@ -894,6 +895,13 @@ test('contato: WhatsApp opcional, normalizado, validado e público', async () =>
   assert.equal((await admin.put('/api/admin/config', { contato: 'oi@exemplo.com', contato_whatsapp: '(11) 98888-7777' })).status, 200);
   const r = await new Cliente().get('/api/contato');
   assert.equal(r.json.contato_whatsapp, '5511988887777');
+  // vários números: lista com "+" na tela (até 5); o público recebe todos
+  assert.equal((await admin.put('/api/admin/config', { contato_whatsapp: ['(11) 98888-7777', '21 97777-6666'] })).status, 200);
+  const v = (await new Cliente().get('/api/contato')).json;
+  assert.deepEqual(v.contatos_whatsapp, ['5511988887777', '5521977776666']);
+  assert.equal(v.contato_whatsapp, '5511988887777');
+  assert.equal((await admin.put('/api/admin/config', { contato_whatsapp: ['11 98888-7777', '123'] })).status, 400);
+  assert.equal((await admin.put('/api/admin/config', { contato_whatsapp: Array(6).fill(0).map((_, i) => `1198888777${i}`) })).status, 400);
   assert.equal((await admin.put('/api/admin/config', { contato_whatsapp: '' })).status, 200);
   assert.equal((await new Cliente().get('/api/contato')).json.contato_whatsapp, '');
 });

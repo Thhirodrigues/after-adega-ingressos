@@ -82,7 +82,9 @@ r.get('/contato', async (c) => {
   let ev = Number.parseInt(c.req.query('evento_id') ?? '', 10) || 0;
   if (!ev) ev = (await db.prepare(`SELECT e.id FROM eventos e WHERE ${eventoAberto('e')} AND e.excluido_em IS NULL ORDER BY e.data_evento LIMIT 1`).first())?.id || 0;
   const cfg = await configuracoes(db, ev || null);
-  return c.json({ contato: cfg.contato || '', contato_whatsapp: cfg.contato_whatsapp || '', termos_versao: TERMOS_VERSAO });
+  const zaps = String(cfg.contato_whatsapp || '').split(',').filter(Boolean);
+  // contato_whatsapp: o primeiro (compatibilidade); contatos_whatsapp: todos.
+  return c.json({ contato: cfg.contato || '', contato_whatsapp: zaps[0] || '', contatos_whatsapp: zaps, termos_versao: TERMOS_VERSAO });
 });
 
 // Flyer da tela de agradecimento: o que o admin enviou para o evento (?evento_id=); sem envio, o flyer padrão do site.
